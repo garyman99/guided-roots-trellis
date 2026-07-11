@@ -368,8 +368,10 @@ export class Session {
         id: this.manifest.id,
         title: this.manifest.title,
         objective: this.manifest.objective,
-        tasks: this.manifest.tasks,
+        // With measured done-ness: providers may point at the actual next step.
+        tasks: taskStatuses(this.manifest.tasks, state),
         instructorNotes: this.manifest.instructorNotes,
+        surface: this.manifest.workspace ? "workspace" : "terminal",
       },
       reason,
       screen,

@@ -1,0 +1,137 @@
+# Findings from iteration-1 evaluation (score 79/100, gate PASS).
+# Statuses updated after the iteration-2 fix pass; acceptance evidence is
+# what the iteration-2 rerun must demonstrate.
+
+- finding_id: wrong-domain-coaching
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: high
+  category: instruction
+  observed_behavior: >
+    All four instructor hints used coding-lab vocabulary (diff, hunk, failing
+    test, `git diff`, `npm test`) in an email/AI-literacy scenario.
+  expected_behavior: >
+    Coaching references only entities that exist in this lab (the message,
+    the context box, the team note, the draft).
+  evidence:
+    - iter-1/final-state.json transcript msgs 3, 5, 7
+    - iter-1/simulator-trace.md friction item 1; video frame ~19:01:07
+  affected_values: [transferable-learning]
+  learner_impact: >
+    A novice office learner receives literal nonsense at the exact moment
+    they asked for help; coaching value drops to zero and trust erodes.
+  root_cause_hypothesis: >
+    HYPOTHESIS (confirmed in code): MockInstructorProvider had a single
+    hard-coded terminal-domain hint ladder.
+  acceptance_evidence:
+    - Rerun where every instructor turn is on-domain (no diff/test/git terms).
+    - New unit test asserting workspace labs never receive terminal vocabulary.
+  status: addressed
+
+- finding_id: hint-on-non-question
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: medium
+  category: instruction
+  observed_behavior: >
+    A post-completion thank-you ("That was easier than I expected. Thanks!",
+    stuck:false) received a level-5 walk-through hint.
+  expected_behavior: Conversational acknowledgement; no ladder escalation.
+  evidence: [iter-1/event-log.json 19:01:59.631 -> 19:01:59.647]
+  affected_values: [learner-agency]
+  learner_impact: Instructor noise pushed at a learner who asked for nothing.
+  acceptance_evidence:
+    - Rerun where the closing message gets a friendly non-hint reply.
+    - Policy unit test for the completed+non-stuck path.
+  status: addressed
+
+- finding_id: steep-first-escalation
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: medium
+  category: instruction
+  observed_behavior: Hint levels ran 0 -> 3 -> 4 -> 5 within ~68 seconds; first nudge labeled "HINT 4 OF 5".
+  expected_behavior: First privacy nudge orients gently; escalation only on persistence.
+  evidence: [iter-1/final-state.json hintsAlreadyGiven; trace friction item 2]
+  affected_values: [learner-agency]
+  learner_impact: An on-track novice reads near-maximal urgency on their first mistake.
+  acceptance_evidence: [Rerun where the check-in hint is level <= 2]
+  status: addressed
+
+- finding_id: profile-facets-not-domain-scoped
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: low
+  category: adaptation
+  observed_behavior: >
+    Instructor context manifest included terminal-lab habit facets
+    (diff-first-rate, tests-before-done-rate) in a lab with no diffs/tests.
+  expected_behavior: Context assembly selects only facets relevant to the lab's concepts.
+  evidence: [iter-1/event-log.json instructor.hint 19:01:59.647 contextManifest]
+  affected_values: [transferable-learning]
+  learner_impact: Wasted context budget; risk of misdirected phrasing with a real model.
+  root_cause_hypothesis: >
+    HYPOTHESIS: assembleProfileFacets includes cross-domain habit facets
+    unconditionally; needs concept-scoped selection. Requires assembler
+    design work, not a template fix.
+  acceptance_evidence: [Context manifest for a workspace lab includes no terminal habit facets]
+  status: deferred
+
+- finding_id: meta-text-in-artifact
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: low
+  category: ux
+  observed_behavior: >
+    Draftly's aside "(Here is another take.)" was part of the insertable
+    draft body and survived into the SENT reply, undetected by policy checks.
+  expected_behavior: Generated drafts contain only letter text.
+  evidence: [iter-1/workspace-view.json reply.text and thread msg 4]
+  affected_values: [artifact-quality]
+  learner_impact: An embarrassing artifact flaw a real customer would see.
+  acceptance_evidence: [Rerun where no generator meta-commentary exists in any draft]
+  status: addressed
+
+- finding_id: helper-ignores-prompt-constraints
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: low
+  category: simulation
+  observed_behavior: Asked for a "warm short reply", Draftly returned the same-length draft.
+  expected_behavior: The simulated helper visibly responds to simple constraints so the "ask better" lesson lands.
+  evidence: [iter-1/workspace-view.json thread msgs 3-4]
+  affected_values: [transferable-learning]
+  learner_impact: Weakens the "your prompt shapes the output" lesson.
+  acceptance_evidence: [A prompt containing short/brief yields a visibly tighter draft]
+  status: addressed
+
+# Harness findings (not product):
+
+- finding_id: harness-scripted-persona
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: medium
+  category: simulation
+  observed_behavior: >
+    Simulator beats are persona-scripted, not live model cognition; weak help
+    had no observable cost, and the spec's response_to_weak_help behavior
+    ("says the instruction is too technical") was not exercised.
+  expected_behavior: A live simulator agent choosing actions from what it sees.
+  evidence: [iter-1/simulator-trace.md harness note]
+  affected_values: [evaluation-fidelity]
+  learner_impact: Iteration-1 score likely OVERSTATES coaching quality; wrong-domain finding was caught anyway.
+  acceptance_evidence: [A future iteration driven by a live simulator subagent]
+  status: open
+
+- finding_id: harness-video-retention
+  scenario_id: improve-delayed-order-reply
+  iteration: 1
+  severity: low
+  category: evaluation
+  observed_behavior: Run video kept in session scratchpad, not with the run artifacts.
+  expected_behavior: Durable evidence for each iteration.
+  evidence: [iter-1/simulator-trace.md]
+  learner_impact: none (evidence hygiene)
+  root_cause_hypothesis: "Deliberate: repo policy avoids committing large binaries."
+  acceptance_evidence: [Trace + JSON evidence + verified frames retained per iteration (as done); video linked from scratchpad while it exists]
+  status: rejected

@@ -1,0 +1,272 @@
+{
+  "meta": {
+    "sessionId": "cfc44c3f-7f2e-4482-95b9-f9a15e844493",
+    "learnerId": "learner-cc9226ea6cb4",
+    "labId": "improve-delayed-order-reply",
+    "createdAt": "2026-07-11T19:00:27.105Z"
+  },
+  "events": [
+    {
+      "type": "session.started",
+      "lessonId": "improve-delayed-order-reply",
+      "learnerId": "learner-cc9226ea6cb4",
+      "variantId": null,
+      "timestamp": "2026-07-11T19:00:27.112Z",
+      "v": 2
+    },
+    {
+      "type": "workspace.artifact.opened",
+      "appId": "email",
+      "artifactId": "customer-email",
+      "timestamp": "2026-07-11T19:00:35.340Z",
+      "v": 1
+    },
+    {
+      "type": "workspace.artifact.opened",
+      "appId": "email",
+      "artifactId": "tone-note",
+      "timestamp": "2026-07-11T19:00:42.365Z",
+      "v": 1
+    },
+    {
+      "type": "workspace.artifact.opened",
+      "appId": "email",
+      "artifactId": "customer-email",
+      "timestamp": "2026-07-11T19:00:46.900Z",
+      "v": 1
+    },
+    {
+      "type": "learner.question",
+      "text": "Do I need to give the helper the whole email?",
+      "stuck": false,
+      "timestamp": "2026-07-11T19:00:51.565Z",
+      "v": 1
+    },
+    {
+      "type": "ui.state.reported",
+      "activeApp": "Trellis Guide",
+      "openWindows": [
+        "Mail",
+        "AI Helper",
+        "Trellis Guide"
+      ],
+      "editorFile": null,
+      "editorDirty": false,
+      "timestamp": "2026-07-11T19:00:51.573Z",
+      "v": 1
+    },
+    {
+      "type": "instructor.hint",
+      "level": 0,
+      "strategy": "elicit",
+      "contextManifest": {
+        "included": [],
+        "budgetChars": 1400,
+        "truncated": false
+      },
+      "timestamp": "2026-07-11T19:00:51.582Z",
+      "v": 2
+    },
+    {
+      "type": "aichat.context.shared",
+      "chars": 403,
+      "restrictedSpans": [
+        "loyalty-number"
+      ],
+      "requiredFacts": [
+        "order-id",
+        "delivery-expectation"
+      ],
+      "timestamp": "2026-07-11T19:01:01.232Z",
+      "v": 1
+    },
+    {
+      "type": "aichat.prompt.submitted",
+      "chars": 46,
+      "restrictedSpans": [],
+      "timestamp": "2026-07-11T19:01:01.249Z",
+      "v": 1
+    },
+    {
+      "type": "aichat.response.generated",
+      "draftId": "draft-2",
+      "echoedRestricted": [
+        "loyalty-number"
+      ],
+      "timestamp": "2026-07-11T19:01:01.256Z",
+      "v": 1
+    },
+    {
+      "type": "intervention.proposed",
+      "triggerType": "restricted_context_shared",
+      "suggestedHintLevel": 3,
+      "timestamp": "2026-07-11T19:01:01.263Z",
+      "v": 1
+    },
+    {
+      "type": "instructor.hint",
+      "level": 3,
+      "strategy": "point-to-location",
+      "contextManifest": {
+        "included": [],
+        "budgetChars": 1400,
+        "truncated": false
+      },
+      "timestamp": "2026-07-11T19:01:01.270Z",
+      "v": 2
+    },
+    {
+      "type": "learner.question",
+      "text": "Yes please — what should I try next?",
+      "stuck": true,
+      "timestamp": "2026-07-11T19:01:05.376Z",
+      "v": 1
+    },
+    {
+      "type": "ui.state.reported",
+      "activeApp": "Trellis Guide",
+      "openWindows": [
+        "Mail",
+        "AI Helper",
+        "Trellis Guide"
+      ],
+      "editorFile": null,
+      "editorDirty": false,
+      "timestamp": "2026-07-11T19:01:05.383Z",
+      "v": 1
+    },
+    {
+      "type": "instructor.hint",
+      "level": 4,
+      "strategy": "explain-concept",
+      "contextManifest": {
+        "included": [],
+        "budgetChars": 1400,
+        "truncated": false
+      },
+      "timestamp": "2026-07-11T19:01:05.392Z",
+      "v": 2
+    },
+    {
+      "type": "aichat.context.shared",
+      "chars": 205,
+      "restrictedSpans": [],
+      "requiredFacts": [
+        "order-id",
+        "delivery-expectation"
+      ],
+      "timestamp": "2026-07-11T19:01:19.964Z",
+      "v": 1
+    },
+    {
+      "type": "aichat.prompt.submitted",
+      "chars": 55,
+      "restrictedSpans": [],
+      "timestamp": "2026-07-11T19:01:19.971Z",
+      "v": 1
+    },
+    {
+      "type": "aichat.response.generated",
+      "draftId": "draft-4",
+      "echoedRestricted": [],
+      "timestamp": "2026-07-11T19:01:19.978Z",
+      "v": 1
+    },
+    {
+      "type": "workspace.draft.inserted",
+      "artifactId": "customer-email",
+      "draftId": "draft-4",
+      "timestamp": "2026-07-11T19:01:25.014Z",
+      "v": 1
+    },
+    {
+      "type": "workspace.draft.updated",
+      "artifactId": "customer-email",
+      "revision": 1,
+      "similarityToGenerated": 0.678,
+      "chars": 365,
+      "timestamp": "2026-07-11T19:01:40.637Z",
+      "v": 1
+    },
+    {
+      "type": "workspace.artifact.submitted",
+      "artifactId": "customer-email",
+      "revision": 1,
+      "similarityToGenerated": 0.678,
+      "restrictedSpans": [],
+      "forbiddenPhrases": [],
+      "requiredFactsMissing": [],
+      "acknowledgesInconvenience": true,
+      "simulated": true,
+      "timestamp": "2026-07-11T19:01:43.118Z",
+      "v": 1
+    },
+    {
+      "type": "checkpoint.evaluated",
+      "checkpointId": "delayed-order-reply",
+      "passed": true,
+      "incomplete": [],
+      "timestamp": "2026-07-11T19:01:45.166Z",
+      "v": 1
+    },
+    {
+      "type": "checkpoint.completed",
+      "checkpointId": "delayed-order-reply",
+      "timestamp": "2026-07-11T19:01:45.184Z",
+      "v": 1
+    },
+    {
+      "type": "learner.question",
+      "text": "That was easier than I expected. Thanks!",
+      "stuck": false,
+      "timestamp": "2026-07-11T19:01:59.631Z",
+      "v": 1
+    },
+    {
+      "type": "ui.state.reported",
+      "activeApp": "Trellis Guide",
+      "openWindows": [
+        "Mail",
+        "AI Helper",
+        "Trellis Guide"
+      ],
+      "editorFile": null,
+      "editorDirty": false,
+      "timestamp": "2026-07-11T19:01:59.639Z",
+      "v": 1
+    },
+    {
+      "type": "instructor.hint",
+      "level": 5,
+      "strategy": "walk-through",
+      "contextManifest": {
+        "included": [
+          {
+            "facet": "habit",
+            "id": "diff-first-rate",
+            "rule": "recent-window"
+          },
+          {
+            "facet": "habit",
+            "id": "tests-before-done-rate",
+            "rule": "recent-window"
+          },
+          {
+            "facet": "habit",
+            "id": "recovery-after-failure-rate",
+            "rule": "recent-window"
+          },
+          {
+            "facet": "calibration",
+            "id": "self-assessment",
+            "rule": "any-samples"
+          }
+        ],
+        "budgetChars": 1400,
+        "truncated": false
+      },
+      "timestamp": "2026-07-11T19:01:59.647Z",
+      "v": 2
+    }
+  ]
+}

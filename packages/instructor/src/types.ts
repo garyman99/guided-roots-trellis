@@ -7,9 +7,15 @@ export interface HintRequest {
     id: string;
     title: string;
     objective: string;
-    tasks: Array<{ id: string; text: string }>;
+    tasks: Array<{ id: string; text: string; done?: boolean }>;
     /** Trusted curriculum guidance (from lab.json), incl. reveal policy. */
     instructorNotes?: string;
+    /**
+     * Which kind of lab this is: a terminal/repo lab or a simulated-apps
+     * workspace lab. Drives which coaching vocabulary providers may use —
+     * "diff"/"tests" language must never reach a workspace learner.
+     */
+    surface?: "terminal" | "workspace";
   };
   /** Why the instructor is speaking. */
   reason:

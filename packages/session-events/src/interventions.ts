@@ -92,7 +92,9 @@ export function evaluateInterventions(
         restrictedSpanIds: state.workspace.restrictedInLatestShare,
         shareCount: state.workspace.aiContextShares,
       },
-      suggestedHintLevel: 3,
+      // A first privacy nudge should orient, not lecture: the learner just
+      // acted in good faith. Escalation still happens if it persists.
+      suggestedHintLevel: 1,
     });
   }
 
@@ -108,7 +110,7 @@ export function evaluateInterventions(
     triggers.push({
       type: "unedited_ai_draft",
       evidence: { draftsGenerated: state.workspace.aiDraftsGenerated },
-      suggestedHintLevel: 2,
+      suggestedHintLevel: 1,
     });
   }
 

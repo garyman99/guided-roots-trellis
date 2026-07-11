@@ -104,7 +104,7 @@ export function textSimilarity(a: string, b: string): number {
  * It only uses facts present in the shared context (echoed via the authored
  * fact patterns), never scenario knowledge the learner didn't provide.
  */
-function composeDraft(policy: WorkspacePolicySpec, context: string, seq: number): string {
+function composeDraft(policy: WorkspacePolicySpec, context: string, promptHint: string, seq: number): string {
   const factEchoes = policy.requiredFacts.flatMap((f) => {
     try {
       const m = context.match(new RegExp(f.pattern, "i"));
@@ -133,8 +133,12 @@ function composeDraft(policy: WorkspacePolicySpec, context: string, seq: number)
   for (const s of restrictedEchoes) {
     lines.push(``, `For reference, I have noted ${s.text} on this case.`);
   }
-  lines.push(``, `Please let me know if there is anything else I can help with.`, ``, `Best regards,`, `[Your Name]`);
-  if (seq > 1) lines.splice(2, 0, `(Here is another take.)`);
+  // No meta-commentary in the draft body — anything here can end up in the
+  // learner's sent artifact (scenario evaluation, iter 1). Variation between
+  // takes and prompt-responsiveness stay INSIDE the letter's own text.
+  const wantsShort = /\b(short|brief|concise|quick)\b/i.test(promptHint);
+  if (!wantsShort) lines.push(``, `Please let me know if there is anything else I can help with.`);
+  lines.push(``, seq > 1 ? `All the best,` : `Best regards,`, `[Your Name]`);
   return lines.join("\n");
 }
 
@@ -219,7 +223,7 @@ export class WorkspaceRuntime {
         .map((e) => e.text)
         .join("\n") + "\n" + context;
       const draftId = `draft-${this.seq + 1}`;
-      const text = composeDraft(policy, context.trim() ? context : allContext, this.drafts.size + 1);
+      const text = composeDraft(policy, context.trim() ? context : allContext, prompt, this.drafts.size + 1);
       this.drafts.set(draftId, text);
       this.emit({
         type: "aichat.response.generated",

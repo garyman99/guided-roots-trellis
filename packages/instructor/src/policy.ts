@@ -29,6 +29,13 @@ export function choosePolicy(state: LearningSessionState, reason: HintReason): P
   const lastGiven = state.hintsAlreadyGiven.at(-1)?.level ?? -1;
   const frustrated = state.repeatedFailures.some((f) => f.count >= 3);
 
+  // After the checkpoint has passed, a casual (non-stuck) message is
+  // conversation, not a plea for help: never escalate the ladder at someone
+  // who just said thanks.
+  if (state.completedCheckpoints.length > 0 && reason.kind === "question" && !reason.stuck) {
+    return { level: 0, strategy: STRATEGIES[0], because: "checkpoint already passed — conversational reply, no escalation" };
+  }
+
   let level = Math.min(lastGiven + 1, MAX_LEVEL);
   let because = lastGiven < 0 ? "first hint of the session" : `escalated one step from level ${lastGiven}`;
 
