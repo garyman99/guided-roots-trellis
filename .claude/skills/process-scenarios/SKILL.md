@@ -54,11 +54,24 @@ documented honestly.
 6. **Anti-overfitting**: prefer general product improvements over
    scenario-specific hacks; no hard-coded answers, phrase matching, or
    persona special cases; preserve allowed variance.
-7. **Git safety**: work on a branch named `feature/scenario-run-<run-id>`
-   (branched from the current feature branch or main — inspect first; the
-   generator manifests declare their baseline commit). Commit focused
-   changes locally. **Never push and never merge** from a scheduled run;
-   leave that to the user. Do not touch unrelated uncommitted changes.
+7. **Git flow**: `main` is the trunk and the user merges PRs — you never
+   merge anything.
+   - **Start of every run:** `git fetch origin`, then base work on fresh
+     `origin/main`. If a branch for this outbox run already exists
+     (`feature/scenario-run-<run-id>`), continue it and merge
+     `origin/main` into it first; otherwise create it from `origin/main`.
+   - Commit focused changes on that branch only. Never commit to `main`,
+     never push `main`, never merge PRs.
+   - **End of every run with new commits:** push the run branch to origin
+     and open a PR to `main` with `gh pr create` (title: the run's
+     headline; body: the run report summary + status table, ending with
+     the repo's PR footer convention). If the branch already has an open
+     PR, just push — then add a `gh pr comment` summarizing what this
+     iteration changed. The user reviews and merges.
+   - If a scenario depends on capability sitting in an unmerged PR,
+     prefer continuing that run's branch over duplicating the work; note
+     the dependency in the report.
+   - Do not touch unrelated uncommitted changes.
 8. **Don't degrade the live experience.** Keep the app runnable after every
    phase; run the container test suite and any accepted scenarios before
    finishing; if something regresses and you cannot fix it in-session,
@@ -116,9 +129,10 @@ documented honestly.
     (`scenarios/runs/report-<date>.md`) using the guide's Routine
     Completion Report format: intake, status table, product changes,
     evaluation summary, regressions, open findings, verified/unverified,
-    blockers, recommended next action. Commit everything (no push). If
-    something needs the user's decision, say so at the top of the report
-    and in your final session message.
+    blockers, recommended next action. Commit everything on the run
+    branch, push it, and open/update the PR to `main` (see Git flow rule).
+    If something needs the user's decision, say so at the top of the
+    report, in the PR description, and in your final session message.
 
 ## Budget discipline
 
