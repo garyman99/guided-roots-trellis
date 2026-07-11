@@ -10,7 +10,7 @@
  */
 import type { Curriculum } from "../../learner-model/src/curriculum.ts";
 import { prerequisitesOf } from "../../learner-model/src/curriculum.ts";
-import type { LearnerProfile } from "../../learner-model/src/profileReducer.ts";
+import { HABIT_RELATED_CONCEPTS, type LearnerProfile } from "../../learner-model/src/profileReducer.ts";
 import type { ContextManifest } from "../../session-events/src/events.ts";
 
 export interface AssembledProfile {
@@ -58,11 +58,17 @@ export function assembleProfileFacets(
   }
 
   // Tier 3: habits with a meaningful baseline delta, plus calibration.
+  // DOMAIN-SCOPED: a habit reaches the instructor only when this lesson
+  // touches one of its declared concepts ("*" = domain-general). Undeclared
+  // habits are never shared — relevance must be stated, not assumed.
   for (const hb of profile.habits) {
+    const related = HABIT_RELATED_CONCEPTS[hb.habitId] ?? [];
+    const isRelevant = related.includes("*") || related.some((c) => relevant.has(c));
+    if (!isRelevant) continue;
     candidates.push({
       facet: "habit",
       id: hb.habitId,
-      rule: "recent-window",
+      rule: related.includes("*") ? "domain-general" : "lesson-concept-habit",
       line: `- Habit ${hb.habitId}: ${hb.value}${hb.baseline !== null ? ` (their earlier baseline: ${hb.baseline})` : ""} over ${hb.window}`,
     });
   }
