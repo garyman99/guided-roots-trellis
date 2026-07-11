@@ -1,0 +1,37 @@
+# Trellis — containerized deployment sketch.
+# ⚠ UNVERIFIED IN BUILD SANDBOX (no Docker daemon). Reviewed, not executed.
+#
+# Before `docker compose up`, build the lab image(s):
+#   docker build -t trellis-lab-inspect-generated-changes labs/inspect-generated-changes
+services:
+  api:
+    build: .
+    dockerfile: apps/api/Dockerfile
+    environment:
+      LAB_DRIVER: docker
+      INSTRUCTOR_PROVIDER: ${INSTRUCTOR_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      TRELLIS_DB_PATH: /data/trellis.db
+    volumes:
+      # SECURITY: the Docker socket grants control of the host's Docker
+      # daemon. It is mounted ONLY here, never into lab containers, and the
+      # API binds to localhost behind the web proxy. A socket proxy (e.g.
+      # tecnativa/docker-socket-proxy limited to containers/exec) is the
+      # recommended hardening step before any real deployment.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - trellis-data:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+
+  web:
+    image: node:22-slim
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    volumes:
+      - ./apps/web:/app
+    ports:
+      - "127.0.0.1:5173:5173"
+
+volumes:
+  trellis-data:

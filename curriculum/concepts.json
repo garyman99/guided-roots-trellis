@@ -1,0 +1,36 @@
+{
+  "$comment": "Concept IDs are the platform's most load-bearing strings: they key profile facets, evidence rules, lesson declarations, and analytics. Registry-managed; never reuse an ID.",
+  "concepts": [
+    {
+      "id": "git.diff-first-review",
+      "name": "Reviewing diffs before accepting changes",
+      "category": "git",
+      "defaultHalfLifeDays": 60,
+      "observation": "diff-before-first-edit",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "explanationTemplate": "Reviewed the agent's diff before touching any file in {n} lab session(s) ({dates})."
+    },
+    {
+      "id": "testing.red-green-loop",
+      "name": "Using tests to confirm a fix (red → green)",
+      "category": "testing",
+      "defaultHalfLifeDays": 90,
+      "observation": "tests-pass-after-fail",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 90 },
+      "explanationTemplate": "Took a failing test suite to green in {n} lab session(s) ({dates})."
+    },
+    {
+      "id": "agents.reviewing-agent-changes",
+      "name": "Inspecting AI-generated changes before accepting them",
+      "category": "agents",
+      "defaultHalfLifeDays": 60,
+      "observation": "checkpoint-inspect-fix-verify",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "explanationTemplate": "Completed the inspect→fix→verify checkpoint in {n} lab session(s) ({dates})."
+    }
+  ],
+  "edges": [
+    { "from": "git.diff-first-review", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" },
+    { "from": "testing.red-green-loop", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" }
+  ]
+}

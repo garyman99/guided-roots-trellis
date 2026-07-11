@@ -1,0 +1,8 @@
+{
+  "name": "demo-storefront",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs"
+  }
+}

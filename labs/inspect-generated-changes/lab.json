@@ -1,0 +1,104 @@
+{
+  "id": "inspect-generated-changes",
+  "version": 1,
+  "title": "Inspect AI-generated changes before accepting them",
+  "objective": "Learn to review an AI coding agent's uncommitted change with Git, find a subtle defect it introduced, and fix the defect surgically while keeping the requested feature.",
+  "scenario": "You asked an AI coding agent to add a bulk-discount helper to a small pricing module. The agent's change is sitting uncommitted in your working tree. Your job is to review it the way you would review a teammate's PR \u2014 before accepting it.",
+  "tasks": [
+    {
+      "id": "inspect",
+      "text": "Look around the repository. What files exist? What does git status say?",
+      "auto": "any-command"
+    },
+    {
+      "id": "review-diff",
+      "text": "Review the agent's uncommitted change with git diff. Read every hunk, not just the new function.",
+      "auto": "diff-viewed"
+    },
+    {
+      "id": "run-tests",
+      "text": "Run npm test. Do the results match what the diff led you to expect?",
+      "auto": "tests-run"
+    },
+    {
+      "id": "fix",
+      "text": "Fix the defect the agent introduced \u2014 surgically. Keep the bulk-discount feature.",
+      "auto": "file-edited"
+    },
+    {
+      "id": "verify",
+      "text": "Run npm test again until everything passes.",
+      "auto": "tests-green"
+    }
+  ],
+  "checkpoint": {
+    "id": "inspect-fix-verify",
+    "title": "Reviewed, fixed, and verified",
+    "requirements": [
+      {
+        "id": "viewed-diff",
+        "kind": "session",
+        "label": "Viewed the Git diff at least once"
+      },
+      {
+        "id": "ran-tests",
+        "kind": "session",
+        "label": "Ran the test suite at least once"
+      },
+      {
+        "id": "defect-fixed",
+        "kind": "verify",
+        "label": "applyDiscount rounds half-up again"
+      },
+      {
+        "id": "feature-kept",
+        "kind": "verify",
+        "label": "bulkDiscountCents was kept"
+      },
+      {
+        "id": "tests-pass",
+        "kind": "tests",
+        "label": "The full test suite passes"
+      },
+      {
+        "id": "repo-valid",
+        "kind": "repo",
+        "label": "Repository is in a valid state"
+      }
+    ]
+  },
+  "instructorNotes": "The planted defect: the agent changed Math.round to Math.floor inside applyDiscount with a plausible comment ('never overcharge the customer'). The failing test is 'applyDiscount rounds half-up'. Common learner mistakes: (1) only reading the new bulkDiscountCents hunk and missing the rounding hunk; (2) reverting the whole file with git checkout, which removes the requested feature; (3) editing the test to match the broken behavior instead of fixing the code. Never reveal the defect location before hint level 3.",
+  "agentMessage": "Done! I added bulkDiscountCents(items, minQuantity, percent) to src/pricing.ts as requested, with a test covering carts above and below the threshold. While I was in there I also tidied up the rounding in applyDiscount so we never overcharge a customer. All changes are in your working tree \u2014 review and commit when ready. \u2705",
+  "agentTimeline": [
+    {
+      "atOffsetMs": -480000,
+      "action": "searched",
+      "detail": "Searched the project for pricing and discount logic"
+    },
+    {
+      "atOffsetMs": -450000,
+      "action": "opened",
+      "detail": "Opened src/pricing.ts"
+    },
+    {
+      "atOffsetMs": -360000,
+      "action": "modified",
+      "detail": "Modified src/pricing.ts (added bulkDiscountCents; touched existing code)"
+    },
+    {
+      "atOffsetMs": -300000,
+      "action": "modified",
+      "detail": "Appended a test for bulkDiscountCents to tests/pricing.test.ts"
+    },
+    {
+      "atOffsetMs": -240000,
+      "action": "ran-tests",
+      "detail": "Ran npm test \u2014 failures present; judged them unrelated to my change and proceeded"
+    },
+    {
+      "atOffsetMs": -180000,
+      "action": "stopped",
+      "detail": "Reported the task complete"
+    }
+  ]
+}

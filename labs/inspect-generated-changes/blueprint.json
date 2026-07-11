@@ -1,0 +1,21 @@
+{
+  "$comment": "Adaptive-lab blueprint. Variation is AUTHORED and finite; every variant here must pass the CI auto-solve harness before release (ciPolicy). Solutions exist for CI only — they are never shown to learners or the instructor.",
+  "blueprintId": "inspect-generated-changes",
+  "teaches": ["agents.reviewing-agent-changes"],
+  "exercises": ["git.diff-first-review", "testing.red-green-loop"],
+  "defects": {
+    "rounding-floor": {
+      "description": "applyDiscount silently switched from Math.round to Math.floor under a plausible comment; one named test fails.",
+      "solution": ["node", "-e", "const f=require('fs');const p='src/pricing.ts';f.writeFileSync(p,f.readFileSync(p,'utf8').replace('  // Floor instead of round so we never overcharge the customer.\\n  return Math.floor(discounted);','  return Math.round(discounted);'))"]
+    },
+    "subtotal-accumulation": {
+      "description": "subtotalCents lost its quantity multiplication behind a 'simplified' comment; two tests fail, including the agent's own.",
+      "solution": ["node", "-e", "const f=require('fs');const p='src/pricing.ts';f.writeFileSync(p,f.readFileSync(p,'utf8').replace(\"  // Simplified the accumulator while touching this file.\\n  return items.reduce((sum, item) => sum + item.unitPriceCents, 0);\",\"  return items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);\"))"]
+    }
+  },
+  "tiers": {
+    "1": { "defect": "rounding-floor" },
+    "2": { "defect": "subtotal-accumulation" }
+  },
+  "ciPolicy": "every-variant-auto-solved-before-release"
+}

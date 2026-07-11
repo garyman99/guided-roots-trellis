@@ -1,0 +1,38 @@
+{
+  "$comment": "Adaptive-lab blueprint. Variation is AUTHORED and finite; every variant must pass the CI auto-solve harness before release. Solutions are CI-only secrets.",
+  "blueprintId": "review-content-changes",
+  "teaches": [
+    "agents.reviewing-agent-changes"
+  ],
+  "exercises": [
+    "git.diff-first-review",
+    "testing.red-green-loop"
+  ],
+  "defects": {
+    "slug-collapse": {
+      "description": "slugify's character class lost its + quantifier behind a 'simplified' comment; runs of separators no longer collapse.",
+      "solution": [
+        "node",
+        "-e",
+        "const f=require('fs');const p='src/text.ts';f.writeFileSync(p,f.readFileSync(p,'utf8').replace('    // Simplified the character class while in here.\\n    .replace(/[^a-z0-9]/g, \"-\")','    .replace(/[^a-z0-9]+/g, \"-\")'))"
+      ]
+    },
+    "excerpt-off-by-one": {
+      "description": "excerpt slices maxWords-1 behind a 'reserve room for the ellipsis' rationale; excerpts run one word short.",
+      "solution": [
+        "node",
+        "-e",
+        "const f=require('fs');const p='src/text.ts';f.writeFileSync(p,f.readFileSync(p,'utf8').replace('  // Reserve room for the ellipsis so the excerpt never overflows.\\n  return words.slice(0, maxWords - 1).join(\" \") + \"…\";','  return words.slice(0, maxWords).join(\" \") + \"…\";'))"
+      ]
+    }
+  },
+  "tiers": {
+    "1": {
+      "defect": "slug-collapse"
+    },
+    "2": {
+      "defect": "excerpt-off-by-one"
+    }
+  },
+  "ciPolicy": "every-variant-auto-solved-before-release"
+}

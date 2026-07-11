@@ -1,0 +1,104 @@
+{
+  "id": "review-content-changes",
+  "version": 1,
+  "title": "Review the agent's content-pipeline changes",
+  "objective": "Inspect an AI agent's uncommitted change to the blog engine's text utilities, find the behavior it quietly broke, fix it surgically, and keep the feature it added.",
+  "scenario": "You maintain the demo blog engine. You asked a coding agent to add a reading-time estimate to post pages. It reports success \u2014 and the tests say otherwise. Its change is sitting uncommitted in your working tree. Nothing here is simulated except the agent: the repo, the shell, and the tests are real.",
+  "agentMessage": "Done! I added readingTimeMinutes() to src/text.ts with a test \u2014 posts now show an estimated reading time. While I was in the file I tidied up the existing helpers a little. All my changes are in your working tree, ready to commit.",
+  "agentTimeline": [
+    {
+      "atOffsetMs": -420000,
+      "action": "searched",
+      "detail": "Searched the project for text and formatting helpers"
+    },
+    {
+      "atOffsetMs": -390000,
+      "action": "opened",
+      "detail": "Opened src/text.ts"
+    },
+    {
+      "atOffsetMs": -330000,
+      "action": "modified",
+      "detail": "Modified src/text.ts (added readingTimeMinutes; tidied existing helpers)"
+    },
+    {
+      "atOffsetMs": -270000,
+      "action": "modified",
+      "detail": "Appended a test for readingTimeMinutes to tests/text.test.ts"
+    },
+    {
+      "atOffsetMs": -210000,
+      "action": "ran-tests",
+      "detail": "Ran npm test \u2014 failures present; judged them unrelated to my change and proceeded"
+    },
+    {
+      "atOffsetMs": -150000,
+      "action": "stopped",
+      "detail": "Reported the task complete"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "inspect",
+      "text": "Look around the repository. What files exist? What does git status say?",
+      "auto": "any-command"
+    },
+    {
+      "id": "review-diff",
+      "text": "Review the agent's uncommitted change with git diff. Read every hunk \u2014 especially the ones it called 'tidying'.",
+      "auto": "diff-viewed"
+    },
+    {
+      "id": "run-tests",
+      "text": "Run npm test. Do the results match what the diff led you to expect?",
+      "auto": "tests-run"
+    },
+    {
+      "id": "fix",
+      "text": "Fix the behavior the agent broke \u2014 surgically. Keep readingTimeMinutes.",
+      "auto": "file-edited"
+    },
+    {
+      "id": "verify",
+      "text": "Run npm test again until everything passes.",
+      "auto": "tests-green"
+    }
+  ],
+  "checkpoint": {
+    "id": "inspect-fix-verify",
+    "title": "Reviewed, fixed, and verified",
+    "requirements": [
+      {
+        "id": "viewed-diff",
+        "kind": "session",
+        "label": "Viewed the Git diff at least once"
+      },
+      {
+        "id": "ran-tests",
+        "kind": "session",
+        "label": "Ran the test suite at least once"
+      },
+      {
+        "id": "defect-fixed",
+        "kind": "verify",
+        "label": "Original text behaviors are restored"
+      },
+      {
+        "id": "feature-kept",
+        "kind": "verify",
+        "label": "readingTimeMinutes was kept"
+      },
+      {
+        "id": "tests-pass",
+        "kind": "tests",
+        "label": "The full test suite passes"
+      },
+      {
+        "id": "repo-valid",
+        "kind": "repo",
+        "label": "Repository is in a valid state"
+      }
+    ]
+  },
+  "instructorNotes": "Reveal policy: never name the broken function or the fix before hint level 3 (point-to-location). The teaching point is that 'tidying' comments in agent diffs deserve the most scrutiny, not the least. If the learner blanket-reverts, let the checkpoint explain what was lost."
+}
