@@ -276,6 +276,9 @@ export const server = createServer(async (req, res) => {
             agentMessage: session.manifest.agentMessage ?? null,
             chat: session.manifest.chat ?? null,
             tasks: session.manifest.tasks,
+            // Workspace labs: which simulated apps the desktop should offer
+            // (and that there is no terminal). Null for terminal labs.
+            workspaceApps: session.manifest.workspace?.apps ?? null,
           },
         });
       }
@@ -340,7 +343,51 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, { message });
       }
       if (req.method === "GET" && tail === "intervention") {
+        // Workspace labs have no instrumentation loop; the poll drives rules.
+        if (session.workspace) await session.maybeIntervene().catch(() => {});
         return json(res, 200, { intervention: session.takePendingIntervention() });
+      }
+
+      // ── workspace labs: simulated application state + actions ───────────
+      if (req.method === "GET" && tail === "workspace") {
+        if (!session.workspace) return json(res, 404, { error: "this lab has no simulated workspace" });
+        return json(res, 200, session.workspace.view());
+      }
+      if (req.method === "POST" && tail === "workspace" && parts[4] === "action") {
+        if (!session.workspace) return json(res, 404, { error: "this lab has no simulated workspace" });
+        const body = await readBody(req);
+        const str = (v: unknown): string => (typeof v === "string" ? v : "");
+        try {
+          const ws = session.workspace;
+          switch (body.type) {
+            case "open-app":
+              ws.openApp(str(body.appId));
+              break;
+            case "open-artifact":
+              ws.openArtifact(str(body.appId), str(body.artifactId));
+              break;
+            case "chat-send":
+              ws.chatSend(str(body.prompt), str(body.context));
+              break;
+            case "insert-draft":
+              ws.insertDraft(str(body.draftId));
+              break;
+            case "update-draft":
+              ws.updateDraft(str(body.text));
+              break;
+            case "submit-reply":
+              ws.submitReply();
+              break;
+            default:
+              return json(res, 400, { error: "unknown workspace action" });
+          }
+          // Deterministic rules run right after learner actions, so coaching
+          // (e.g. restricted context shared) lands while it is still relevant.
+          await session.maybeIntervene().catch(() => {});
+          return json(res, 200, session.workspace.view());
+        } catch (err) {
+          return json(res, 400, { error: String((err as Error).message).slice(0, 300) });
+        }
       }
       if (req.method === "POST" && tail === "checkpoint" && parts[4] === "evaluate") {
         return json(res, 200, await session.evaluateCheckpoint());
@@ -378,6 +425,11 @@ server.on("upgrade", (req, socket) => {
   // AUTH: reject before the WebSocket handshake completes.
   if (!session || !session.verifyToken(url.searchParams.get("token"))) {
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    return socket.destroy();
+  }
+  if (!session.handle) {
+    // Workspace labs have no terminal to attach.
+    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     return socket.destroy();
   }
   const ws = acceptUpgrade(req, socket);

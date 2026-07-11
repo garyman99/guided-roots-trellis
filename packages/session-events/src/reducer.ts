@@ -36,6 +36,53 @@ export interface LearningSessionState {
   /** True if any file changed after the most recent test run. */
   changedSinceLastTestRun: boolean;
   lastCheckpointEvaluation?: { checkpointId: string; passed: boolean; incomplete: string[] };
+  /** Simulated-application facts (workspace labs). Absent fields = never happened. */
+  workspace: WorkspaceState;
+}
+
+export interface WorkspaceState {
+  openedApps: string[];
+  openedArtifacts: string[];
+  /** How many times context was explicitly shared with the AI helper. */
+  aiContextShares: number;
+  /** Restricted-span IDs EVER shared with the AI helper (for coaching history). */
+  restrictedEverShared: string[];
+  /** Restricted-span IDs in the MOST RECENT share (recovery is detectable). */
+  restrictedInLatestShare: string[];
+  /** Required-fact IDs present in the most recent share. */
+  requiredFactsInLatestShare: string[];
+  aiPrompts: number;
+  aiDraftsGenerated: number;
+  /** True once an AI draft was placed into the reply artifact. */
+  draftInserted: boolean;
+  /** Learner edits after inserting/starting the draft (insert itself is not an edit). */
+  draftRevisions: number;
+  latestDraft?: { revision: number; similarityToGenerated: number | null };
+  submitted?: {
+    artifactId: string;
+    revision: number;
+    similarityToGenerated: number | null;
+    restrictedSpans: string[];
+    forbiddenPhrases: string[];
+    requiredFactsMissing: string[];
+    acknowledgesInconvenience: boolean;
+    at: string;
+  };
+}
+
+function initialWorkspace(): WorkspaceState {
+  return {
+    openedApps: [],
+    openedArtifacts: [],
+    aiContextShares: 0,
+    restrictedEverShared: [],
+    restrictedInLatestShare: [],
+    requiredFactsInLatestShare: [],
+    aiPrompts: 0,
+    aiDraftsGenerated: 0,
+    draftInserted: false,
+    draftRevisions: 0,
+  };
 }
 
 export interface ReduceOptions {
@@ -50,6 +97,13 @@ const LEARNER_ACTIVITY: ReadonlySet<SessionEvent["type"]> = new Set([
   "terminal.command.completed",
   "file.changed",
   "learner.question",
+  "workspace.app.opened",
+  "workspace.artifact.opened",
+  "aichat.context.shared",
+  "aichat.prompt.submitted",
+  "workspace.draft.inserted",
+  "workspace.draft.updated",
+  "workspace.artifact.submitted",
 ]);
 
 export function initialState(lessonId = "", learnerId = ""): LearningSessionState {
@@ -65,6 +119,7 @@ export function initialState(lessonId = "", learnerId = ""): LearningSessionStat
     learnerQuestions: [],
     hintsAlreadyGiven: [],
     changedSinceLastTestRun: false,
+    workspace: initialWorkspace(),
   };
 }
 
@@ -173,6 +228,61 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
 
       case "agent.action":
         break; // the agent lane: rendered as a timeline, never learner state
+
+      case "workspace.app.opened":
+        if (!state.workspace.openedApps.includes(ev.appId)) state.workspace.openedApps.push(ev.appId);
+        break;
+
+      case "workspace.artifact.opened":
+        if (!state.workspace.openedArtifacts.includes(ev.artifactId)) {
+          state.workspace.openedArtifacts.push(ev.artifactId);
+        }
+        break;
+
+      case "aichat.context.shared": {
+        const ws = state.workspace;
+        ws.aiContextShares += 1;
+        ws.restrictedInLatestShare = [...ev.restrictedSpans];
+        ws.requiredFactsInLatestShare = [...ev.requiredFacts];
+        for (const id of ev.restrictedSpans) {
+          if (!ws.restrictedEverShared.includes(id)) ws.restrictedEverShared.push(id);
+        }
+        break;
+      }
+
+      case "aichat.prompt.submitted":
+        state.workspace.aiPrompts += 1;
+        for (const id of ev.restrictedSpans) {
+          if (!state.workspace.restrictedEverShared.includes(id)) state.workspace.restrictedEverShared.push(id);
+        }
+        break;
+
+      case "aichat.response.generated":
+        state.workspace.aiDraftsGenerated += 1;
+        break;
+
+      case "workspace.draft.inserted":
+        state.workspace.draftInserted = true;
+        state.workspace.latestDraft = { revision: 0, similarityToGenerated: 1 };
+        break;
+
+      case "workspace.draft.updated":
+        state.workspace.draftRevisions += 1;
+        state.workspace.latestDraft = { revision: ev.revision, similarityToGenerated: ev.similarityToGenerated };
+        break;
+
+      case "workspace.artifact.submitted":
+        state.workspace.submitted = {
+          artifactId: ev.artifactId,
+          revision: ev.revision,
+          similarityToGenerated: ev.similarityToGenerated,
+          restrictedSpans: [...ev.restrictedSpans],
+          forbiddenPhrases: [...ev.forbiddenPhrases],
+          requiredFactsMissing: [...ev.requiredFactsMissing],
+          acknowledgesInconvenience: ev.acknowledgesInconvenience,
+          at: ev.timestamp,
+        };
+        break;
     }
   }
 

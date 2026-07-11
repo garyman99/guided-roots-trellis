@@ -18,8 +18,14 @@ import type { LabHandle } from "./driver.ts";
 
 export interface CheckpointRequirementSpec {
   id: string;
-  kind: "session" | "verify" | "tests" | "repo";
+  kind: "session" | "verify" | "tests" | "repo" | "workspace";
   label: string;
+}
+
+/** Authored thresholds for workspace-kind requirements (from lab.json). */
+export interface WorkspacePolicyThresholds {
+  /** A submitted reply at or below this similarity counts as meaningfully edited. */
+  meaningfulEditMaxSimilarity: number;
 }
 
 export interface CheckpointSpec {
@@ -51,10 +57,13 @@ export interface EvaluatorPaths {
 export async function evaluateCheckpoint(
   spec: CheckpointSpec,
   state: LearningSessionState,
-  handle: LabHandle,
+  handle: LabHandle | null,
   paths: EvaluatorPaths,
+  workspacePolicy?: WorkspacePolicyThresholds,
 ): Promise<CheckpointResult> {
   const results: RequirementResult[] = [];
+  const needsEnv = spec.requirements.some((r) => r.kind === "verify" || r.kind === "tests" || r.kind === "repo");
+  if (needsEnv && !handle) throw new Error("checkpoint requires a lab environment this session does not have");
 
   // Cache the expensive checks so multiple requirements can share them.
   let verifyChecks: Array<{ id: string; label: string; ok: boolean; detail?: string }> | null | undefined;
@@ -62,6 +71,11 @@ export async function evaluateCheckpoint(
 
   for (const req of spec.requirements) {
     switch (req.kind) {
+      case "workspace": {
+        results.push(workspaceRequirement(req, state, workspacePolicy));
+        break;
+      }
+
       case "session": {
         if (req.id === "viewed-diff") {
           results.push({
@@ -87,7 +101,7 @@ export async function evaluateCheckpoint(
         if (verifyChecks === undefined) {
           // 90s cap: browser-based verifiers (e.g. Playwright labs) launch a real
           // headless browser inside the lab env. Node-only verifiers finish in <2s.
-          const res = await handle.exec(["node", paths.verifyScript], { timeoutMs: 90_000 });
+          const res = await handle!.exec(["node", paths.verifyScript], { timeoutMs: 90_000 });
           try {
             verifyChecks = JSON.parse(res.stdout.trim().split("\n").pop() ?? "").checks ?? null;
           } catch {
@@ -107,7 +121,7 @@ export async function evaluateCheckpoint(
       case "tests": {
         if (testsExit === undefined) {
           // 120s cap for the same reason as `verify`: browser labs run real browsers.
-          const res = await handle.exec(["node", "scripts/test.mjs"], { timeoutMs: 120_000 });
+          const res = await handle!.exec(["node", "scripts/test.mjs"], { timeoutMs: 120_000 });
           testsExit = res.exitCode;
         }
         results.push({
@@ -120,8 +134,8 @@ export async function evaluateCheckpoint(
       }
 
       case "repo": {
-        const head = await handle.exec(["git", "rev-parse", "HEAD"], { timeoutMs: 10_000 });
-        const status = await handle.exec(["git", "status", "--porcelain"], { timeoutMs: 10_000 });
+        const head = await handle!.exec(["git", "rev-parse", "HEAD"], { timeoutMs: 10_000 });
+        const status = await handle!.exec(["git", "status", "--porcelain"], { timeoutMs: 10_000 });
         const ok = head.exitCode === 0 && status.exitCode === 0;
         results.push({
           id: req.id,
@@ -136,6 +150,73 @@ export async function evaluateCheckpoint(
 
   const incomplete = results.filter((r) => !r.ok).map((r) => r.id);
   return { checkpointId: spec.id, passed: incomplete.length === 0, requirements: results, incomplete };
+}
+
+/**
+ * Workspace-kind requirements: pure functions of measured workspace state.
+ * IDs are a small documented vocabulary (like session-kind); labs pick the
+ * ones their scenario needs. Text policy results (restricted spans, forbidden
+ * phrases, required facts) were classified at event time against the lab's
+ * AUTHORED policy — nothing here inspects learner prose.
+ */
+function workspaceRequirement(
+  req: CheckpointRequirementSpec,
+  state: LearningSessionState,
+  policy?: WorkspacePolicyThresholds,
+): RequirementResult {
+  const ws = state.workspace;
+  const sub = ws.submitted;
+  const r = (ok: boolean, detail?: string): RequirementResult => ({
+    id: req.id,
+    label: req.label,
+    ok,
+    detail: ok ? undefined : detail,
+  });
+
+  switch (req.id) {
+    case "used-ai-helper":
+      return r(ws.aiPrompts > 0 && ws.aiDraftsGenerated > 0, "The AI helper was not asked for a draft yet.");
+
+    case "context-clean":
+      // The LATEST share is what the helper is working from: sharing restricted
+      // content and then re-sharing clean context counts as recovery.
+      return r(
+        ws.aiContextShares > 0 && ws.restrictedInLatestShare.length === 0 && ws.requiredFactsInLatestShare.length > 0,
+        ws.aiContextShares === 0
+          ? "No context was shared with the AI helper yet."
+          : ws.restrictedInLatestShare.length > 0
+            ? "The context most recently shared with the AI helper still contains restricted information."
+            : "The shared context is missing the facts the helper needs.",
+      );
+
+    case "reviewed-and-edited": {
+      if (!sub) return r(false, "Nothing has been submitted yet.");
+      const maxSim = policy?.meaningfulEditMaxSimilarity ?? 0.9;
+      // null similarity = drafted in the learner's own words (no AI draft inserted).
+      const edited = sub.similarityToGenerated === null || sub.similarityToGenerated <= maxSim;
+      return r(edited, "The submitted reply is still nearly identical to the AI helper's draft — make it your own.");
+    }
+
+    case "no-restricted-in-reply":
+      return r(!!sub && sub.restrictedSpans.length === 0, sub ? "The reply still contains restricted information." : "Nothing has been submitted yet.");
+
+    case "no-forbidden-promise":
+      return r(!!sub && sub.forbiddenPhrases.length === 0, sub ? "The reply makes a promise that has not been approved." : "Nothing has been submitted yet.");
+
+    case "facts-preserved":
+      return r(!!sub && sub.requiredFactsMissing.length === 0, sub ? "A required fact is missing from the reply." : "Nothing has been submitted yet.");
+
+    case "acknowledges-inconvenience":
+      // Lexical check against the lab's authored acknowledgement lexicon —
+      // deliberately approximate; scenarios pair it with qualitative review.
+      return r(!!sub && sub.acknowledgesInconvenience, sub ? "The reply does not acknowledge the customer's inconvenience." : "Nothing has been submitted yet.");
+
+    case "reply-submitted":
+      return r(!!sub, "The simulated reply has not been submitted yet.");
+
+    default:
+      return r(false, `Unknown workspace requirement '${req.id}'.`);
+  }
 }
 
 export function verifyScriptPathFor(driverKind: "local" | "docker", labDir: string): EvaluatorPaths {

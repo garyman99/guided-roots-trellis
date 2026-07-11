@@ -11,14 +11,16 @@
  * traffic lights left) is a planned variant of the same components — see
  * WindowFrame's WindowControls seam. Select via ?os=… when it lands.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./desktop.css";
-import { api, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
+import { api, type ScreenReport, type SessionCredentials, type StatePayload, type WorkspaceView } from "../api.ts";
 import { CodeStudio } from "./CodeStudio.tsx";
 import { ChatGuide } from "./ChatGuide.tsx";
+import { EmailApp } from "./EmailApp.tsx";
+import { AiChatApp } from "./AiChatApp.tsx";
 import { WindowFrame, type OsStyle, type WindowState } from "./WindowFrame.tsx";
 
-type AppId = "guide" | "code" | "preview";
+type AppId = string; // "guide" | "code" | "preview" | workspace app ids ("email", "ai-chat", …)
 
 interface AppSpec {
   id: AppId;
@@ -27,44 +29,53 @@ interface AppSpec {
   initial: (i: number) => WindowState;
 }
 
-const APPS: AppSpec[] = [
+const win = (open: boolean, rect: { x: number; y: number; w: number; h: number }, z = 1): WindowState => ({
+  open,
+  minimized: false,
+  maximized: false,
+  rect,
+  z,
+});
+
+const GUIDE: AppSpec = {
+  id: "guide",
+  title: "Trellis Guide",
+  icon: "🌿",
+  initial: () => win(true, { x: window.innerWidth - 420, y: 28, w: 392, h: window.innerHeight - 140 }, 2),
+};
+
+/** Terminal labs: the classic desktop — Code Studio, guide, site preview. */
+const TERMINAL_APPS: AppSpec[] = [
   {
     id: "code",
     title: "Code Studio",
     icon: "🧩",
-    initial: () => ({
-      open: false,
-      minimized: false,
-      maximized: false,
-      rect: { x: 60, y: 40, w: Math.min(1020, window.innerWidth - 480), h: window.innerHeight - 160 },
-      z: 1,
-    }),
+    initial: () => win(false, { x: 60, y: 40, w: Math.min(1020, window.innerWidth - 480), h: window.innerHeight - 160 }),
   },
-  {
-    id: "guide",
-    title: "Trellis Guide",
-    icon: "🌿",
-    initial: () => ({
-      open: true, // the one thing already open when you "sit down"
-      minimized: false,
-      maximized: false,
-      rect: { x: window.innerWidth - 420, y: 28, w: 392, h: window.innerHeight - 140 },
-      z: 2,
-    }),
-  },
+  GUIDE,
   {
     id: "preview",
     title: "Garden Site",
     icon: "🌐",
-    initial: () => ({
-      open: false,
-      minimized: false,
-      maximized: false,
-      rect: { x: 140, y: 90, w: 640, h: 560 },
-      z: 1,
-    }),
+    initial: () => win(false, { x: 140, y: 90, w: 640, h: 560 }),
   },
 ];
+
+/** Workspace labs: apps come from the lab manifest. Per the scenario's
+ * starting state, work apps begin open — arranged side by side. */
+function workspaceApps(declared: Array<{ id: string; title: string; icon: string }>): AppSpec[] {
+  const usable = Math.max(720, window.innerWidth - 440);
+  const each = Math.min(560, Math.floor(usable / Math.max(1, declared.length)) - 16);
+  return [
+    ...declared.map((a, i) => ({
+      id: a.id,
+      title: a.title,
+      icon: a.icon,
+      initial: () => win(true, { x: 24 + i * (each + 14), y: 36, w: each, h: window.innerHeight - 150 }),
+    })),
+    GUIDE,
+  ];
+}
 
 /** A browser-looking window rendering the lab's static site from the workspace. */
 function PreviewApp({ creds }: { creds: SessionCredentials }) {
@@ -110,9 +121,46 @@ export function Desktop({
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
 }) {
+  // App set is lab-driven: workspace labs declare their simulated apps.
+  const APPS = useMemo<AppSpec[]>(
+    () => (data.lab.workspaceApps ? workspaceApps(data.lab.workspaceApps) : TERMINAL_APPS),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [creds.sessionId],
+  );
+  const isWorkspaceLab = data.lab.workspaceApps !== null;
+
   const [windows, setWindows] = useState<Record<AppId, WindowState>>(() =>
     Object.fromEntries(APPS.map((a, i) => [a.id, a.initial(i)])) as Record<AppId, WindowState>,
   );
+
+  // ── Workspace labs: shared app data + the Mail → AI Helper staging bridge ──
+  const [wsView, setWsView] = useState<WorkspaceView | null>(null);
+  const [stagedContext, setStagedContext] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isWorkspaceLab) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const v = await api.workspace(creds);
+        if (!stop) setWsView(v);
+      } catch {
+        /* transient */
+      }
+    };
+    void tick();
+    const t = setInterval(tick, 2_500);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [creds, isWorkspaceLab]);
+  const stageContext = useCallback((text: string) => {
+    setStagedContext(text);
+    // Bring the helper forward so the learner SEES where the text landed.
+    setWindows((w) =>
+      w["ai-chat"] ? { ...w, "ai-chat": { ...w["ai-chat"], open: true, minimized: false, z: ++zRef.current } } : w,
+    );
+  }, []);
   // The editor reports what it's showing; the guide bot sends it along with
   // learner messages so the instructor can phrase against the actual screen.
   const editorState = useRef<{ file: string | null; dirty: boolean }>({ file: null, dirty: false });
@@ -137,12 +185,13 @@ export function Desktop({
     return () => clearInterval(t);
   }, []);
 
-  // The preview app only exists for labs that ship a static site.
+  // The preview app only exists for terminal labs that ship a static site.
   const [hasSite, setHasSite] = useState(false);
   useEffect(() => {
+    if (isWorkspaceLab) return; // no lab filesystem to probe
     api.fsRead(creds, "app/index.html").then(() => setHasSite(true)).catch(() => setHasSite(false));
-  }, [creds]);
-  const visibleApps = useMemo(() => APPS.filter((a) => a.id !== "preview" || hasSite), [hasSite]);
+  }, [creds, isWorkspaceLab]);
+  const visibleApps = useMemo(() => APPS.filter((a) => a.id !== "preview" || hasSite), [APPS, hasSite]);
 
   const update = (id: AppId, next: Partial<WindowState>) =>
     setWindows((w) => ({ ...w, [id]: { ...w[id], ...next } }));
@@ -151,6 +200,10 @@ export function Desktop({
     setStartOpen(false);
     setSelectedIcon(null);
     update(id, { open: true, minimized: false, z: ++zRef.current });
+    // Workspace apps: opening is a measured, semantic act.
+    if (isWorkspaceLab && id !== "guide") {
+      api.workspaceAction(creds, { type: "open-app", appId: id }).then(setWsView).catch(() => {});
+    }
   };
   const taskbarClick = (id: AppId) => {
     const w = windows[id];
@@ -199,6 +252,24 @@ export function Desktop({
           {a.id === "code" && <CodeStudio creds={creds} onEditorState={(s) => (editorState.current = s)} />}
           {a.id === "guide" && <ChatGuide creds={creds} data={data} onNewData={onNewData} getScreen={getScreen} />}
           {a.id === "preview" && <PreviewApp creds={creds} />}
+          {a.id === "email" &&
+            (wsView ? (
+              <EmailApp creds={creds} view={wsView} onView={setWsView} onStageContext={stageContext} />
+            ) : (
+              <div className="ws-loading">Opening Mail…</div>
+            ))}
+          {a.id === "ai-chat" &&
+            (wsView ? (
+              <AiChatApp
+                creds={creds}
+                view={wsView}
+                onView={setWsView}
+                stagedContext={stagedContext}
+                onStagedConsumed={() => setStagedContext(null)}
+              />
+            ) : (
+              <div className="ws-loading">Opening the AI Helper…</div>
+            ))}
         </WindowFrame>
       ))}
 

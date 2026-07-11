@@ -46,8 +46,34 @@ export interface StatePayload {
     agentMessage: string | null;
     chat: { botName?: string; welcome?: string[] } | null;
     tasks: TaskStatus[];
+    /** Simulated apps for workspace labs; null for terminal labs. */
+    workspaceApps: Array<{ id: string; title: string; icon: string }> | null;
   };
 }
+
+/** Workspace labs: everything the simulated apps render. */
+export interface WorkspaceView {
+  apps: Array<{ id: string; title: string; icon: string }>;
+  email: {
+    inbox: Array<{ id: string; from: string; subject: string; body: string; receivedAgoMinutes?: number; read: boolean }>;
+    notes: Array<{ id: string; title: string; body: string }>;
+    replyTo: string;
+  };
+  aiChat: {
+    assistantName: string;
+    tagline: string;
+    thread: Array<{ id: number; role: "learner" | "assistant"; text: string; contextChars?: number; draftId?: string }>;
+  };
+  reply: { text: string; revision: number; hasAiBaseline: boolean; submitted: boolean };
+}
+
+export type WorkspaceAction =
+  | { type: "open-app"; appId: string }
+  | { type: "open-artifact"; appId: string; artifactId: string }
+  | { type: "chat-send"; prompt: string; context: string }
+  | { type: "insert-draft"; draftId: string }
+  | { type: "update-draft"; text: string }
+  | { type: "submit-reply" };
 
 /** Client self-report of what's on screen, sent alongside learner messages. */
 export interface ScreenReport {
@@ -124,6 +150,9 @@ export const api = {
     }) as Promise<SessionCredentials & { labId: string }>;
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
+  workspace: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/workspace`, c) as Promise<WorkspaceView>,
+  workspaceAction: (c: SessionCredentials, action: WorkspaceAction) =>
+    req("POST", `/api/sessions/${c.sessionId}/workspace/action`, c, action) as Promise<WorkspaceView>,
   ask: (c: SessionCredentials, text: string, stuck: boolean, screen?: ScreenReport) =>
     req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck, screen }),
   intervention: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/intervention`, c),

@@ -49,12 +49,24 @@ import { reduceProfile, type LearnerProfile } from "../../../packages/learner-mo
 import { corroborateHypotheses } from "../../../packages/learner-model/src/hypotheses.ts";
 import { buildReflection } from "../../../packages/learner-model/src/reflection.ts";
 import type { EventStore, StoredReflection } from "./store.ts";
+import { WorkspaceRuntime, type WorkspaceSpec } from "./workspace.ts";
 
 export interface LabTask {
   id: string;
   text: string;
   /** How instrumentation recognizes this task as done (see taskStatuses). */
-  auto?: "any-command" | "diff-viewed" | "tests-run" | "file-edited" | "tests-green";
+  auto?:
+    | "any-command"
+    | "diff-viewed"
+    | "tests-run"
+    | "file-edited"
+    | "tests-green"
+    // workspace labs (simulated applications):
+    | "artifact-opened"
+    | "ai-consulted"
+    | "context-clean"
+    | "draft-edited"
+    | "reply-submitted";
 }
 
 export interface LabManifest {
@@ -77,6 +89,12 @@ export interface LabManifest {
    * emitted as agent.action events at session start (offsets are negative —
    * the agent worked before the learner arrived). */
   agentTimeline?: Array<{ atOffsetMs: number; action: string; detail: string }>;
+  /**
+   * Workspace labs: simulated applications instead of a terminal + repo.
+   * When present, the session has NO lab environment (no container, no pty,
+   * no fs) — the learner works entirely in seeded, instrumented apps.
+   */
+  workspace?: WorkspaceSpec;
 }
 
 export interface InstructorMessage {
@@ -89,6 +107,7 @@ export interface InstructorMessage {
 
 /** Pure + tested: which tasks does the measured state show as done? */
 export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
+  const ws = state.workspace;
   const done = (auto?: LabTask["auto"]): boolean => {
     switch (auto) {
       case "any-command":
@@ -101,6 +120,16 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
         return state.filesChanged.length > 0;
       case "tests-green":
         return state.testsRun > 0 && state.latestTestResult?.failed === 0 && !state.changedSinceLastTestRun;
+      case "artifact-opened":
+        return ws.openedArtifacts.length > 0;
+      case "ai-consulted":
+        return ws.aiDraftsGenerated > 0;
+      case "context-clean":
+        return ws.aiContextShares > 0 && ws.restrictedInLatestShare.length === 0 && ws.requiredFactsInLatestShare.length > 0;
+      case "draft-edited":
+        return ws.draftRevisions > 0 || (!!ws.submitted && ws.submitted.similarityToGenerated === null);
+      case "reply-submitted":
+        return !!ws.submitted;
       default:
         return false;
     }
@@ -127,8 +156,11 @@ export class Session {
   private readonly store: EventStore;
   private readonly instructor: InstructorProvider;
 
-  handle!: LabHandle;
-  instrumentation!: SessionInstrumentation;
+  /** The lab environment. NULL for workspace labs (simulated apps only). */
+  handle: LabHandle | null = null;
+  instrumentation: SessionInstrumentation | null = null;
+  /** Simulated applications. NULL for terminal labs. */
+  workspace: WorkspaceRuntime | null = null;
   transcript: InstructorMessage[] = [];
   pendingIntervention: (InterventionTrigger & { hint: HintResponse }) | null = null;
 
@@ -212,7 +244,7 @@ export class Session {
   }
 
   ensureTerminal(): void {
-    if (this.attachment || this.destroyed) return;
+    if (this.attachment || this.destroyed || !this.handle) return;
     this.lastSpawnAt = Date.now();
     const term = this.handle.attachTerminal();
     this.attachment = term;
@@ -459,6 +491,9 @@ export class Session {
       this.state(),
       this.handle,
       verifyScriptPathFor(this.driverKind, this.labDir),
+      this.manifest.workspace
+        ? { meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity }
+        : undefined,
     );
     this.emit({
       type: "checkpoint.evaluated",
@@ -486,11 +521,21 @@ export class Session {
   }
 
   async reset(): Promise<void> {
+    if (!this.handle) {
+      // Workspace lab: reset restores the seeded scene — the event is the
+      // boundary (the reducer clears workspace facts); the runtime clears
+      // the content. Learner questions/hints survive, exactly like terminal labs.
+      this.workspace?.reset();
+      this.firedInterventions.clear();
+      this.pendingIntervention = null;
+      this.emit({ type: "session.reset", timestamp: now() });
+      return;
+    }
     this.resetting = true;
     try {
       this.attachment = null; // handle.reset() kills the pty
       await this.handle.reset();
-      await this.instrumentation.onLabReset();
+      await this.instrumentation?.onLabReset();
       this.firedInterventions.clear();
       this.pendingIntervention = null;
       this.emit({ type: "session.reset", timestamp: now() });
@@ -508,7 +553,7 @@ export class Session {
     this.destroyed = true;
     this.instrumentation?.stop();
     this.subscribers.clear();
-    await this.handle.destroy();
+    await this.handle?.destroy();
   }
 
   contextPreview(): { system: string; user: string } {
@@ -655,7 +700,9 @@ export class SessionManager {
       manifest, labDir, this.driverKind, this.store, this.instructor,
       learner, this.learners, variant, lessonConcepts,
     );
-    session.handle = await this.driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
+    if (!manifest.workspace) {
+      session.handle = await this.driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
+    }
     this.store.createSession({
       sessionId: session.id,
       learnerId: session.learnerId,
@@ -677,15 +724,21 @@ export class SessionManager {
       });
     }
 
-    const instr = new SessionInstrumentation(session.handle, (e) => session.emit(e));
-    session.instrumentation = instr;
-    await instr.start();
-    // The rule engine piggybacks on the instrumentation cadence.
-    const origDrain = instr.drain.bind(instr);
-    instr.drain = async () => {
-      await origDrain();
-      await session.maybeIntervene().catch(() => {});
-    };
+    if (manifest.workspace) {
+      // Workspace lab: simulated apps, no shell to instrument. Interventions
+      // are evaluated after each workspace action and on the nudge poll.
+      session.workspace = new WorkspaceRuntime(manifest.workspace, (e) => session.emit(e));
+    } else {
+      const instr = new SessionInstrumentation(session.handle!, (e) => session.emit(e));
+      session.instrumentation = instr;
+      await instr.start();
+      // The rule engine piggybacks on the instrumentation cadence.
+      const origDrain = instr.drain.bind(instr);
+      instr.drain = async () => {
+        await origDrain();
+        await session.maybeIntervene().catch(() => {});
+      };
+    }
 
     this.sessions.set(session.id, session);
     return session;
