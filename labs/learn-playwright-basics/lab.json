@@ -1,0 +1,114 @@
+{
+  "id": "learn-playwright-basics",
+  "version": 1,
+  "title": "Your first Playwright test review",
+  "objective": "Learn to read a Playwright end-to-end test, run the suite, understand a failure report (expected vs received, locators), and fix a broken test without touching the app it tests.",
+  "scenario": "You're the QA engineer on a tiny web app: a community-garden signup page. It already has a small Playwright test suite that the whole team trusts. Yesterday an AI coding agent was asked to add ONE new test (covering the plot-size choice). It says everything is done — but its change is sitting uncommitted in your working tree, and it touched more than it was asked to. Review its work the way you'd review any test change: read the diff, run the suite, believe the failure report over the comments.",
+  "tasks": [
+    {
+      "id": "orient",
+      "text": "Get your bearings. Open Code Studio (double-click its icon on the desktop). The list on the left is every file in the project — click README.md and read it; it explains everything you'll need today. Then, in the TERMINAL panel at the bottom, type `git status` to see which files the agent touched. (No desktop? `ls` and `cat README.md` in any terminal work too.)",
+      "auto": "any-command"
+    },
+    {
+      "id": "review-diff",
+      "text": "See exactly what the agent changed: run `git diff` (press q to leave the view). Read every changed line, not just the new test at the bottom. Comments can lie; diffs can't.",
+      "auto": "diff-viewed"
+    },
+    {
+      "id": "run-tests",
+      "text": "Run `npm test`. One test fails. Read the failure slowly — Playwright prints what the test EXPECTED and what the page actually showed (RECEIVED). Careful: your QA instincts are trained to trust the expected value and suspect the product. Today it's reversed — the app hasn't changed, so the test's expectation is the suspect.",
+      "auto": "tests-run"
+    },
+    {
+      "id": "fix",
+      "text": "Fix the broken TEST (the app is fine — it hasn't changed). The move is always the same: find the exact wrong text in the test, retype it as what the app really shows. In Code Studio, click tests/garden.spec.js in the file list, fix the wrong text, and press Ctrl+S — the dot on the tab disappears when it's saved. (In a plain terminal, `nano tests/garden.spec.js` works too: Ctrl+O, Enter saves; Ctrl+X exits.) Keep the agent's new plot-size test. And one more reviewer's duty: the agent left a comment explaining its edit — after your fix, does that comment still tell the truth? A comment that contradicts the code is worse than no comment. Remove it.",
+      "auto": "file-edited"
+    },
+    {
+      "id": "verify",
+      "text": "Run `npm test` again until all four tests pass.",
+      "auto": "tests-green"
+    }
+  ],
+  "checkpoint": {
+    "id": "first-playwright-review",
+    "title": "Reviewed, fixed, and verified — without touching the app",
+    "requirements": [
+      {
+        "id": "viewed-diff",
+        "kind": "session",
+        "label": "Viewed the agent's diff at least once"
+      },
+      {
+        "id": "ran-tests",
+        "kind": "session",
+        "label": "Ran the test suite at least once"
+      },
+      {
+        "id": "defect-fixed",
+        "kind": "verify",
+        "label": "The broken test was fixed and every original test passes"
+      },
+      {
+        "id": "feature-kept",
+        "kind": "verify",
+        "label": "The agent's new plot-size test was kept"
+      },
+      {
+        "id": "app-untouched",
+        "kind": "verify",
+        "label": "The app itself was left unchanged (fix the test, not the product)"
+      },
+      {
+        "id": "comments-honest",
+        "kind": "verify",
+        "label": "The agent's misleading comment was removed (comments must tell the truth)"
+      },
+      {
+        "id": "tests-pass",
+        "kind": "tests",
+        "label": "The full test suite passes"
+      },
+      {
+        "id": "repo-valid",
+        "kind": "repo",
+        "label": "Repository is in a valid state"
+      }
+    ]
+  },
+  "instructorNotes": "Audience: a QA professional with no programming background — fluent in expected-vs-actual thinking, new to code and to Playwright. Vocabulary to build: locator (how a test finds one element), assertion (what the test claims the page shows), strict mode (a locator must match exactly one element). The planted defect is in the TESTS, never the app. Variant stale-welcome-copy: the agent rewrote the expected text in 'signing up with a name shows a personal welcome' to \"You're all signed up, Riley!\" under a comment claiming the copy was refreshed; the failure report's 'received' line shows the app's real copy — the fix is to make the assertion match the app. Variant ambiguous-button-locator: in 'submitting without a name shows an error' the agent replaced getByRole('button', { name: 'Sign up' }) with page.locator('button'); the page has two buttons so strict mode fails listing both — the fix is any locator that uniquely identifies the Sign up button. Common learner mistakes: (1) editing app/index.html to match the broken test — the checkpoint fails app-untouched for exactly this; (2) deleting or .skip-ing the failing test; (3) `git checkout -- .` which also removes the agent's requested plot-size test; (4) trusting the agent's comment over the failure report; (5) fixing the assertion but leaving the agent's now-false comment in place — the comments-honest requirement catches this, and it is a teaching moment about comments lying, not a formality. Elicit first: ask what the failure report's expected and received lines each say, and which one describes the app. Never reveal the defect line before hint level 3.",
+  "agentMessage": "Done! I added a test covering the plot-size choice to tests/garden.spec.js, as requested — it fills the form, picks a Large plot, and checks the confirmation. While I was in the file I also freshened up one of the older tests to keep things consistent. All changes are uncommitted in your working tree — review and commit when ready. ✅",
+  "agentTimeline": [
+    {
+      "atOffsetMs": -540000,
+      "action": "searched",
+      "detail": "Searched the project for the signup form's tests"
+    },
+    {
+      "atOffsetMs": -480000,
+      "action": "opened",
+      "detail": "Opened tests/garden.spec.js"
+    },
+    {
+      "atOffsetMs": -390000,
+      "action": "modified",
+      "detail": "Appended the requested plot-size test to tests/garden.spec.js"
+    },
+    {
+      "atOffsetMs": -330000,
+      "action": "modified",
+      "detail": "Also edited an existing test in the same file (not requested)"
+    },
+    {
+      "atOffsetMs": -240000,
+      "action": "ran-tests",
+      "detail": "Ran the suite — one failure; judged it a stale test rather than my mistake and moved on"
+    },
+    {
+      "atOffsetMs": -180000,
+      "action": "stopped",
+      "detail": "Reported the task complete"
+    }
+  ]
+}

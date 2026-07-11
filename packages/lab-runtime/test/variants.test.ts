@@ -33,10 +33,14 @@ test("tier selection has hysteresis: immediate promotion, damped demotion, never
   assert.equal(chooseTier(true, [2]), 2, "capped at max tier");
 });
 
-test("CI AUTO-SOLVE: every variant of EVERY blueprint lab is broken as shipped AND solvable", async () => {
+test("CI AUTO-SOLVE: every variant of EVERY local-driver blueprint lab is broken as shipped AND solvable", async () => {
   const driver = new LocalProcessDriver();
-  assert.ok(allBlueprintLabs.length >= 2, "the axes must generalize: at least two blueprint labs expected");
-  for (const lab of allBlueprintLabs) {
+  // Labs whose blueprint declares driver:"docker" need tools baked into their
+  // image (e.g. Playwright browsers) and are auto-solved by the docker harness
+  // in autosolve.docker.test.ts instead — same ciPolicy, different runner.
+  const localLabs = allBlueprintLabs.filter((l) => (l.bp.driver ?? "local") === "local");
+  assert.ok(localLabs.length >= 2, "the axes must generalize: at least two local blueprint labs expected");
+  for (const lab of localLabs) {
     const reports = await autoSolveAll(driver, { labDir: lab.labDir, labId: lab.labId }, lab.bp);
     assert.equal(reports.length, Object.keys(lab.bp.defects).length);
     for (const r of reports) {

@@ -21,11 +21,17 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 import { spawn } from "node:child_process";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExecResult, LabDefinition, LabDriver, LabHandle, TerminalAttachment } from "./driver.ts";
 
 const IMAGE_PREFIX = "trellis-lab-";
 const WORKSPACE = "/workspace";
 const CHANNEL_DIR = "/tmp/trellis";
+// The instrumented bashrc ships with the PLATFORM, not with lab images: it is
+// docker-cp'd into every container at create time. (Lab Dockerfiles only bake
+// template/, scripts/, verify/ — instrumentation is the driver's job.)
+const INSTRUMENT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "instrument");
 
 function docker(args: string[], opts: { timeoutMs?: number; input?: string } = {}): Promise<ExecResult> {
   return new Promise((resolve) => {
@@ -71,6 +77,9 @@ class DockerLabHandle implements LabHandle {
       "-e", `TRELLIS_EVENTS_FILE=${this.eventsFilePath}`,
       "-e", `TRELLIS_RESULTS_FILE=${this.resultsFilePath}`,
       "-e", "GIT_CONFIG_NOSYSTEM=1",
+      // Parity with LocalProcessDriver's constructed env: without TERM, pagers
+      // degrade ("terminal is not fully functional") and curses editors break.
+      "-e", "TERM=xterm-256color",
       "-w", WORKSPACE,
     ];
   }
@@ -175,6 +184,12 @@ export class DockerDriver implements LabDriver {
     ]);
     if (res.exitCode !== 0) {
       throw new Error(`docker run failed (is the '${image}' image built?): ${res.stderr}`);
+    }
+    // Install the platform's shell instrumentation (see INSTRUMENT_DIR note).
+    const inst = await docker(["cp", INSTRUMENT_DIR, `${container}:/opt/lab/`]);
+    if (inst.exitCode !== 0) {
+      await docker(["rm", "-f", container]);
+      throw new Error(`failed to install instrumentation into ${container}: ${inst.stderr}`);
     }
     const handle = new DockerLabHandle(sessionId, def.labId, container, def);
     await handle.initWorkspace();

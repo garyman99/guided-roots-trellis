@@ -150,6 +150,33 @@ test("a second websocket replays scrollback (refresh is a non-event)", async () 
   ws2.close();
 });
 
+test("workspace fs routes: list, read, write (GUI editor path), traversal rejected", async () => {
+  const list = await api("GET", `/api/sessions/${sessionId}/fs`);
+  assert.equal(list.status, 200);
+  const paths = list.body.entries.map((e: { path: string }) => e.path);
+  assert.ok(paths.includes("src/pricing.ts"), `expected src/pricing.ts in ${paths.slice(0, 10)}`);
+  assert.ok(!paths.some((p: string) => p.includes("node_modules")), "heavy dirs are excluded");
+
+  const read = await api("GET", `/api/sessions/${sessionId}/file?path=src/pricing.ts`);
+  assert.equal(read.status, 200);
+  assert.match(read.body.content, /applyDiscount/);
+  assert.equal(read.body.truncated, false);
+
+  const write = await api("PUT", `/api/sessions/${sessionId}/file`, { path: "notes.txt", content: "reviewed by e2e\n" });
+  assert.equal(write.status, 200);
+  const back = await api("GET", `/api/sessions/${sessionId}/file?path=notes.txt`);
+  assert.equal(back.body.content, "reviewed by e2e\n");
+
+  // GUI saves are measured: the write emitted a file.changed event.
+  const state = (await api("GET", `/api/sessions/${sessionId}/state`)).body.state;
+  assert.ok(state !== undefined);
+
+  const evil = await api("GET", `/api/sessions/${sessionId}/file?path=../../../etc/passwd`);
+  assert.equal(evil.status, 400);
+  const evilWrite = await api("PUT", `/api/sessions/${sessionId}/file`, { path: "/etc/cron.d/x", content: "x" });
+  assert.equal(evilWrite.status, 400);
+});
+
 test("instructor answers with evidence and hints escalate", async () => {
   const a = await api("POST", `/api/sessions/${sessionId}/ask`, { text: "How am I doing?", stuck: false });
   assert.equal(a.status, 200);

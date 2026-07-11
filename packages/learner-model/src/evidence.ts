@@ -85,6 +85,7 @@ export function extractDigest(
   const interventions: string[] = [];
   const filesChanged = new Set<string>();
   let checkpointCompleted = false;
+  const completedCheckpointIds = new Set<string>();
   let lastAt = "";
 
   interface PendingHint { strategy: string; level: number; atMs: number; progressed: boolean; }
@@ -130,6 +131,7 @@ export function extractDigest(
         break;
       case "checkpoint.completed":
         checkpointCompleted = true;
+        completedCheckpointIds.add(ev.checkpointId);
         progressAt(ms);
         break;
       default:
@@ -143,7 +145,12 @@ export function extractDigest(
   const conceptObservations: Array<{ observation: string }> = [];
   if (diffViewedBeforeFirstEdit) conceptObservations.push({ observation: "diff-before-first-edit" });
   if (recoveredAfterFailure && (lastTestRun?.failed ?? 1) === 0) conceptObservations.push({ observation: "tests-pass-after-fail" });
-  if (checkpointCompleted) conceptObservations.push({ observation: "checkpoint-inspect-fix-verify" });
+  // One observation per completed checkpoint, keyed by the checkpoint's own id.
+  // (Both POC labs use checkpoint id "inspect-fix-verify", so this generalization
+  // is byte-identical for them; new labs get their own observation key for free.)
+  for (const id of [...completedCheckpointIds].sort()) {
+    conceptObservations.push({ observation: `checkpoint-${id}` });
+  }
 
   return {
     sessionId: meta.sessionId,

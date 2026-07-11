@@ -14,6 +14,13 @@ export interface Blueprint {
   defects: Record<string, { description: string; solution: string[] }>;
   tiers: Record<string, { defect: string }>;
   ciPolicy: string;
+  /**
+   * Which driver the lab's runtime deps require. Default "local" (plain node,
+   * solvable anywhere). "docker" = the lab needs tools baked into its image
+   * (e.g. Playwright browsers); CI auto-solve for it runs against the Docker
+   * driver and is skipped where no daemon/image is available.
+   */
+  driver?: "local" | "docker";
 }
 
 export interface LabVariant {

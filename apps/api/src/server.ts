@@ -298,6 +298,37 @@ export const server = createServer(async (req, res) => {
         return r ? json(res, 200, r) : json(res, 404, { error: "no reflection yet — complete the checkpoint first" });
       }
 
+      // ── workspace fs (GUI editor) — same trust boundary as the terminal ──
+      if (req.method === "GET" && tail === "fs") {
+        try {
+          return json(res, 200, { entries: await session.listWorkspaceFiles() });
+        } catch (err) {
+          return json(res, 500, { error: String((err as Error).message).slice(0, 300) });
+        }
+      }
+      if (req.method === "GET" && tail === "file") {
+        const path = url.searchParams.get("path") ?? "";
+        try {
+          return json(res, 200, await session.readWorkspaceFile(path));
+        } catch (err) {
+          const msg = String((err as Error).message);
+          return json(res, msg.includes("invalid path") ? 400 : 404, { error: msg.slice(0, 300) });
+        }
+      }
+      if (req.method === "PUT" && tail === "file") {
+        const body = await readBody(req);
+        const path = typeof body.path === "string" ? body.path : "";
+        const content = typeof body.content === "string" ? body.content : null;
+        if (content === null) return json(res, 400, { error: "content is required" });
+        try {
+          await session.writeWorkspaceFile(path, content);
+          return json(res, 200, { saved: true, path });
+        } catch (err) {
+          const msg = String((err as Error).message);
+          return json(res, msg.includes("invalid path") || msg.includes("too large") ? 400 : 500, { error: msg.slice(0, 300) });
+        }
+      }
+
       if (req.method === "POST" && tail === "ask") {
         const body = await readBody(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";

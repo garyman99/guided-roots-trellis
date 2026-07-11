@@ -8,7 +8,10 @@
       "port": 8787,
       "env": {
         "LAB_DRIVER": "docker",
-        "DOCKER_HOST": "npipe:////./pipe/docker_engine"
+        "DOCKER_HOST": "npipe:////./pipe/docker_engine",
+        "LAB_DOCKER_CPUS": "2",
+        "LAB_DOCKER_MEMORY": "1g",
+        "LAB_DOCKER_PIDS": "512"
       }
     },
     {

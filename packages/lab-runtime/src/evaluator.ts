@@ -85,7 +85,9 @@ export async function evaluateCheckpoint(
 
       case "verify": {
         if (verifyChecks === undefined) {
-          const res = await handle.exec(["node", paths.verifyScript], { timeoutMs: 20_000 });
+          // 90s cap: browser-based verifiers (e.g. Playwright labs) launch a real
+          // headless browser inside the lab env. Node-only verifiers finish in <2s.
+          const res = await handle.exec(["node", paths.verifyScript], { timeoutMs: 90_000 });
           try {
             verifyChecks = JSON.parse(res.stdout.trim().split("\n").pop() ?? "").checks ?? null;
           } catch {
@@ -104,7 +106,8 @@ export async function evaluateCheckpoint(
 
       case "tests": {
         if (testsExit === undefined) {
-          const res = await handle.exec(["node", "scripts/test.mjs"], { timeoutMs: 60_000 });
+          // 120s cap for the same reason as `verify`: browser labs run real browsers.
+          const res = await handle.exec(["node", "scripts/test.mjs"], { timeoutMs: 120_000 });
           testsExit = res.exitCode;
         }
         results.push({

@@ -1,0 +1,22 @@
+{
+  "$comment": "Adaptive-lab blueprint. Variation is AUTHORED and finite; every variant here must pass the CI auto-solve harness before release (ciPolicy). Solutions exist for CI only — they are never shown to learners or the instructor. driver:docker — Playwright browsers are baked into the lab image, so auto-solve runs via the docker harness.",
+  "blueprintId": "learn-playwright-basics",
+  "driver": "docker",
+  "teaches": ["playwright.locators-and-assertions"],
+  "exercises": ["git.diff-first-review", "testing.red-green-loop"],
+  "defects": {
+    "stale-welcome-copy": {
+      "description": "The agent rewrote the expected text of the welcome assertion to stale copy under a plausible comment; one test fails with a clean expected-vs-received report.",
+      "solution": ["node", "-e", "const f=require('fs');const p='tests/garden.spec.js';f.writeFileSync(p,f.readFileSync(p,'utf8').replace(\"  // Refreshed this assertion to match the new confirmation copy.\\n  await expect(page.locator(\\\"#confirmation\\\")).toContainText(\\\"You're all signed up, Riley!\\\");\",\"  await expect(page.locator(\\\"#confirmation\\\")).toContainText(\\\"Welcome to the garden, Riley!\\\");\"))"]
+    },
+    "ambiguous-button-locator": {
+      "description": "The agent 'simplified' getByRole('button', { name: 'Sign up' }) to page.locator('button'); the page has two buttons, so strict mode fails listing both candidates.",
+      "solution": ["node", "-e", "const f=require('fs');const p='tests/garden.spec.js';f.writeFileSync(p,f.readFileSync(p,'utf8').replace(\"  // Simplified the selector while I was in here.\\n  await page.locator(\\\"button\\\").click();\",\"  await page.getByRole(\\\"button\\\", { name: \\\"Sign up\\\" }).click();\"))"]
+    }
+  },
+  "tiers": {
+    "1": { "defect": "stale-welcome-copy" },
+    "2": { "defect": "ambiguous-button-locator" }
+  },
+  "ciPolicy": "every-variant-auto-solved-before-release"
+}

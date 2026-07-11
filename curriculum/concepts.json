@@ -27,10 +27,20 @@
       "observation": "checkpoint-inspect-fix-verify",
       "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
       "explanationTemplate": "Completed the inspect→fix→verify checkpoint in {n} lab session(s) ({dates})."
+    },
+    {
+      "id": "playwright.locators-and-assertions",
+      "name": "Reading Playwright failures: locators and assertions",
+      "category": "playwright",
+      "defaultHalfLifeDays": 60,
+      "observation": "checkpoint-first-playwright-review",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "explanationTemplate": "Diagnosed and fixed a broken Playwright test (locator or assertion) in {n} lab session(s) ({dates})."
     }
   ],
   "edges": [
     { "from": "git.diff-first-review", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" },
-    { "from": "testing.red-green-loop", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" }
+    { "from": "testing.red-green-loop", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" },
+    { "from": "testing.red-green-loop", "to": "playwright.locators-and-assertions", "kind": "prerequisite" }
   ]
 }

@@ -254,6 +254,72 @@ export class Session {
     this.attachment.write(` stty cols ${this.lastSize.cols} rows ${this.lastSize.rows}\n`);
   }
 
+  // ── workspace filesystem (for GUI editors) ──────────────────────────────
+  //
+  // The desktop experience's Code Studio reads and saves workspace files.
+  // Everything goes through the LabHandle (docker exec / lab process) — the
+  // SAME trust boundary as the terminal; the API host never touches lab
+  // files directly. Programs are node -e one-liners (node exists in every
+  // lab env) with base64 env args, so no shell quoting can be smuggled.
+
+  private async fsExec(program: string, env: Record<string, string>): Promise<string> {
+    if (!this.handle) throw new Error("session has no lab environment");
+    const res = await this.handle.exec(["node", "-e", program], { env, timeoutMs: 15_000 });
+    if (res.exitCode !== 0) throw new Error(res.stderr.slice(0, 300) || `fs op exited ${res.exitCode}`);
+    return res.stdout;
+  }
+
+  /** Relative workspace paths only; reject traversal before anything runs. */
+  private static validFsPath(path: string): boolean {
+    return (
+      path.length > 0 &&
+      path.length < 512 &&
+      !path.startsWith("/") &&
+      !path.includes("\\") &&
+      !path.includes("..") &&
+      !/^[a-zA-Z]:/.test(path)
+    );
+  }
+
+  async listWorkspaceFiles(): Promise<Array<{ path: string; dir: boolean }>> {
+    const program =
+      'const fs=require("fs"),p=require("path");const skip=new Set([".git","node_modules","test-results","playwright-report"]);' +
+      "const out=[];function walk(d,rel){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(skip.has(e.name))continue;" +
+      'const r=rel?rel+"/"+e.name:e.name;if(e.isDirectory()){out.push({path:r,dir:true});if(out.length<500)walk(p.join(d,e.name),r)}' +
+      'else out.push({path:r,dir:false});if(out.length>=500)return}}walk(process.cwd(),"");' +
+      "console.log(JSON.stringify(out));";
+    return JSON.parse(await this.fsExec(program, {})) as Array<{ path: string; dir: boolean }>;
+  }
+
+  async readWorkspaceFile(path: string): Promise<{ path: string; content: string; truncated: boolean }> {
+    if (!Session.validFsPath(path)) throw new Error("invalid path");
+    const program =
+      'const fs=require("fs"),p=require("path");const rel=Buffer.from(process.env.TRELLIS_FS_PATH,"base64").toString();' +
+      "const abs=p.resolve(process.cwd(),rel);if(!abs.startsWith(process.cwd()+p.sep))throw new Error(\"outside workspace\");" +
+      "const raw=fs.readFileSync(abs,\"utf8\");const cap=200*1024;" +
+      "console.log(JSON.stringify({content:raw.slice(0,cap),truncated:raw.length>cap}));";
+    const parsed = JSON.parse(await this.fsExec(program, { TRELLIS_FS_PATH: Buffer.from(path).toString("base64") }));
+    return { path, content: parsed.content, truncated: parsed.truncated };
+  }
+
+  async writeWorkspaceFile(path: string, content: string): Promise<void> {
+    if (!Session.validFsPath(path)) throw new Error("invalid path");
+    if (content.length > 500 * 1024) throw new Error("file too large");
+    const program =
+      'const fs=require("fs"),p=require("path");const rel=Buffer.from(process.env.TRELLIS_FS_PATH,"base64").toString();' +
+      'const body=Buffer.from(process.env.TRELLIS_FS_BODY,"base64").toString();' +
+      "const abs=p.resolve(process.cwd(),rel);if(!abs.startsWith(process.cwd()+p.sep))throw new Error(\"outside workspace\");" +
+      "fs.mkdirSync(p.dirname(abs),{recursive:true});fs.writeFileSync(abs,body);console.log(\"ok\");";
+    await this.fsExec(program, {
+      TRELLIS_FS_PATH: Buffer.from(path).toString("base64"),
+      TRELLIS_FS_BODY: Buffer.from(content).toString("base64"),
+    });
+    // MEASURED, not inferred: the platform itself performed this write, so the
+    // event is truthful — GUI saves reach the reducer exactly like terminal
+    // edits do (those are caught by the git snapshot after the next command).
+    this.emit({ type: "file.changed", path, timestamp: now() });
+  }
+
   // ── instructor ──────────────────────────────────────────────────────────
 
   hintRequest(reason: HintRequest["reason"], state = this.state()): HintRequest {
@@ -504,7 +570,15 @@ export class SessionManager {
     this.store = store;
     this.labsRoot = labsRoot;
     this.driverKind = driverKind ?? ((process.env.LAB_DRIVER as "local" | "docker") ?? "local");
-    this.driver = this.driverKind === "docker" ? new DockerDriver() : new LocalProcessDriver();
+    // Container resource limits are env-tunable: browser labs (Playwright)
+    // need more than the conservative defaults. Unset env keeps the defaults.
+    this.driver = this.driverKind === "docker"
+      ? new DockerDriver({
+          cpus: process.env.LAB_DOCKER_CPUS,
+          memory: process.env.LAB_DOCKER_MEMORY,
+          pidsLimit: process.env.LAB_DOCKER_PIDS ? Number(process.env.LAB_DOCKER_PIDS) : undefined,
+        })
+      : new LocalProcessDriver();
     this.learners = new LearnerService(store, loadCurriculum(join(labsRoot, "..", "curriculum", "concepts.json")));
   }
 
