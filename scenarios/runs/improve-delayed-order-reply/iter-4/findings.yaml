@@ -1,0 +1,42 @@
+# Findings from iteration 4 (live simulator, full evidence set).
+
+- finding_id: composer-resurrects-deleted-text
+  scenario_id: improve-delayed-order-reply
+  iteration: 4
+  severity: high
+  category: ux
+  observed_behavior: >
+    Clearing or deleting text in the Mail reply composer silently undid
+    itself: the workspace poll re-adopted the last-saved server text whenever
+    the local buffer was empty. The live learner fought it for ~18 beats,
+    produced garbled intermediate text ("Hi Dana.Hi Dana."), and reported a
+    low-confidence learner "could easily give up at the editing stage."
+  expected_behavior: Standard text editing; the learner's buffer is theirs.
+  evidence:
+    - iter-4/simulator-trace.md beats 15-33 and OUTCOME
+    - Root cause in EmailApp draft-adoption heuristic (empty-buffer re-adopt)
+  affected_values: [learner-agency, recoverability]
+  learner_impact: >
+    The scenario's core lesson is "make the words yours"; a composer that
+    resurrects deleted text attacks exactly that step.
+  root_cause_hypothesis: "CONFIRMED in code; see commit 415a731."
+  acceptance_evidence:
+    - Browser probe passing (clears stick across poll cycles; post-save typing survives; fresh inserts adopt) — done.
+    - A live rerun completing the edit phase without mechanical fighting.
+  status: addressed  # fix verified by probe; not yet exercised by a live run
+
+- finding_id: harness-browser-pane-limits
+  scenario_id: improve-delayed-order-reply
+  iteration: 4
+  severity: low
+  category: simulation
+  observed_behavior: >
+    During the live run the browser pane's screenshot/scroll capture hung for
+    ~2 minutes (forcing blind edits) and the native context menu is
+    suppressed (no right-click Select All). Both inflated the severity of the
+    composer fight without causing it.
+  expected_behavior: Harness input/capture fidelity close enough to a human browser.
+  evidence: [iter-4/simulator-trace.md harness-vs-product attribution]
+  learner_impact: none directly (harness); risks distorting experience scores.
+  acceptance_evidence: [Note pane limits in future traces; prefer read_page over screenshots for text]
+  status: open

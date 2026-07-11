@@ -1,0 +1,45 @@
+# Findings from iteration 3 (first LIVE-simulator run). Iter-3 was not given
+# a standalone evaluation report; it is covered in iter-4/evaluation.md's
+# comparison section. Statuses reflect the fix pass before iteration 4.
+
+- finding_id: wrong-domain-reflection
+  scenario_id: improve-delayed-order-reply
+  iteration: 3
+  severity: high
+  category: instruction
+  observed_behavior: >
+    The post-completion reflection told a receptionist she made a "surgical
+    fix that kept the requested feature", advised inspecting a diff that
+    does not exist in this lab, and claimed she "worked independently,
+    without hints" despite a proactive check-in. The product misstated what
+    happened — a truthfulness violation, not just a wording bug.
+  expected_behavior: >
+    Reflections describe only what THIS session's measured facts support,
+    in the lab's own domain language, counting check-ins as help.
+  evidence:
+    - iter-3/reflection.json (pre-fix narrative)
+    - iter-3 live trace BEAT 32 ("sounds like it was written for a programmer")
+  affected_values: [transferable-learning, trust]
+  learner_impact: >
+    The one artifact meant to consolidate the lesson describes a different
+    lesson; a novice would doubt either themselves or the product.
+  root_cause_hypothesis: >
+    CONFIRMED: SessionDigest had no workspace facts, so buildReflection ran
+    terminal-lab templates for every session.
+  acceptance_evidence:
+    - Iter-4 reflection is truthful and domain-correct (verified: it is).
+    - Unit + journey tests banning terminal phrasing in workspace reflections.
+  status: addressed
+
+- finding_id: workspace-profile-evidence-missing
+  scenario_id: improve-delayed-order-reply
+  iteration: 3
+  severity: medium
+  category: profile
+  observed_behavior: Completing the scenario produced no capability evidence (no ai-literacy concepts existed in the curriculum).
+  expected_behavior: The scenario's expected_profile_evidence ("Reviews and edits AI output before use") lands in the learner record.
+  evidence: [iter-3/profile-after.json vs scenario spec coverage.capabilities]
+  affected_values: [transferable-learning]
+  learner_impact: The learner's long-term record does not move despite demonstrated skills.
+  acceptance_evidence: [Iter-4 profile shows ai-literacy.context-selection and ai-literacy.output-verification emerging (verified: it does)]
+  status: addressed

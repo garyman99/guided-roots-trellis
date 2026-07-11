@@ -20,24 +20,20 @@
       "difficulty": 3,
       "execution_order": 1,
       "status": "NEEDS_IMPROVEMENT",
-      "status_reason": "Iter-2 scored 91/100 (Excellent), one point under the 92 threshold. Gate PASS both iterations; no blocker criticals. Withheld on evidence confidence: persona-scripted simulator + reflection/profile exports missing from evidence; profile-facet domain-scoping deferred. Next run: capture reflection + profile before/after in harness evidence, use a live simulator subagent, scope assembler facets by lab concepts.",
+      "status_reason": "Iter-4 (first fully-live evidence set) scored 76: pedagogy proven on free cognition (truthful reflection, ai-literacy profile movement) but the composer's deleted-text resurrection dragged the experience to the floor and let a corrupted artifact pass all gates. That defect is FIXED and probe-verified (415a731) but not yet exercised live. Next run: one live rerun on >=415a731 — clean composer + clean artifact + reproduced reflection/profile movement => ACCEPTED at >=92. Conditional remainder: mock instructor answers specific questions with generic templates (mock-provider ceiling; consider question-aware routing or the real-model path). Consider an artifact-hygiene gate (duplicated-greeting/garbling detection).",
       "latest_completion": "PASS",
-      "latest_score": 91,
+      "latest_score": 76,
       "highest_score": 91,
       "score_history": [
-        {
-          "iteration": 1,
-          "score": 79
-        },
-        {
-          "iteration": 2,
-          "score": 91
-        }
+        { "iteration": 1, "score": 79, "simulator": "scripted" },
+        { "iteration": 2, "score": 91, "simulator": "scripted" },
+        { "iteration": 3, "score": null, "simulator": "live", "note": "evaluated within iter-4 report; surfaced wrong-domain reflection" },
+        { "iteration": 4, "score": 76, "simulator": "live" }
       ],
       "acceptance_threshold": 92,
-      "iterations": 2,
+      "iterations": 4,
       "last_executed": "2026-07-11",
-      "product_commit": "2279386"
+      "product_commit": "415a731"
     },
     "catch-invented-refund-promise": {
       "run_id": "20260711T000000-0600",
