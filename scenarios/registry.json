@@ -5,6 +5,11 @@
       "imported_at": "2026-07-11",
       "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T000000-0600",
       "baseline_commit": "476fa476f344ab746876acaa9b11b421bdaf84a7"
+    },
+    "20260711T132922-0600": {
+      "imported_at": "2026-07-11",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T132922-0600",
+      "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
     }
   },
   "scenarios": {
@@ -19,7 +24,16 @@
       "latest_completion": "PASS",
       "latest_score": 91,
       "highest_score": 91,
-      "score_history": [{ "iteration": 1, "score": 79 }, { "iteration": 2, "score": 91 }],
+      "score_history": [
+        {
+          "iteration": 1,
+          "score": 79
+        },
+        {
+          "iteration": 2,
+          "score": 91
+        }
+      ],
       "acceptance_threshold": 92,
       "iterations": 2,
       "last_executed": "2026-07-11",
@@ -78,6 +92,36 @@
       "execution_order": 5,
       "status": "VALIDATED",
       "status_reason": "Frontier: honest model-outage degradation UX is a new product requirement.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "turn-heading-check-into-first-test": {
+      "run_id": "20260711T132922-0600",
+      "file": "scenarios/imported/20260711T132922-0600/01-turn-heading-check-into-first-test.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 1,
+      "execution_order": 1,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Manual Playwright authoring from a blank test slot: needs a lab variant of the community-garden project with an empty test to write, plus authoring-evidence instrumentation (no AI involvement).",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "check-form-result-without-timing-guesses": {
+      "run_id": "20260711T132922-0600",
+      "file": "scenarios/imported/20260711T132922-0600/02-check-form-result-without-timing-guesses.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 2,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Teaches retrying visible-outcome assertions over fixed waits; same blank-slot lab support as scenario 1 of this run.",
       "latest_completion": null,
       "latest_score": null,
       "highest_score": null,
