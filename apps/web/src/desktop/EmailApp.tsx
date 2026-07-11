@@ -7,7 +7,7 @@
  * message body into the helper's editable context box — the learner decides
  * what actually gets shared (and can trim it there first).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type SessionCredentials, type WorkspaceView } from "../api.ts";
 
 export function EmailApp({
@@ -29,11 +29,20 @@ export function EmailApp({
   const replyTarget = view.email.inbox.find((m) => m.id === view.email.replyTo);
   const submitted = view.reply.submitted;
 
-  // The server holds reply truth; local `draft` is the editing buffer. When a
-  // draft was inserted from the helper, adopt it (unless mid-local-edit).
-  if (view.reply.text !== "" && draft === "" && view.reply.text !== draft) {
-    setDraft(view.reply.text);
-  }
+  // The server holds reply truth; local `draft` is the editing buffer. Adopt
+  // server text ONLY on a fresh insert from the AI helper (revision 0 with
+  // new text) — never because the local buffer is empty, and never from the
+  // poll echoing back our own saves (which would clobber keystrokes typed
+  // after a blur-save). The previous empty-buffer heuristic resurrected
+  // deleted text on every poll, making the reply impossible to clear
+  // (live-simulated learner fought it for ~30 actions — finding, iter 4).
+  const lastInsertedText = useRef(view.reply.revision === 0 ? view.reply.text : null);
+  useEffect(() => {
+    if (view.reply.revision === 0 && view.reply.text !== "" && view.reply.text !== lastInsertedText.current) {
+      lastInsertedText.current = view.reply.text;
+      setDraft(view.reply.text);
+    }
+  }, [view.reply.revision, view.reply.text]);
 
   const act = async (action: Parameters<typeof api.workspaceAction>[1]) => {
     onView(await api.workspaceAction(creds, action));
