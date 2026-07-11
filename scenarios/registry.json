@@ -1,0 +1,87 @@
+{
+  "$comment": "Scenario processing ledger. One entry per imported scenario; status lifecycle and acceptance criteria are defined in docs/scenario-processing-guide.pdf and .claude/skills/process-scenarios. Scheduled runs update this file; keep it append-friendly and never delete history fields.",
+  "runs": {
+    "20260711T000000-0600": {
+      "imported_at": "2026-07-11",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T000000-0600",
+      "baseline_commit": "476fa476f344ab746876acaa9b11b421bdaf84a7"
+    }
+  },
+  "scenarios": {
+    "improve-delayed-order-reply": {
+      "run_id": "20260711T000000-0600",
+      "file": "scenarios/imported/20260711T000000-0600/01-improve-delayed-order-reply.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 3,
+      "execution_order": 1,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Requires email + ai-chat workspace applications that do not exist yet (AVW Phase 2-3); this scenario is the plan's first vertical slice.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "catch-invented-refund-promise": {
+      "run_id": "20260711T000000-0600",
+      "file": "scenarios/imported/20260711T000000-0600/02-catch-invented-refund-promise.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 4,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Requires ticket + policy-document + ai-chat applications.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "recover-email-after-reset": {
+      "run_id": "20260711T000000-0600",
+      "file": "scenarios/imported/20260711T000000-0600/03-recover-email-after-reset.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 4,
+      "execution_order": 3,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Depends on the email + ai-chat applications plus reset-boundary UX.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "keyboard-only-workspace-handoff": {
+      "run_id": "20260711T000000-0600",
+      "file": "scenarios/imported/20260711T000000-0600/04-keyboard-only-workspace-handoff.md",
+      "class": "FRONTIER",
+      "difficulty": 4,
+      "execution_order": 4,
+      "status": "VALIDATED",
+      "status_reason": "Frontier: keyboard-only parity across the virtual desktop is a new product requirement.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "continue-during-ai-outage": {
+      "run_id": "20260711T000000-0600",
+      "file": "scenarios/imported/20260711T000000-0600/05-continue-during-ai-outage.md",
+      "class": "FRONTIER",
+      "difficulty": 4,
+      "execution_order": 5,
+      "status": "VALIDATED",
+      "status_reason": "Frontier: honest model-outage degradation UX is a new product requirement.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    }
+  }
+}

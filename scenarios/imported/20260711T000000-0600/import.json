@@ -1,0 +1,18 @@
+{
+  "source_outbox": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T000000-0600",
+  "run_id": "20260711T000000-0600",
+  "imported_at": "2026-07-11T18:05:00-06:00",
+  "importing_branch": "feature/adaptive-virtual-workspace",
+  "importing_commit_at_import_time": "476fa476f344ab746876acaa9b11b421bdaf84a7",
+  "baseline_commit_declared_by_generator": "476fa476f344ab746876acaa9b11b421bdaf84a7",
+  "files": {
+    "01-improve-delayed-order-reply.md": "sha256:0f6919891773616b203b571c0bda438009148a14d09781aebdca21f80ff31ada",
+    "02-catch-invented-refund-promise.md": "sha256:8a3ae3df58d04bbbbcbc0dcee7d21edecf2f4674ecb078001c43a7f3263ea78a",
+    "03-recover-email-after-reset.md": "sha256:d8aa5871390a680441c6db46278986b8414d3166ce33ee0244a59758c479af02",
+    "04-keyboard-only-workspace-handoff.md": "sha256:eb7aaa1ed5b8a4f5f93242c6c38fa6f66cdbb93b0e5e05718c8045b86fa04e83",
+    "05-continue-during-ai-outage.md": "sha256:374c25267bd68d20b0bf98dcca4ba0eccb0bdce7541015eef10218c3ec339302",
+    "manifest.md": "sha256:e8bda410fff9b64d0614e5fb109f6892da9f44aaa4ed71d65bf3831892fdbad8"
+  },
+  "validation": "all 5 scenarios have complete frontmatter and required body sections (checked 2026-07-11)",
+  "note": "Verbatim copies. Never edit these files; implementation annotations live outside imported/."
+}
