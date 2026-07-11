@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["apps/api/src/server.ts"],
+      "port": 8787,
+      "env": {
+        "LAB_DRIVER": "docker",
+        "DOCKER_HOST": "npipe:////./pipe/docker_engine"
+      }
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--workspace", "@trellis/web", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { LocalProcessDriver } from "../src/localDriver.ts";
 import { SessionInstrumentation } from "../src/instrumentation.ts";
 import { evaluateCheckpoint, verifyScriptPathFor, type CheckpointSpec } from "../src/evaluator.ts";
@@ -16,7 +16,7 @@ import type { SessionEvent } from "../../session-events/src/events.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const labDir = join(repoRoot, "labs", "inspect-generated-changes");
-const labJson = await import(join(labDir, "lab.json"), { with: { type: "json" } });
+const labJson = await import(pathToFileURL(join(labDir, "lab.json")).href, { with: { type: "json" } });
 const checkpoint: CheckpointSpec = labJson.default.checkpoint;
 
 const driver = new LocalProcessDriver();

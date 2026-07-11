@@ -56,11 +56,13 @@ class DockerLabHandle implements LabHandle {
   readonly id: string;
   readonly labId: string;
   private readonly container: string;
+  private readonly def: LabDefinition;
 
-  constructor(id: string, labId: string, container: string) {
+  constructor(id: string, labId: string, container: string, def: LabDefinition) {
     this.id = id;
     this.labId = labId;
     this.container = container;
+    this.def = def;
   }
 
   private baseEnvArgs(): string[] {
@@ -174,7 +176,7 @@ export class DockerDriver implements LabDriver {
     if (res.exitCode !== 0) {
       throw new Error(`docker run failed (is the '${image}' image built?): ${res.stderr}`);
     }
-    const handle = new DockerLabHandle(sessionId, def.labId, container);
+    const handle = new DockerLabHandle(sessionId, def.labId, container, def);
     await handle.initWorkspace();
     return handle;
   }

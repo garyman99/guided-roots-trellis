@@ -1,0 +1,9 @@
+# Trellis runs its labs in Linux containers and a POSIX shell. Force LF on
+# checkout everywhere so shell rc files and scripts (e.g. trellis-bashrc.sh)
+# are never corrupted to CRLF when cloned on Windows, which would break the
+# in-container terminal and the .mjs runners.
+* text=auto eol=lf
+
+# Belt-and-suspenders for the executable/interpreted scripts.
+*.sh   text eol=lf
+*.mjs  text eol=lf
