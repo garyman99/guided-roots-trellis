@@ -1,0 +1,262 @@
+{
+  "state": {
+    "lessonId": "improve-delayed-order-reply",
+    "learnerId": "learner-94c04dc552fe",
+    "completedCheckpoints": [
+      "delayed-order-reply"
+    ],
+    "recentCommands": [],
+    "filesChanged": [],
+    "viewedGitDiff": false,
+    "testsRun": 0,
+    "repeatedFailures": [],
+    "learnerQuestions": [
+      "Do I need to give the helper the whole email?",
+      "Yes please — what should I try next?",
+      "That was easier than I expected. Thanks!"
+    ],
+    "hintsAlreadyGiven": [
+      {
+        "level": 0,
+        "strategy": "elicit"
+      },
+      {
+        "level": 1,
+        "strategy": "orient"
+      },
+      {
+        "level": 3,
+        "strategy": "point-to-location"
+      },
+      {
+        "level": 0,
+        "strategy": "elicit"
+      }
+    ],
+    "changedSinceLastTestRun": false,
+    "workspace": {
+      "openedApps": [],
+      "openedArtifacts": [
+        "customer-email",
+        "tone-note"
+      ],
+      "aiContextShares": 2,
+      "restrictedEverShared": [
+        "loyalty-number"
+      ],
+      "restrictedInLatestShare": [],
+      "requiredFactsInLatestShare": [
+        "order-id",
+        "delivery-expectation"
+      ],
+      "aiPrompts": 2,
+      "aiDraftsGenerated": 2,
+      "draftInserted": true,
+      "draftRevisions": 1,
+      "latestDraft": {
+        "revision": 1,
+        "similarityToGenerated": 0.703
+      },
+      "submitted": {
+        "artifactId": "customer-email",
+        "revision": 1,
+        "similarityToGenerated": 0.703,
+        "restrictedSpans": [],
+        "forbiddenPhrases": [],
+        "requiredFactsMissing": [],
+        "acknowledgesInconvenience": true,
+        "at": "2026-07-11T19:16:14.691Z"
+      }
+    },
+    "lastEventAt": "2026-07-11T19:16:31.214Z",
+    "startedAt": "2026-07-11T19:14:57.779Z",
+    "lastCheckpointEvaluation": {
+      "checkpointId": "delayed-order-reply",
+      "passed": true,
+      "incomplete": []
+    },
+    "msSinceLastActivity": 4015
+  },
+  "tasks": [
+    {
+      "id": "open-email",
+      "text": "Start in the Mail window. Click Dana's message and read it properly — what are they actually asking? Then peek at the team's tone note underneath the inbox. That note is your guardrail for everything you write today.",
+      "auto": "artifact-opened",
+      "done": true
+    },
+    {
+      "id": "ai-consult",
+      "text": "Over in the AI Helper: before you ask it for anything, decide what it actually needs to know. In Mail you can send the message text over with one click — but the context box is yours to edit before anything is shared. Then ask it to draft a reply.",
+      "auto": "ai-consulted",
+      "done": true
+    },
+    {
+      "id": "context-clean",
+      "text": "Look at what you shared. Does the helper really need Dana's loyalty number to draft a reply? Anything it doesn't need shouldn't leave Mail — trim the context down to the useful facts (the order, the delay, what tracking says) and share that instead.",
+      "auto": "context-clean",
+      "done": true
+    },
+    {
+      "id": "edit-draft",
+      "text": "Read the helper's draft like a skeptic: is every claim true? Did it promise something the tone note says we never promise? Put the draft into your reply, then make it your own — fix anything wrong, keep the facts, and make it sound like you (nobody signs an email \"[Your Name]\").",
+      "auto": "draft-edited",
+      "done": true
+    },
+    {
+      "id": "send",
+      "text": "One last read top-to-bottom, then press \"Send simulated reply\". Nothing goes to a real person — this is the practice version of the moment where you'd hit send for real.",
+      "auto": "reply-submitted",
+      "done": true
+    }
+  ],
+  "checkpointReady": true,
+  "transcript": [
+    {
+      "id": 1,
+      "role": "learner",
+      "text": "Do I need to give the helper the whole email?",
+      "at": "2026-07-11T19:15:22.072Z"
+    },
+    {
+      "id": 2,
+      "role": "instructor",
+      "text": "Quick gut check before anything else — read back what you last shared or wrote, out loud if it helps. Does every piece of it need to be there, and is every claim in it true?",
+      "level": 0,
+      "at": "2026-07-11T19:15:22.079Z"
+    },
+    {
+      "id": 3,
+      "role": "instructor",
+      "text": "You're doing fine. I can see part of what you shared with the helper looks like something it doesn't actually need. The next step is: Look at what you shared. Does the helper really need Dana's loyalty number to draft a reply? Anything it doesn't need shouldn't leave Mail — trim the context down to the useful facts (the order, the delay, what tracking says) and share that instead.",
+      "level": 1,
+      "at": "2026-07-11T19:15:33.867Z"
+    },
+    {
+      "id": 4,
+      "role": "learner",
+      "text": "Yes please — what should I try next?",
+      "at": "2026-07-11T19:15:36.104Z"
+    },
+    {
+      "id": 5,
+      "role": "instructor",
+      "text": " Go line by line: check what you shared with the helper, and check its draft, against your team's notes. Anything the task didn't need — or any claim you can't stand behind — is the line to fix. The task in focus: Look at what you shared. Does the helper really need Dana's loyalty number to draft a reply? Anything it doesn't need shouldn't leave Mail — trim the context down to the useful facts (the order, the delay, what tracking says) and share that instead.",
+      "level": 3,
+      "at": "2026-07-11T19:15:36.112Z"
+    },
+    {
+      "id": 6,
+      "role": "learner",
+      "text": "That was easier than I expected. Thanks!",
+      "at": "2026-07-11T19:16:31.213Z"
+    },
+    {
+      "id": 7,
+      "role": "instructor",
+      "text": "That's the whole loop — and it's verified, so take the credit. If you want, try it once more your own way; otherwise you're all set here.",
+      "level": 0,
+      "at": "2026-07-11T19:16:31.221Z"
+    }
+  ],
+  "checkpoint": {
+    "id": "delayed-order-reply",
+    "title": "A verified, human reply — drafted with help, sent by you",
+    "requirements": [
+      {
+        "id": "used-ai-helper",
+        "kind": "workspace",
+        "label": "Asked the AI helper for a draft"
+      },
+      {
+        "id": "context-clean",
+        "kind": "workspace",
+        "label": "Shared the useful facts — without Dana's loyalty number"
+      },
+      {
+        "id": "reviewed-and-edited",
+        "kind": "workspace",
+        "label": "Meaningfully edited the generated text (or wrote your own)"
+      },
+      {
+        "id": "facts-preserved",
+        "kind": "workspace",
+        "label": "The reply keeps Dana's order number and what tracking shows"
+      },
+      {
+        "id": "no-forbidden-promise",
+        "kind": "workspace",
+        "label": "No promise or guarantee we can't keep"
+      },
+      {
+        "id": "no-restricted-in-reply",
+        "kind": "workspace",
+        "label": "The loyalty number stayed out of the reply"
+      },
+      {
+        "id": "acknowledges-inconvenience",
+        "kind": "workspace",
+        "label": "The reply acknowledges the inconvenience"
+      },
+      {
+        "id": "reply-submitted",
+        "kind": "workspace",
+        "label": "The simulated reply was sent"
+      }
+    ]
+  },
+  "variantId": null,
+  "agentTimeline": [],
+  "lab": {
+    "id": "improve-delayed-order-reply",
+    "title": "Improve a delayed-order reply — with an AI helper",
+    "scenario": "You work the front desk and also answer customer email. Dana ordered raised-bed planters (order GR-1042); delivery is two days late and tracking now says tomorrow. Dana wants to know what's going on. You have an AI helper available — but it only knows what you tell it, it happily repeats anything you paste, and it tends to over-promise. The reply that goes out is yours, not its.",
+    "agentMessage": null,
+    "chat": {
+      "botName": "Sage",
+      "welcome": [
+        "Hey! Sage here 🌿 — welcome to the front desk. Everything in this space is practice: the customer is fictional, and nothing you send actually leaves the room.",
+        "So: a customer named Dana wrote in about a late order, and they're not thrilled. Your job is to reply — warm, honest, no promises we can't keep.",
+        "There's an AI Helper on the desktop that can draft text for you. Fair warning from me: it only knows what you paste into it, and it can get… enthusiastic. Whatever it writes, the final say is yours."
+      ]
+    },
+    "tasks": [
+      {
+        "id": "open-email",
+        "text": "Start in the Mail window. Click Dana's message and read it properly — what are they actually asking? Then peek at the team's tone note underneath the inbox. That note is your guardrail for everything you write today.",
+        "auto": "artifact-opened"
+      },
+      {
+        "id": "ai-consult",
+        "text": "Over in the AI Helper: before you ask it for anything, decide what it actually needs to know. In Mail you can send the message text over with one click — but the context box is yours to edit before anything is shared. Then ask it to draft a reply.",
+        "auto": "ai-consulted"
+      },
+      {
+        "id": "context-clean",
+        "text": "Look at what you shared. Does the helper really need Dana's loyalty number to draft a reply? Anything it doesn't need shouldn't leave Mail — trim the context down to the useful facts (the order, the delay, what tracking says) and share that instead.",
+        "auto": "context-clean"
+      },
+      {
+        "id": "edit-draft",
+        "text": "Read the helper's draft like a skeptic: is every claim true? Did it promise something the tone note says we never promise? Put the draft into your reply, then make it your own — fix anything wrong, keep the facts, and make it sound like you (nobody signs an email \"[Your Name]\").",
+        "auto": "draft-edited"
+      },
+      {
+        "id": "send",
+        "text": "One last read top-to-bottom, then press \"Send simulated reply\". Nothing goes to a real person — this is the practice version of the moment where you'd hit send for real.",
+        "auto": "reply-submitted"
+      }
+    ],
+    "workspaceApps": [
+      {
+        "id": "email",
+        "title": "Mail",
+        "icon": "✉️"
+      },
+      {
+        "id": "ai-chat",
+        "title": "AI Helper",
+        "icon": "✨"
+      }
+    ]
+  }
+}

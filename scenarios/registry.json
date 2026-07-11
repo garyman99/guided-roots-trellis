@@ -14,14 +14,16 @@
       "class": "CURRENT-EDGE",
       "difficulty": 3,
       "execution_order": 1,
-      "status": "VALIDATED",
-      "status_reason": "Spec complete. Requires email + ai-chat workspace applications that do not exist yet (AVW Phase 2-3); this scenario is the plan's first vertical slice.",
-      "latest_completion": null,
-      "latest_score": null,
-      "highest_score": null,
+      "status": "NEEDS_IMPROVEMENT",
+      "status_reason": "Iter-2 scored 91/100 (Excellent), one point under the 92 threshold. Gate PASS both iterations; no blocker criticals. Withheld on evidence confidence: persona-scripted simulator + reflection/profile exports missing from evidence; profile-facet domain-scoping deferred. Next run: capture reflection + profile before/after in harness evidence, use a live simulator subagent, scope assembler facets by lab concepts.",
+      "latest_completion": "PASS",
+      "latest_score": 91,
+      "highest_score": 91,
+      "score_history": [{ "iteration": 1, "score": 79 }, { "iteration": 2, "score": 91 }],
       "acceptance_threshold": 92,
-      "iterations": 0,
-      "last_executed": null
+      "iterations": 2,
+      "last_executed": "2026-07-11",
+      "product_commit": "2279386"
     },
     "catch-invented-refund-promise": {
       "run_id": "20260711T000000-0600",
