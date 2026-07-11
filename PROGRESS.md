@@ -1,5 +1,51 @@
 # Trellis — build progress
 
+## Branch point: feature/adaptive-virtual-workspace (2026-07-11)
+
+Feature work for the adaptive virtual workspace initiative ("Trellis
+Architecture and Implementation" plan) begins here.
+
+- **Source branch:** `main`
+- **Source commit:** `ddf8033` — Conversational guide: chat companion,
+  timed check-ins, screen context (ADR-0005)
+- **Uncommitted changes at branch point:** none (working tree clean)
+- **Date feature work began:** 2026-07-11
+- **Baseline tests (2026-07-11):**
+  - Native Windows host: shell-dependent api/lab tests fail then hang
+    (`driver=local` spawns POSIX `script(1)` ptys) — the already-
+    documented "full suite needs a POSIX host" limitation. Run aborted.
+  - POSIX container (`trellis-lab-inspect-generated-changes` image,
+    node 22.23.1, Rancher daemon), repo copied to container-local disk:
+    **66 tests: 64 pass, 1 fail, 1 skipped.**
+  - The one consistent failure (3/3 runs): learner-journey e2e
+    `checkpointReady` assertion (`apps/api/test/e2e.test.ts:119`). All
+    measured state is correct (diff viewed, testsRun ≥ 2, 6/0 result,
+    `src/pricing.ts` changed); suspect a straggler `file.changed`
+    instrumentation event arriving after the final `tests.completed`
+    re-sets `changedSinceLastTestRun`, so the `tests-green` task
+    (`apps/api/src/sessions.ts:103`) reads not-done. Timing race,
+    environment-sensitive — passed green in the original sandbox.
+    Not fixed here (Phase 0 = no behavior changes); investigate early
+    in this branch.
+  - Same suite over a Windows volume mount is flakier (2–5 failures,
+    varying; includes tier-2 auto-promotion) — slow mounted-FS timing.
+    Use container-local disk for trustworthy runs on this machine.
+- **Major assumptions:**
+  - The existing event-sourced session model, pure reducers,
+    deterministic checkpoints, intervention engine, instructor
+    abstraction, and lab runtime are preserved and adapted — not
+    replaced (plan's Migration Requirements).
+  - Deterministic systems remain authoritative for completion and
+    policy; AI interprets evidence and communicates. No LLM judgment
+    replaces instrumentation or verification.
+  - The existing Windows-styled desktop shell (ADR-0004) is the seed of
+    the generic workspace shell rather than something to be rebuilt.
+  - First vertical slice is the non-coding "Improve a Customer Email
+    Using AI" scenario, runnable without an external API key (mock /
+    deterministic provider).
+  - `origin/main` upstream is gone; no pushes will be made from this
+    branch. The branch will not be merged as part of this work.
+
 ## Verified in this sandbox (64 tests, green across 3 consecutive full runs: `npm test`)
 
 **POC foundations (ADR-0001)** — event-sourced sessions, deterministic
