@@ -27,6 +27,18 @@ Architecture and Implementation" plan) begins here.
     environment-sensitive — passed green in the original sandbox.
     Not fixed here (Phase 0 = no behavior changes); investigate early
     in this branch.
+  - **Race confirmed against a live session (2026-07-11, real browser,
+    docker driver, learn-playwright-basics):** event log shows
+    `file.changed tests/garden.spec.js` (GUI Ctrl+S) → `npm test` →
+    `tests.completed passed=4 failed=0` → **`file.changed` again 126 ms
+    later** — the shell instrumentation's post-command snapshot
+    re-detects the already-tested edit and re-sets
+    `changedSinceLastTestRun`, so the `verify`/`tests-green` task never
+    reads done and the UI never suggests the checkpoint. Learner-visible
+    but not blocking: "Check my work" runs the authoritative server-side
+    evaluator and passes. Fix direction: instrumentation should snapshot
+    before emitting test results, or the reducer should ignore a
+    `file.changed` whose content hash matches the tree already tested.
   - Same suite over a Windows volume mount is flakier (2–5 failures,
     varying; includes tier-2 auto-promotion) — slow mounted-FS timing.
     Use container-local disk for trustworthy runs on this machine.
