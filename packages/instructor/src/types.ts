@@ -15,6 +15,18 @@ export interface HintRequest {
   reason:
     | { kind: "question"; text: string; stuck: boolean }
     | { kind: "intervention"; trigger: InterventionTrigger };
+  /**
+   * What the learner's client says is on screen right now (UNTRUSTED,
+   * self-reported; sanitized + capped by the session before it gets here).
+   * Informs how guidance is phrased — e.g. "the file you already have open"
+   * — never what the platform believes about the learner.
+   */
+  screen?: {
+    activeApp: string | null;
+    openWindows: string[];
+    editorFile: string | null;
+    editorDirty: boolean;
+  };
   hintLevel: number;
   promptVersion: string;
 }

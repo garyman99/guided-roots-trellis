@@ -79,6 +79,16 @@ contestation → analytics gates → erasure.
   reads/saves go through new session fs routes executed inside the lab env
   (e2e-tested); saves emit measured file.changed events. Classic layout at
   ?ui=classic; mac-styled shell is a planned ?os= variant (stub only).
+- **Conversational guide (ADR-0005)** — the desktop guide is a chat
+  companion ("Sage"): informal authored welcome (no "you are a…" framing),
+  the agent's message as a bubble, measured task beats + next steps
+  delivered as conversation, interventions as check-ins with quick replies,
+  checkpoint + reflection inline, and the "What does Sage see?" drawer.
+  Learner messages carry a client screen self-report → sanitized →
+  ui.state.reported v1 event → fenced instructor-context section (phrasing
+  only, never profile truth). Hardening found by probing that seam:
+  untrusted text can no longer spell the prompt's fence markers, and the
+  mock instructor's hints are lab-agnostic (they hardcoded pricing paths).
 
 ## Unverified in this sandbox
 

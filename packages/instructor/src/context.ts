@@ -76,6 +76,19 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
     sections.push(profile.text);
   }
 
+  if (req.screen) {
+    // SELF-REPORTED by the learner's client, not measured by instrumentation:
+    // useful for phrasing ("the file you have open"), never for conclusions.
+    const s = req.screen;
+    sections.push(
+      `# LEARNER'S SCREEN (client self-report — untrusted, for phrasing only)\n` +
+        `- Active window: ${s.activeApp ? fenceInline(s.activeApp, 60) : "(unknown)"}\n` +
+        `- Open windows: ${s.openWindows.length ? s.openWindows.map((w) => fenceInline(w, 60)).join(", ") : "(none reported)"}\n` +
+        `- File open in editor: ${s.editorFile ? fenceInline(s.editorFile, 200) : "(none)"}` +
+        (s.editorFile ? ` — unsaved changes: ${s.editorDirty ? "yes" : "no"}` : ""),
+    );
+  }
+
   if (reason.kind === "question") {
     sections.push(`# LEARNER MESSAGE${reason.stuck ? " (learner pressed “I'm stuck”)" : ""}\n${fence(reason.text)}`);
   } else {

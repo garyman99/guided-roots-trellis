@@ -13,9 +13,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./desktop.css";
-import { api, type SessionCredentials, type StatePayload } from "../api.ts";
-import { InstructorPanel, InterventionToast, LessonPanel } from "../panels.tsx";
+import { api, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
 import { CodeStudio } from "./CodeStudio.tsx";
+import { ChatGuide } from "./ChatGuide.tsx";
 import { WindowFrame, type OsStyle, type WindowState } from "./WindowFrame.tsx";
 
 type AppId = "guide" | "code" | "preview";
@@ -66,38 +66,6 @@ const APPS: AppSpec[] = [
   },
 ];
 
-function GuideApp({
-  creds,
-  data,
-  onNewData,
-}: {
-  creds: SessionCredentials;
-  data: StatePayload;
-  onNewData: (d: StatePayload) => void;
-}) {
-  const [tab, setTab] = useState<"lesson" | "instructor">("lesson");
-  return (
-    <div className="guide-app">
-      <div className="guide-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "lesson"} className={tab === "lesson" ? "active" : ""} onClick={() => setTab("lesson")}>
-          Lesson
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === "instructor"}
-          className={tab === "instructor" ? "active" : ""}
-          onClick={() => setTab("instructor")}
-        >
-          Instructor
-        </button>
-      </div>
-      <div className="guide-body">
-        {tab === "lesson" ? <LessonPanel creds={creds} data={data} /> : <InstructorPanel creds={creds} data={data} onNewData={onNewData} />}
-      </div>
-    </div>
-  );
-}
-
 /** A browser-looking window rendering the lab's static site from the workspace. */
 function PreviewApp({ creds }: { creds: SessionCredentials }) {
   const [doc, setDoc] = useState<string | null>(null);
@@ -145,6 +113,21 @@ export function Desktop({
   const [windows, setWindows] = useState<Record<AppId, WindowState>>(() =>
     Object.fromEntries(APPS.map((a, i) => [a.id, a.initial(i)])) as Record<AppId, WindowState>,
   );
+  // The editor reports what it's showing; the guide bot sends it along with
+  // learner messages so the instructor can phrase against the actual screen.
+  const editorState = useRef<{ file: string | null; dirty: boolean }>({ file: null, dirty: false });
+  const windowsRef = useRef(windows);
+  windowsRef.current = windows;
+  const getScreen = (): ScreenReport => {
+    const open = APPS.filter((a) => windowsRef.current[a.id]?.open && !windowsRef.current[a.id]?.minimized);
+    const top = [...open].sort((a, b) => windowsRef.current[b.id].z - windowsRef.current[a.id].z)[0];
+    return {
+      activeApp: top?.title ?? null,
+      openWindows: open.map((a) => a.title),
+      editorFile: windowsRef.current.code?.open ? editorState.current.file : null,
+      editorDirty: editorState.current.dirty,
+    };
+  };
   const [startOpen, setStartOpen] = useState(false);
   const [selectedIcon, setSelectedIcon] = useState<AppId | null>(null);
   const zRef = useRef(10);
@@ -213,8 +196,8 @@ export function Desktop({
           onFocus={() => focusWin(a.id)}
           onClose={() => update(a.id, { open: false })}
         >
-          {a.id === "code" && <CodeStudio creds={creds} />}
-          {a.id === "guide" && <GuideApp creds={creds} data={data} onNewData={onNewData} />}
+          {a.id === "code" && <CodeStudio creds={creds} onEditorState={(s) => (editorState.current = s)} />}
+          {a.id === "guide" && <ChatGuide creds={creds} data={data} onNewData={onNewData} getScreen={getScreen} />}
           {a.id === "preview" && <PreviewApp creds={creds} />}
         </WindowFrame>
       ))}
@@ -257,7 +240,8 @@ export function Desktop({
         </div>
       </nav>
 
-      <InterventionToast creds={creds} />
+      {/* Interventions surface IN the chat (ChatGuide) on the desktop —
+          conversational check-ins with quick replies, not a toast. */}
     </div>
   );
 }

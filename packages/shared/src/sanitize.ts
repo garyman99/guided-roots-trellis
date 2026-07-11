@@ -18,7 +18,15 @@ export function stripAnsi(text: string): string {
 
 /** Strip ANSI + control chars, normalize newlines, cap length (head + tail kept). */
 export function sanitizeUntrusted(text: string, maxLength = 2000): string {
-  const clean = stripAnsi(text).replace(CONTROL_PATTERN, "").replace(/\r\n?/g, "\n");
+  const clean = stripAnsi(text)
+    .replace(CONTROL_PATTERN, "")
+    .replace(/\r\n?/g, "\n")
+    // MARKER COLLISION DEFENSE: untrusted text must never be able to spell
+    // the exact fence markers the instructor prompt uses (<<<…>>>), or it
+    // could structurally "close" a fence and smuggle text outside the data
+    // boundary. Break any such run with visually-similar characters.
+    .replace(/<<</g, "‹<<")
+    .replace(/>>>/g, ">>›");
   if (clean.length <= maxLength) return clean;
   const half = Math.floor(maxLength / 2);
   return clean.slice(0, half) + `\n… [${clean.length - maxLength} chars truncated] …\n` + clean.slice(-half);

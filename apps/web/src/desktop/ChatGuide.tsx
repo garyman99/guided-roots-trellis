@@ -1,0 +1,269 @@
+/**
+ * ChatGuide — the desktop's guide is a chat companion, not a document.
+ *
+ * One conversational thread merges:
+ *   • the bot's authored, informal welcome (lab.chat.welcome — direct
+ *     address, no "you are a…" role-play framing)
+ *   • the coding agent's message, as a distinct bubble to react to
+ *   • measured beats: when instrumentation marks a task done, the bot
+ *     acknowledges it in the thread ("saw you run the tests ✓")
+ *   • the learner ↔ instructor transcript (asks + hint-ladder replies)
+ *   • proactive check-ins: the deterministic intervention engine's nudges
+ *     land as bot messages with quick replies — "help me" routes into the
+ *     instructor with full screen context; "I've got it" just dismisses
+ *   • the checkpoint: run it from the thread; results and the reflection
+ *     render inline as chat cards
+ *
+ * Every learner message carries a screen self-report (what windows are
+ * open, which file the editor shows) so the instructor can phrase next
+ * steps against what they're actually looking at.
+ */
+import { useEffect, useRef, useState } from "react";
+import { api, type RequirementResult, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
+import { ContextDrawer, ReflectionCard } from "../panels.tsx";
+
+interface ChatMsg {
+  key: string;
+  from: "bot" | "learner" | "agent" | "system";
+  text: string;
+  hintLevel?: number;
+  /** A nudge awaiting a quick reply. */
+  nudge?: boolean;
+  /** Inline checkpoint result card. */
+  checkpoint?: { passed: boolean; requirements: RequirementResult[] };
+}
+
+const FALLBACK_BOT = "Sage";
+
+export function ChatGuide({
+  creds,
+  data,
+  onNewData,
+  getScreen,
+}: {
+  creds: SessionCredentials;
+  data: StatePayload;
+  onNewData: (d: StatePayload) => void;
+  getScreen: () => ScreenReport;
+}) {
+  const botName = data.lab.chat?.botName ?? FALLBACK_BOT;
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [showContext, setShowContext] = useState(false);
+  const seenTranscript = useRef(new Set<number>());
+  const seenTasks = useRef(new Set<string>());
+  const promptedTask = useRef<string | null>(null);
+  const nudgeArmed = useRef(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
+
+  const push = (m: Omit<ChatMsg, "key">) =>
+    setMsgs((cur) => [...cur, { ...m, key: `${Date.now()}-${cur.length}-${Math.random().toString(36).slice(2, 7)}` }]);
+
+  // ── Opening beat: informal welcome, then the agent's message ─────────────
+  useEffect(() => {
+    const welcome = data.lab.chat?.welcome?.length
+      ? data.lab.chat.welcome
+      : [
+          `Hey! I'm ${botName} — I'll hang out right here while you work. Ask me anything, anytime.`,
+          `Today: ${data.lab.title}. Take it one step at a time; I'll point the way as we go.`,
+        ];
+    const opening: ChatMsg[] = welcome.map((text, i) => ({ key: `w${i}`, from: "bot", text }));
+    if (data.lab.agentMessage) {
+      opening.push({ key: "agent", from: "agent", text: data.lab.agentMessage });
+      opening.push({
+        key: "w-after-agent",
+        from: "bot",
+        text: "That's what it says, anyway. Mind double-checking its work before we take its word for it?",
+      });
+    }
+    // The first open step arrives as part of the opening beat (idempotent
+    // across StrictMode's dev double-mount, which re-runs this effect).
+    const firstOpen = data.tasks.find((t) => !t.done);
+    if (firstOpen) {
+      promptedTask.current = firstOpen.id;
+      opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
+    }
+    setMsgs(opening);
+    // Seed dedupe sets so pre-existing transcript/tasks don't replay as new.
+    for (const m of data.transcript) seenTranscript.current.add(m.id);
+    for (const t of data.tasks) if (t.done) seenTasks.current.add(t.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creds.sessionId]);
+
+  // ── Measured beats + the conversational path, driven by the state poll ───
+  // When instrumentation marks a task done, the bot acknowledges it and then
+  // offers the NEXT step — the lesson path delivered as conversation, not as
+  // a checklist document.
+  useEffect(() => {
+    let progressed = false;
+    for (const t of data.tasks) {
+      if (t.done && !seenTasks.current.has(t.id)) {
+        seenTasks.current.add(t.id);
+        progressed = true;
+        push({ from: "system", text: `Saw that — nicely done. ✓` });
+      }
+    }
+    const next = data.tasks.find((t) => !t.done);
+    const shouldPrompt = next && promptedTask.current !== next.id && (progressed || promptedTask.current === null);
+    if (shouldPrompt) {
+      promptedTask.current = next.id;
+      push({ from: "bot", text: next.text });
+    }
+    for (const m of data.transcript) {
+      if (!seenTranscript.current.has(m.id)) {
+        seenTranscript.current.add(m.id);
+        push({ from: m.role === "instructor" ? "bot" : "learner", text: m.text, hintLevel: m.level });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.tasks, data.transcript]);
+
+  // ── Proactive check-ins: interventions → conversational nudges ───────────
+  useEffect(() => {
+    const t = setInterval(async () => {
+      if (!nudgeArmed.current || completed) return;
+      try {
+        const { intervention } = (await api.intervention(creds)) as {
+          intervention: { hint: { message: string; level: number }; triggerType: string } | null;
+        };
+        if (intervention) {
+          nudgeArmed.current = false; // one open nudge at a time
+          // The hint TEXT arrives via the transcript (the server records the
+          // intervention there too) — the chat adds only the check-in chips,
+          // so the message never renders twice.
+          push({ from: "bot", text: "Want a hand with this?", nudge: true });
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creds, completed]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [msgs.length]);
+
+  const send = async (text: string, stuck: boolean) => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    setDraft("");
+    try {
+      await api.ask(creds, text.trim(), stuck, getScreen());
+      onNewData(await api.state(creds));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const answerNudge = (accepted: boolean) => {
+    setMsgs((cur) => cur.map((m) => (m.nudge ? { ...m, nudge: false } : m)));
+    nudgeArmed.current = true;
+    if (accepted) {
+      void send("Yes please — what should I try next?", true);
+    } else {
+      push({ from: "learner", text: "I've got it, thanks!" });
+    }
+  };
+
+  const runCheck = async () => {
+    setChecking(true);
+    push({ from: "learner", text: "Check my work?" });
+    try {
+      const result = await api.evaluate(creds);
+      push({
+        from: "bot",
+        text: result.passed
+          ? "Everything checks out — that's a pass! 🎉 Here's what the platform verified:"
+          : "Not quite everything yet — here's where things stand:",
+        checkpoint: result,
+      });
+      onNewData(await api.state(creds));
+    } catch {
+      push({ from: "bot", text: "Hmm, I couldn't run the check just now — give it another try in a moment." });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="chat-guide">
+      <div className="chat-head">
+        <span className="chat-head-name">🌿 {botName}</span>
+        <button className="link" onClick={() => setShowContext(true)}>
+          What does {botName} see?
+        </button>
+      </div>
+      <div className="chat-thread" ref={scrollRef}>
+        {msgs.map((m) => (
+          <div key={m.key} className={`chat-row ${m.from}`}>
+            {m.from !== "learner" && (
+              <span className="chat-avatar" aria-hidden="true">
+                {m.from === "agent" ? "🤖" : m.from === "system" ? "✓" : "🌿"}
+              </span>
+            )}
+            <div className={`chat-bubble ${m.from}`}>
+              {m.from === "agent" && <div className="chat-tag">coding agent</div>}
+              {m.from === "bot" && m.hintLevel !== undefined && (
+                <div className="chat-tag">
+                  {botName} · hint {Math.min(m.hintLevel + 1, 5)} of 5
+                </div>
+              )}
+              <p>{m.text}</p>
+              {m.nudge && (
+                <div className="chat-chips">
+                  <button className="chip chip-primary" onClick={() => answerNudge(true)}>
+                    Yes, help me out
+                  </button>
+                  <button className="chip" onClick={() => answerNudge(false)}>
+                    I've got it
+                  </button>
+                </div>
+              )}
+              {m.checkpoint && (
+                <ul className="chat-reqs">
+                  {m.checkpoint.requirements.map((r) => (
+                    <li key={r.id} className={r.ok ? "ok" : ""}>
+                      {r.ok ? "✓" : "○"} {r.label}
+                      {!r.ok && r.detail && <div className="chat-req-detail">{r.detail}</div>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ))}
+        {completed && (
+          <div className="chat-reflection">
+            <ReflectionCard creds={creds} />
+          </div>
+        )}
+      </div>
+      <div className="chat-composer">
+        <button className="chip" onClick={() => void runCheck()} disabled={checking}>
+          {checking ? "Checking…" : "Check my work"}
+        </button>
+        <textarea
+          value={draft}
+          placeholder={`Message ${botName}…`}
+          rows={2}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send(draft, false);
+            }
+          }}
+        />
+        <button className="chip chip-primary" onClick={() => void send(draft, false)} disabled={sending || !draft.trim()}>
+          Send
+        </button>
+      </div>
+      {showContext && <ContextDrawer creds={creds} onClose={() => setShowContext(false)} />}
+    </div>
+  );
+}

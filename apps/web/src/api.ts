@@ -39,7 +39,22 @@ export interface StatePayload {
   checkpointReady: boolean;
   transcript: Array<{ id: number; role: "learner" | "instructor"; text: string; level?: number; at: string }>;
   checkpoint: { id: string; title: string; requirements: Array<{ id: string; kind: string; label: string }> };
-  lab: { id: string; title: string; scenario: string; agentMessage: string | null; tasks: TaskStatus[] };
+  lab: {
+    id: string;
+    title: string;
+    scenario: string;
+    agentMessage: string | null;
+    chat: { botName?: string; welcome?: string[] } | null;
+    tasks: TaskStatus[];
+  };
+}
+
+/** Client self-report of what's on screen, sent alongside learner messages. */
+export interface ScreenReport {
+  activeApp: string | null;
+  openWindows: string[];
+  editorFile: string | null;
+  editorDirty: boolean;
 }
 
 const KEY = "trellis.session";
@@ -109,8 +124,8 @@ export const api = {
     }) as Promise<SessionCredentials & { labId: string }>;
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
-  ask: (c: SessionCredentials, text: string, stuck: boolean) =>
-    req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck }),
+  ask: (c: SessionCredentials, text: string, stuck: boolean, screen?: ScreenReport) =>
+    req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck, screen }),
   intervention: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/intervention`, c),
   evaluate: (c: SessionCredentials) =>
     req("POST", `/api/sessions/${c.sessionId}/checkpoint/evaluate`, c) as Promise<{

@@ -39,12 +39,13 @@ export class MockInstructorProvider implements InstructorProvider {
       `You're making progress.${observed} Right now the next step is ${focus}.`,
       // 2 point-to-tool
       `${observed} There's a Git command that shows exactly what an uncommitted change did to your working tree — that's the fastest way forward with ${focus}.`,
-      // 3 point-to-location
-      `${observed} Look closely at src/pricing.ts in the diff — read every hunk, including the ones that touch code you didn't ask to change. The failing test's name tells you which behavior to compare against.`,
+      // 3 point-to-location (lab-agnostic: point at the diff's hunks, not a
+      // hardcoded file — the mock serves every lab)
+      `${observed} Look closely at the file the diff touches — read every hunk, especially edits to things nobody asked the agent to change. The failing test's name tells you exactly which behavior to compare against.`,
       // 4 explain-concept
-      `Here's the concept: an agent's change can include unrequested edits. In this diff, existing behavior that a test pins down was quietly altered. Find that hunk and restore the original behavior — and keep the new helper the agent added.`,
+      `Here's the concept: an agent's change can include unrequested edits. In this diff, something that already worked was quietly altered under a plausible-sounding comment. Find that hunk, restore what was true before — and keep the part that was actually requested.`,
       // 5 walk-through
-      `Step by step: 1) run \`git diff src/pricing.ts\` and read every hunk; 2) restore the original behavior the failing test describes; 3) run \`npm test\` and confirm everything passes; 4) evaluate the checkpoint. Keep bulkDiscountCents — it was the requested feature.`,
+      `Step by step: 1) run \`git diff\` and read every hunk; 2) restore the original behavior the failing test describes — change only that; 3) run \`npm test\` and confirm everything passes; 4) run the check. Keep the agent's requested addition — only its unrequested edit was wrong.`,
     ];
 
     const level = Math.max(0, Math.min(hintLevel, 5));

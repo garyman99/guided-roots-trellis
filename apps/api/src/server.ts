@@ -274,6 +274,7 @@ export const server = createServer(async (req, res) => {
             title: session.manifest.title,
             scenario: session.manifest.scenario,
             agentMessage: session.manifest.agentMessage ?? null,
+            chat: session.manifest.chat ?? null,
             tasks: session.manifest.tasks,
           },
         });
@@ -333,7 +334,9 @@ export const server = createServer(async (req, res) => {
         const body = await readBody(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text) return json(res, 400, { error: "text is required" });
-        const message = await session.ask(text, body.stuck === true);
+        // body.screen: optional client self-report of what's on screen —
+        // normalized + sanitized inside the session (untrusted input).
+        const message = await session.ask(text, body.stuck === true, body.screen);
         return json(res, 200, { message });
       }
       if (req.method === "GET" && tail === "intervention") {

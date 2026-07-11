@@ -49,7 +49,13 @@ function FileIcon({ path, dir }: { path: string; dir: boolean }) {
   );
 }
 
-export function CodeStudio({ creds }: { creds: SessionCredentials }) {
+export function CodeStudio({
+  creds,
+  onEditorState,
+}: {
+  creds: SessionCredentials;
+  onEditorState?: (s: { file: string | null; dirty: boolean }) => void;
+}) {
   const [entries, setEntries] = useState<Array<{ path: string; dir: boolean }>>([]);
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -89,6 +95,12 @@ export function CodeStudio({ creds }: { creds: SessionCredentials }) {
 
   const current = openFiles.find((f) => f.path === active) ?? null;
   const dirty = current !== null && current.content !== current.savedContent;
+
+  // Report what's on screen (active file + unsaved state) to the desktop, so
+  // the guide can send it along with learner messages as self-reported context.
+  useEffect(() => {
+    onEditorState?.({ file: active, dirty });
+  }, [active, dirty, onEditorState]);
 
   const save = useCallback(async () => {
     const f = openFiles.find((x) => x.path === active);

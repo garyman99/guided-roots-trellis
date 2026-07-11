@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
+import { sanitizeUntrusted } from "../../../packages/shared/src/sanitize.ts";
 import { now, type SessionEvent } from "../../../packages/session-events/src/events.ts";
 import { reduce, type LearningSessionState } from "../../../packages/session-events/src/reducer.ts";
 import {
@@ -63,6 +64,12 @@ export interface LabManifest {
   scenario: string;
   /** The simulated agent's confident self-description of its change. */
   agentMessage?: string;
+  /**
+   * Conversational voice for chat-first surfaces: informal, direct-address
+   * messages the guide bot says on arrival — never "you are a…" role-play
+   * framing. Optional; chat UIs fall back to title/objective phrasing.
+   */
+  chat?: { botName?: string; welcome?: string[] };
   tasks: LabTask[];
   checkpoint: CheckpointSpec;
   instructorNotes?: string;
@@ -322,7 +329,7 @@ export class Session {
 
   // ── instructor ──────────────────────────────────────────────────────────
 
-  hintRequest(reason: HintRequest["reason"], state = this.state()): HintRequest {
+  hintRequest(reason: HintRequest["reason"], state = this.state(), screen?: HintRequest["screen"]): HintRequest {
     return {
       state,
       lab: {
@@ -333,9 +340,33 @@ export class Session {
         instructorNotes: this.manifest.instructorNotes,
       },
       reason,
+      screen,
       hintLevel: choosePolicy(state, reason).level,
       promptVersion: PROMPT_VERSION,
     };
+  }
+
+  /**
+   * Normalize a client-supplied screen report: UNTRUSTED input, so sanitize
+   * every string, cap list sizes, and coerce shapes. Returns undefined when
+   * nothing usable was reported.
+   */
+  private static normalizeScreen(raw: unknown): HintRequest["screen"] {
+    if (!raw || typeof raw !== "object") return undefined;
+    const r = raw as Record<string, unknown>;
+    const str = (v: unknown, cap: number) =>
+      typeof v === "string" && v.trim() ? sanitizeUntrusted(v, cap) : null;
+    const windows = Array.isArray(r.openWindows)
+      ? r.openWindows.flatMap((w) => (typeof w === "string" && w.trim() ? [sanitizeUntrusted(w, 60)] : [])).slice(0, 8)
+      : [];
+    const screen = {
+      activeApp: str(r.activeApp, 60),
+      openWindows: windows,
+      editorFile: str(r.editorFile, 200),
+      editorDirty: r.editorDirty === true,
+    };
+    if (!screen.activeApp && windows.length === 0 && !screen.editorFile) return undefined;
+    return screen;
   }
 
   /** Deterministic profile-facet selection for this lesson (may be empty). */
@@ -348,10 +379,23 @@ export class Session {
     }
   }
 
-  async ask(text: string, stuck: boolean): Promise<InstructorMessage> {
+  async ask(text: string, stuck: boolean, rawScreen?: unknown): Promise<InstructorMessage> {
     this.emit({ type: "learner.question", text: text.slice(0, 2000), stuck, timestamp: now() });
+    // Record what the client SAYS was on screen when they asked — provenance
+    // for "what did the instructor see", never an input to profile truth.
+    const screen = Session.normalizeScreen(rawScreen);
+    if (screen) {
+      this.emit({
+        type: "ui.state.reported",
+        activeApp: screen.activeApp,
+        openWindows: screen.openWindows,
+        editorFile: screen.editorFile,
+        editorDirty: screen.editorDirty,
+        timestamp: now(),
+      });
+    }
     this.transcript.push({ id: ++this.msgSeq, role: "learner", text, at: now() });
-    const req = this.hintRequest({ kind: "question", text, stuck });
+    const req = this.hintRequest({ kind: "question", text, stuck }, this.state(), screen);
     const assembled = this.assembledProfile();
     const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
     this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, contextManifest: assembled?.manifest ?? null, timestamp: now() });

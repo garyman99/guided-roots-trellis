@@ -40,7 +40,17 @@ export type SessionEvent =
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
   // The agent lane: the simulated (later: real) coding agent's own actions,
   // scripted per lab so learners can inspect and replay what "it" did.
-  | ({ type: "agent.action"; action: string; detail: string } & Base);
+  | ({ type: "agent.action"; action: string; detail: string } & Base)
+  // SELF-REPORTED by the client UI alongside a learner message (untrusted;
+  // sanitized + capped on write): what was on screen when they asked. Feeds
+  // instructor phrasing only — never profile truth. Inert in the reducer.
+  | ({
+      type: "ui.state.reported";
+      activeApp: string | null;
+      openWindows: string[];
+      editorFile: string | null;
+      editorDirty: boolean;
+    } & Base);
 
 export type SessionEventType = SessionEvent["type"];
 

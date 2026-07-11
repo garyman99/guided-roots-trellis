@@ -109,7 +109,7 @@ function AgentTimeline({ beats }: { beats: AgentBeat[] }) {
  * narrative, and a one-tap self-assessment (calibration signal — stated
  * confidence vs measured outcome).
  */
-function ReflectionCard({ creds }: { creds: SessionCredentials }) {
+export function ReflectionCard({ creds }: { creds: SessionCredentials }) {
   const [refl, setRefl] = useState<{ narrative: string; reflection: { demonstrated: string[]; habitsToImprove: string[] } } | null>(null);
   const [assessed, setAssessed] = useState(false);
   useEffect(() => {
@@ -313,7 +313,7 @@ interface ProfilePayload {
   recommendations: Array<{ conceptId: string; reason: string }>;
 }
 
-function ContextDrawer({ creds, onClose }: { creds: SessionCredentials; onClose: () => void }) {
+export function ContextDrawer({ creds, onClose }: { creds: SessionCredentials; onClose: () => void }) {
   const [ctx, setCtx] = useState<{ system: string; user: string } | null>(null);
   const [prof, setProf] = useState<ProfilePayload | null>(null);
   const learner = savedLearner();
