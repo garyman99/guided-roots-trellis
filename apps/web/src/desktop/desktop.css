@@ -1,0 +1,359 @@
+/* Desktop experience — Windows-styled shell.
+   All rules are scoped under .desktop; [data-os="windows"] hooks exist so a
+   mac variant can restyle chrome without touching component code. */
+
+.desktop {
+  --taskbar-h: 48px;
+  --win-radius: 8px;
+  --chrome: #1c2128;
+  --chrome-edge: #30363d;
+  --accent: #7fb069;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 800px at 75% 15%, #16302b 0%, transparent 60%),
+    radial-gradient(1000px 700px at 20% 85%, #14261f 0%, transparent 55%),
+    linear-gradient(160deg, #0d1a17 0%, #0a1210 100%);
+  user-select: none;
+}
+
+/* ── desktop icons ─────────────────────────────────────────────────────── */
+.desktop-icons {
+  position: absolute;
+  top: 18px;
+  left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.desk-icon {
+  width: 92px;
+  padding: 10px 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #e8f0ea;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.desk-icon:hover { background: rgba(255, 255, 255, 0.07); }
+.desk-icon.selected { background: rgba(127, 176, 105, 0.22); border-color: rgba(127, 176, 105, 0.45); }
+.desk-icon-glyph { font-size: 34px; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+.desk-icon-label { font-size: 12px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); text-align: center; }
+
+/* ── windows ───────────────────────────────────────────────────────────── */
+.window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #161b22);
+  border: 1px solid var(--chrome-edge);
+  border-radius: var(--win-radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  min-width: 420px;
+  min-height: 280px;
+}
+.window.maximized { border-radius: 0; border: none; }
+.win-titlebar {
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 0 12px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-edge);
+  cursor: default;
+  touch-action: none;
+}
+.win-icon { font-size: 15px; }
+.win-title { font-size: 13px; color: #c9d5cd; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.win-controls.windows { display: flex; height: 100%; }
+.winbtn {
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #aeb8b1;
+  font-size: 12px;
+  cursor: pointer;
+}
+.winbtn:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.winbtn-close:hover { background: #c42b1c; color: #fff; }
+/* mac variant stub — traffic lights (future; unverified) */
+.win-controls.mac { display: flex; gap: 8px; padding: 0 10px; order: -1; }
+.traffic { width: 13px; height: 13px; border-radius: 50%; border: none; cursor: pointer; }
+.traffic.close { background: #ff5f57; }
+.traffic.min { background: #febc2e; }
+.traffic.max { background: #28c840; }
+
+.win-body { flex: 1; min-height: 0; display: flex; flex-direction: column; user-select: text; }
+.win-body > .panel { height: 100%; overflow-y: auto; }
+.win-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 55%, var(--chrome-edge) 55%);
+  border-bottom-right-radius: var(--win-radius);
+}
+
+/* ── taskbar + start ───────────────────────────────────────────────────── */
+.taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--taskbar-h);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  background: rgba(16, 21, 26, 0.92);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--chrome-edge);
+  z-index: 9999;
+}
+.start-btn {
+  width: 44px;
+  height: 38px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfe3d3;
+  font-size: 20px;
+  cursor: pointer;
+}
+.start-btn:hover, .start-btn.active { background: rgba(255, 255, 255, 0.1); }
+.task-btn {
+  height: 38px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd8d1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+}
+.task-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.task-btn.running::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: #5c6a61;
+}
+.task-btn.focused::after { background: var(--accent); }
+.task-spacer { flex: 1; }
+.task-brand { color: #6f7f74; font-size: 13px; margin-right: 12px; }
+.task-clock { color: #cfd8d1; font-size: 12px; text-align: right; line-height: 1.25; }
+
+.start-menu {
+  position: absolute;
+  left: 10px;
+  bottom: calc(var(--taskbar-h) + 8px);
+  width: 300px;
+  background: rgba(22, 27, 34, 0.97);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--chrome-edge);
+  border-radius: 10px;
+  padding: 10px;
+  z-index: 10000;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+.start-head { font-size: 12px; color: #7d8d82; padding: 6px 8px 10px; }
+.start-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #dbe4ec;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.start-item:hover { background: rgba(255, 255, 255, 0.08); }
+.start-foot { font-size: 11px; color: #5f6f64; padding: 10px 8px 4px; border-top: 1px solid var(--chrome-edge); margin-top: 8px; }
+
+/* ── Code Studio ───────────────────────────────────────────────────────── */
+.codestudio { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #12161c; }
+.cs-main { flex: 1; display: flex; min-height: 0; }
+.cs-activity {
+  width: 44px;
+  flex: none;
+  background: #171c23;
+  border-right: 1px solid var(--chrome-edge);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  gap: 6px;
+}
+.cs-activity-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #9fb0a4;
+  font-size: 16px;
+  cursor: pointer;
+}
+.cs-activity-btn:hover, .cs-activity-btn.active { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.cs-explorer { width: 210px; flex: none; background: #141920; border-right: 1px solid var(--chrome-edge); overflow-y: auto; }
+.cs-explorer-head { font-size: 11px; letter-spacing: 0.08em; color: #7d8d82; padding: 10px 12px 6px; }
+.cs-tree { list-style: none; margin: 0; padding: 0 0 12px; }
+.cs-node {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  font-size: 13px;
+  color: #c6d2c9;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cs-node:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.cs-node.active { background: rgba(127, 176, 105, 0.18); }
+.cs-node.dir { color: #8ea296; cursor: default; }
+.file-icon { font-size: 12px; }
+
+.cs-editor-zone { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cs-tabs { height: 35px; flex: none; display: flex; background: #171c23; border-bottom: 1px solid var(--chrome-edge); overflow-x: auto; }
+.cs-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #9fb0a4;
+  border-right: 1px solid var(--chrome-edge);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cs-tab.active { background: #12161c; color: #e5ede7; box-shadow: inset 0 2px 0 var(--accent); }
+.cs-dirty { color: #e8c268; width: 10px; }
+.cs-tab-close { border: none; background: transparent; color: inherit; font-size: 11px; cursor: pointer; padding: 2px; border-radius: 4px; }
+.cs-tab-close:hover { background: rgba(255, 255, 255, 0.12); }
+.cs-tabs-empty { font-size: 12px; color: #66756b; align-self: center; padding: 0 12px; }
+
+.cs-editor { flex: 1; position: relative; min-height: 0; }
+.cs-highlight,
+.cs-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 12px 14px;
+  font: 13px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.cs-highlight { color: #d7e0d9; pointer-events: none; background: #12161c; }
+.cs-textarea {
+  color: transparent;
+  caret-color: #e5ede7;
+  background: transparent;
+  border: none;
+  resize: none;
+  outline: none;
+}
+.cs-textarea::selection { background: rgba(127, 176, 105, 0.3); }
+.tok-comment { color: #6a9955; font-style: italic; }
+.tok-string { color: #ce9178; }
+.tok-keyword { color: #569cd6; }
+.tok-number { color: #b5cea8; }
+.cs-welcome { padding: 28px; color: #9fb0a4; font-size: 14px; max-width: 46ch; }
+.cs-welcome h3 { color: #dbe4ec; }
+.cs-welcome kbd { background: #232a33; border: 1px solid var(--chrome-edge); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
+.cs-terminal { height: 250px; flex: none; display: flex; flex-direction: column; border-top: 1px solid var(--chrome-edge); background: #0c1014; }
+.cs-terminal-head { font-size: 11px; letter-spacing: 0.08em; color: #7d8d82; padding: 6px 12px 4px; flex: none; }
+.cs-terminal .terminal-host { flex: 1; min-height: 0; padding: 0 8px 8px; }
+.cs-status {
+  height: 24px;
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 12px;
+  color: #0d1a14;
+  background: var(--accent);
+}
+
+/* ── Guide app ─────────────────────────────────────────────────────────── */
+.guide-app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.guide-tabs { display: flex; flex: none; background: var(--chrome); border-bottom: 1px solid var(--chrome-edge); }
+.guide-tabs button {
+  border: none;
+  background: transparent;
+  color: #9fb0a4;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+.guide-tabs button.active { color: #e5ede7; box-shadow: inset 0 -2px 0 var(--accent); }
+.guide-body { flex: 1; min-height: 0; display: flex; }
+.guide-body .panel { flex: 1; height: auto; }
+
+/* ── Preview app ───────────────────────────────────────────────────────── */
+.preview-app { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fff; }
+.preview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-edge);
+}
+.preview-address {
+  flex: 1;
+  font-size: 12px;
+  color: #9fb0a4;
+  background: #12161c;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 14px;
+  padding: 5px 12px;
+}
+.preview-frame { flex: 1; border: none; background: #fff; }
+.preview-err { color: #4a5a50; padding: 24px; font-size: 14px; }
+
+/* interventions sit above the taskbar on the desktop */
+.desktop .toast { bottom: calc(var(--taskbar-h) + 12px); z-index: 10001; }

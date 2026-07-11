@@ -121,6 +121,17 @@ export const api = {
   contextPreview: (c: SessionCredentials) =>
     req("GET", `/api/sessions/${c.sessionId}/context-preview`, c) as Promise<{ system: string; user: string }>,
   destroy: (c: SessionCredentials) => req("DELETE", `/api/sessions/${c.sessionId}`, c),
+  // Workspace fs — powers the desktop experience's Code Studio editor.
+  fsList: (c: SessionCredentials) =>
+    req("GET", `/api/sessions/${c.sessionId}/fs`, c) as Promise<{ entries: Array<{ path: string; dir: boolean }> }>,
+  fsRead: (c: SessionCredentials, path: string) =>
+    req("GET", `/api/sessions/${c.sessionId}/file?path=${encodeURIComponent(path)}`, c) as Promise<{
+      path: string;
+      content: string;
+      truncated: boolean;
+    }>,
+  fsWrite: (c: SessionCredentials, path: string, content: string) =>
+    req("PUT", `/api/sessions/${c.sessionId}/file`, c, { path, content }) as Promise<{ saved: boolean }>,
 };
 
 async function learnerReq(method: string, path: string, learner: LearnerCredentials, body?: unknown) {

@@ -52,14 +52,42 @@ reflection → second solve → mastery claim with evidence pointers that
 resolve in the learner's own export → tier-2 auto-promotion → fresh-start
 contestation → analytics gates → erasure.
 
+## Verified against a real Docker daemon (2026-07-10, Windows host + Rancher Desktop)
+
+- **DockerDriver is no longer unverified** — and first contact found two
+  shipping bugs, both fixed: (1) `DockerLabHandle` referenced `this.def`
+  without ever storing it → every docker session 500'd; (2) lab images
+  never contained the instrumented bashrc (it lives in the platform, not
+  in any lab's build context) → docker terminals ran uninstrumented, no
+  command/diff/file events. Instrumentation is now docker-cp'd into every
+  container by the driver (ADR-0003 D27). TERM env parity restored.
+- **Third subject area: `learn-playwright-basics`** (ADR-0003) — browser
+  lab with Chromium baked into its image; defect-in-TESTS pattern (app is
+  hash-pinned ground truth); 2-defect curated library (stale expected
+  string / ambiguous locator); docker CI auto-solve green for both
+  variants; full learner journey verified end-to-end through the API
+  (diff → red run → surgical test fix → green → checkpoint PASSED with
+  all seven requirements, correct measured state).
+- **tools/lab-client.mjs** — zero-dep CLI that drives a lab through the
+  public API (lesson/terminal/instructor/checkpoint), for scripted lab QA.
+- Web `?lab=<id>` selection; saved sessions resume only for the same lab.
+- **Desktop experience (ADR-0004)** — the web UI's default is now a full
+  Windows-styled desktop: icons, taskbar, Start, draggable windows. Code
+  Studio (VS Code-shaped: explorer + tabbed highlighted editor + Ctrl+S +
+  integrated instrumented terminal), Trellis Guide (lesson/instructor,
+  open on arrival), and a sandboxed site-preview browser window. GUI
+  reads/saves go through new session fs routes executed inside the lab env
+  (e2e-tested); saves emit measured file.changed events. Classic layout at
+  ?ui=classic; mac-styled shell is a planned ?os= variant (stub only).
+
 ## Unverified in this sandbox
 
 - Web UI additions: prediction-gated agent timeline, reflection card with
   self-assessment, profile claims + "That's wrong" contestation in the
-  drawer, learner-credential persistence. (No npm/browser here; all
-  rendered behaviors are API-tested.)
-- DockerDriver (no daemon), OpenAI-compatible instructor path (no
-  network).
+  drawer, learner-credential persistence. (Web UI now proven against the
+  API in a real browser for the terminal + lesson basics; the newer
+  learner-model cards remain exercised by API tests only.)
+- OpenAI-compatible instructor path (no key configured).
 
 ## Next (not started)
 
