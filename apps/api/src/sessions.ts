@@ -95,6 +95,12 @@ export interface LabManifest {
    * no fs) — the learner works entirely in seeded, instrumented apps.
    */
   workspace?: WorkspaceSpec;
+  /**
+   * Registered curriculum concept IDs this lab teaches/exercises. Blueprint
+   * labs derive these from blueprint.json; non-blueprint labs (workspace)
+   * declare them here so profile evidence and context assembly work.
+   */
+  concepts?: string[];
 }
 
 export interface InstructorMessage {
@@ -687,7 +693,7 @@ export class SessionManager {
     // ── Adaptive labs: deterministic variant selection with hysteresis ──
     const blueprint = loadBlueprint(labDir);
     let variant: LabVariant | null = null;
-    let lessonConcepts: string[] = [];
+    let lessonConcepts: string[] = manifest.concepts ?? [];
     if (blueprint) {
       lessonConcepts = [...new Set([...blueprint.teaches, ...blueprint.exercises])];
       const profile = this.learners.profileFor(learner);

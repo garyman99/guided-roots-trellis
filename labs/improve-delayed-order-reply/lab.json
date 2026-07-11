@@ -1,6 +1,7 @@
 {
   "id": "improve-delayed-order-reply",
   "version": 1,
+  "concepts": ["ai-literacy.context-selection", "ai-literacy.output-verification"],
   "title": "Improve a delayed-order reply — with an AI helper",
   "objective": "Practice the context → draft → verify → edit cycle: share only the facts an AI helper needs, ask for a draft, check every claim it makes, and rewrite it in your own voice before sending.",
   "scenario": "You work the front desk and also answer customer email. Dana ordered raised-bed planters (order GR-1042); delivery is two days late and tracking now says tomorrow. Dana wants to know what's going on. You have an AI helper available — but it only knows what you tell it, it happily repeats anything you paste, and it tends to over-promise. The reply that goes out is yours, not its.",

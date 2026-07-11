@@ -182,6 +182,13 @@ test("editing into her own words and re-sending passes every gate", async () => 
 
   const refl = await api("GET", `/api/sessions/${sessionId}/reflection`);
   assert.equal(refl.status, 200);
+  // The reflection must describe THIS session truthfully — workspace
+  // phrasing, and never terminal-lab vocabulary (live-sim finding, iter 3).
+  const narrative: string = refl.body.narrative;
+  for (const banned of ["diff", "surgical", "requested feature", "test suite"]) {
+    assert.ok(!narrative.toLowerCase().includes(banned), `terminal phrasing leaked into reflection: ${narrative}`);
+  }
+  assert.match(narrative, /useful facts|AI draft/, narrative);
 });
 
 test("the event log stores classifications, never the learner's sensitive text", async () => {

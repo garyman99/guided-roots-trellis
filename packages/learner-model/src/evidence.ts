@@ -37,6 +37,21 @@ export interface SessionDigest {
   hintOutcomes: HintOutcome[];
   /** Concept observations, matched to the registry's `observation` keys. */
   conceptObservations: Array<{ observation: string }>;
+  /** Present only for workspace labs (simulated applications). */
+  workspace?: WorkspaceDigest;
+}
+
+export interface WorkspaceDigest {
+  contextShares: number;
+  /** Shares that contained restricted scenario content. */
+  restrictedShares: number;
+  /** A restricted share was later followed by a clean one. */
+  recoveredFromRestrictedShare: boolean;
+  aiDraftsGenerated: number;
+  draftEdits: number;
+  submitted: boolean;
+  /** Similarity of the submitted artifact to the AI draft (null = own words). */
+  submittedSimilarity: number | null;
 }
 
 export type EvidenceEvent =
@@ -94,6 +109,15 @@ export function extractDigest(
     for (const h of hints) if (!h.progressed && ms - h.atMs <= PROGRESS_WINDOW_MS && ms >= h.atMs) h.progressed = true;
   };
 
+  // Workspace facts (simulated-application labs).
+  let contextShares = 0;
+  let restrictedShares = 0;
+  let recoveredFromRestrictedShare = false;
+  let aiDraftsGenerated = 0;
+  let draftEdits = 0;
+  let wsSubmitted = false;
+  let submittedSimilarity: number | null = null;
+
   for (const ev of events) {
     lastAt = ev.timestamp;
     const ms = Date.parse(ev.timestamp);
@@ -134,10 +158,30 @@ export function extractDigest(
         completedCheckpointIds.add(ev.checkpointId);
         progressAt(ms);
         break;
+      case "aichat.context.shared":
+        contextShares += 1;
+        if (ev.restrictedSpans.length > 0) restrictedShares += 1;
+        else if (restrictedShares > 0) recoveredFromRestrictedShare = true;
+        progressAt(ms);
+        break;
+      case "aichat.response.generated":
+        aiDraftsGenerated += 1;
+        break;
+      case "workspace.draft.updated":
+        draftEdits += 1;
+        progressAt(ms);
+        break;
+      case "workspace.artifact.submitted":
+        wsSubmitted = true;
+        submittedSimilarity = ev.similarityToGenerated;
+        progressAt(ms);
+        break;
       default:
         break;
     }
   }
+
+  const isWorkspaceSession = contextShares > 0 || aiDraftsGenerated > 0 || wsSubmitted;
 
   const diffViewedBeforeFirstEdit =
     firstDiffViewAt !== null && (firstEditAt === null || firstDiffViewAt <= firstEditAt);
@@ -145,6 +189,13 @@ export function extractDigest(
   const conceptObservations: Array<{ observation: string }> = [];
   if (diffViewedBeforeFirstEdit) conceptObservations.push({ observation: "diff-before-first-edit" });
   if (recoveredAfterFailure && (lastTestRun?.failed ?? 1) === 0) conceptObservations.push({ observation: "tests-pass-after-fail" });
+  // Workspace observations (registry keys in curriculum/concepts.json):
+  if (isWorkspaceSession && contextShares > 0 && (restrictedShares === 0 || recoveredFromRestrictedShare)) {
+    conceptObservations.push({ observation: "clean-context-share" });
+  }
+  if (wsSubmitted && (submittedSimilarity === null || draftEdits > 0)) {
+    conceptObservations.push({ observation: "ai-output-edited-before-use" });
+  }
   // One observation per completed checkpoint, keyed by the checkpoint's own id.
   // (Both POC labs use checkpoint id "inspect-fix-verify", so this generalization
   // is byte-identical for them; new labs get their own observation key for free.)
@@ -171,6 +222,17 @@ export function extractDigest(
     filesChanged: [...filesChanged],
     hintOutcomes: hints.map((h) => ({ strategy: h.strategy, level: h.level, followedByProgress: h.progressed })),
     conceptObservations,
+    workspace: isWorkspaceSession
+      ? {
+          contextShares,
+          restrictedShares,
+          recoveredFromRestrictedShare,
+          aiDraftsGenerated,
+          draftEdits,
+          submitted: wsSubmitted,
+          submittedSimilarity,
+        }
+      : undefined,
   };
 }
 
