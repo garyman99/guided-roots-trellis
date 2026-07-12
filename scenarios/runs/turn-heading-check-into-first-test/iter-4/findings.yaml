@@ -1,0 +1,54 @@
+# Accepted findings from the iter-4 evaluation (score 97, ACCEPTED).
+# None block acceptance; all are follow-up polish for future runs.
+
+- finding_id: "hint-context-manifest-empty"
+  severity: "medium"
+  category: "instruction"
+  observed_behavior: "orient/acknowledge/point-to-tool hints carry contextManifest.included: []; only the closing elicit consumed profile facets. Third consecutive run with this gap."
+  expected_behavior: "Every substantive hint consumes the assembled profile/screen context the API already builds for it."
+  evidence:
+    - "iter-4 session-export.json instructor.hint events (contextManifest.included empty except final elicit)"
+    - "improved-run evaluation, same finding"
+  affected_values: ["clarity"]
+  learner_impact: "Latent this run (nothing went wrong); the next confused learner gets context-blind guidance."
+  reproduction_conditions:
+    - "Any hint via orient/acknowledge/point-to-tool strategies"
+  acceptance_evidence:
+    - "A run where mid-session hints show non-empty context manifests and phrasing references actual screen state"
+  implementation_constraints:
+    - "Instructor phrasing only; never profile truth. No solution composition."
+  status: "OPEN"
+
+- finding_id: "intervention-fires-during-announced-recovery"
+  severity: "low"
+  category: "adaptation"
+  observed_behavior: "tests_not_run nudge fired ~60s into a repair the learner had announced one message earlier; its '0 failing of 1' framing surfaces a passing count at the moment that fact misleads (the pass was the trap)."
+  expected_behavior: "Nudges covered by the learner's just-stated plan are suppressed or rephrased."
+  evidence:
+    - "iter-4 session-export.json intervention.proposed after learner.question (recovery statement); transcript msg 5"
+  affected_values: ["instructional-restraint"]
+  learner_impact: "Zero beats lost this run (ignored); it was the session's only unsolicited noise."
+  reproduction_conditions:
+    - "Learner states a fix plan, then edits >grace period without running tests"
+  acceptance_evidence:
+    - "A run where an announced repair suppresses the tests_not_run nudge inside a reasonable window"
+  implementation_constraints:
+    - "Keep the rule deterministic; no LLM judgment in the trigger path."
+  status: "OPEN"
+
+- finding_id: "recovery-semantics-miss-checkpoint-failures"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: "Digest recoveredAfterFailure:false and recovery-habit 0 because only red TEST runs count as failure; the checkpoint-fail→fix→pass arc (this lab's designed lesson) is invisible to the habit layer. diff-first-rate: 0 also recorded in a diff-less lab; reflection omits the green-but-empty story the learner named as her durable lesson."
+  expected_behavior: "A failed checkpoint evaluation followed by an artifact fix and a passing evaluation counts as a recovery observation; diff-first habit not recorded for labs with no diff; reflection can name the trap arc."
+  evidence:
+    - "iter-4 profile-after.json digest (recoveredAfterFailure:false) vs event log checkpoint.evaluated passed=false → file.changed → passed=true"
+  affected_values: ["transferable-learning"]
+  learner_impact: "The habit layer under-credits exactly the recovery this lab is designed to produce."
+  reproduction_conditions:
+    - "Any lab whose designed failure is a checkpoint catch rather than a red test run"
+  acceptance_evidence:
+    - "Digest/habits reflecting a checkpoint-fail→pass recovery; no diff-first habit rows in diff-less labs"
+  implementation_constraints:
+    - "Digest stays pure arithmetic over the event log; no narrative inputs."
+  status: "OPEN"

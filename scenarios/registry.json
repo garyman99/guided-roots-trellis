@@ -106,19 +106,21 @@
       "class": "CURRENT-EDGE",
       "difficulty": 1,
       "execution_order": 1,
-      "status": "NEEDS_IMPROVEMENT",
-      "status_reason": "Lab implemented (blank test slot, semantic verify gates incl. the green-without-assertion trap). Baseline live run 70 -> improved live run 91 (+21) after goal-first onboarding, authored FAQ, and README vocabulary box - one point under the 92 bar. Evaluator's residue: live-agent terminal-Enter / editor key delivery (harness-vs-product attribution unresolved), window z-order fights (taskbar click on covered window minimizes instead of fronting), FAQ misfire on post-completion feedback (fixed post-run + tested), authoring-lab reflection phrasing (fixed post-run + tested). Next run: re-run live on these fixes; investigate key delivery; consider taskbar front-not-minimize.",
+      "status": "ACCEPTED",
+      "status_reason": "Iter-4 live run scored 97 (EXCEPTIONAL), gates 4/4, no critical failures, outside the +/-2 second-opinion band. Every improved-run residue item closed with live evidence: key-delivery attribution RESOLVED as environment via targeted probe (product hardened with the terminal insertText shim anyway; terminal executed npm test in-session for the first time in 4 iterations), taskbar fronts covered windows with focus, FAQ answers only questions/problem-reports (recovery statement got acknowledgment), digest truthful (testsRun 4), profile records the lesson concept (unknown -> emerging), reflection truthful. Designed trap fired and was deterministically captured (1st checkpoint attempt FAIL on assertion-visible). Open polish findings in iter-4/findings.yaml: hint context manifests still empty, tests_not_run nudge during announced recovery, checkpoint-fail recovery invisible to habit layer.",
       "latest_completion": "PASS",
-      "latest_score": 91,
-      "highest_score": 91,
+      "latest_score": 97,
+      "highest_score": 97,
       "score_history": [
         { "iteration": "baseline", "score": 70, "simulator": "live" },
-        { "iteration": "improved", "score": 91, "simulator": "live" }
+        { "iteration": "improved", "score": 91, "simulator": "live" },
+        { "iteration": 3, "score": null, "simulator": "live", "note": "instrumented rerun on the shell/telemetry fixes; surfaced the FAQ recovery-statement misfire; evaluated within iter-4 report" },
+        { "iteration": 4, "score": 97, "simulator": "live" }
       ],
       "acceptance_threshold": 92,
-      "iterations": 2,
+      "iterations": 4,
       "last_executed": "2026-07-12",
-      "product_commit": "dd0bff3"
+      "product_commit": "6a3a6c3+faq-fix"
     },
     "check-form-result-without-timing-guesses": {
       "run_id": "20260711T132922-0600",
