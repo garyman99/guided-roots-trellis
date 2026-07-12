@@ -41,6 +41,10 @@ export type SessionEvent =
   | ({ type: "learner.goal.stated"; text: string } & Base)
   | ({ type: "instructor.hint"; level: number; strategy: string; contextManifest: ContextManifest | null } & Base)
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
+  // A proposed intervention's hint is parked until the UI polls it; this
+  // marks the moment it actually reached the transcript, so event log and
+  // transcript stay 1:1 correlatable (finding session-digest-contradicts-event-log).
+  | ({ type: "intervention.delivered"; triggerType: string; level: number; strategy: string } & Base)
   // The agent lane: the simulated (later: real) coding agent's own actions,
   // scripted per lab so learners can inspect and replay what "it" did.
   | ({ type: "agent.action"; action: string; detail: string } & Base)

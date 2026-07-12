@@ -506,6 +506,9 @@ export class Session {
     const p = this.pendingIntervention;
     if (p) {
       this.transcript.push({ id: ++this.msgSeq, role: "instructor", text: p.hint.message, level: p.hint.level, at: now() });
+      // The hint event fired at proposal time; record the delivery moment too
+      // so transcript and event log tell one story.
+      this.emit({ type: "intervention.delivered", triggerType: p.type, level: p.hint.level, strategy: p.hint.strategy, timestamp: now() });
     }
     this.pendingIntervention = null;
     return p;
@@ -523,6 +526,16 @@ export class Session {
         ? { meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity }
         : undefined,
     );
+    // The evaluation itself just ran the suite inside the lab env; the
+    // results file lands on the instrumentation's NEXT poll (~700ms). Drain
+    // now so tests.completed precedes checkpoint.* in the log — otherwise the
+    // digest extracted at completion records testsRun: 0 for a run whose
+    // tests demonstrably passed (finding session-digest-contradicts-event-log).
+    try {
+      await this.instrumentation?.drain();
+    } catch {
+      /* the checkpoint result must never break on instrumentation hiccups */
+    }
     this.emit({
       type: "checkpoint.evaluated",
       checkpointId: result.checkpointId,

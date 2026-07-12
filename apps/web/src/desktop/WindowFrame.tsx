@@ -63,6 +63,7 @@ function WindowControls({
 
 export function WindowFrame({
   os,
+  appId,
   title,
   icon,
   state,
@@ -72,6 +73,8 @@ export function WindowFrame({
   children,
 }: {
   os: OsStyle;
+  /** Stable app id stamped on the DOM so the shell can move keyboard focus into a fronted window. */
+  appId: string;
   title: string;
   icon: string;
   state: WindowState;
@@ -115,7 +118,13 @@ export function WindowFrame({
     : { left: state.rect.x, top: state.rect.y, width: state.rect.w, height: state.rect.h, zIndex: state.z };
 
   return (
-    <section className={`window${state.maximized ? " maximized" : ""}`} style={style} onPointerDown={onFocus}>
+    <section
+      className={`window${state.maximized ? " maximized" : ""}`}
+      style={style}
+      data-app-id={appId}
+      tabIndex={-1}
+      onPointerDown={onFocus}
+    >
       <header
         className="win-titlebar"
         onPointerDown={onPointerDown("move")}

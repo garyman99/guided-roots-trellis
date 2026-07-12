@@ -66,6 +66,36 @@ export function Terminal({ creds }: { creds: SessionCredentials }) {
       if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     });
 
+    // Input-compat shim for the insertText path (IMEs, voice input,
+    // assistive/remote-control tools). Measured in Chromium (live-sim probe,
+    // 2026-07-12): a newline-bearing insert splits into an `input` event
+    // carrying the text — which xterm consumes — plus a second `input` event
+    // with data:null for the line break, which xterm ignores (its guard
+    // needs truthy data); virtual keyboards fire inputType insertLineBreak
+    // the same way. The line break is lost AND the un-cleared textarea value
+    // then poisons every later insert, so the terminal looks dead. Deliver
+    // the missing Enter ourselves and never let residue accumulate. IME
+    // composition is untouched (xterm's CompositionHelper owns it).
+    const helper = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    let composing = false;
+    const onCompStart = () => { composing = true; };
+    const onCompEnd = () => { composing = false; };
+    const onHelperInput = (e: Event) => {
+      const ev = e as InputEvent;
+      if (composing || ev.isComposing) return;
+      const lineBreak =
+        ev.inputType === "insertLineBreak" || (ev.inputType === "insertText" && ev.data === null);
+      if (lineBreak) term.input("\r", true); // Enter reaches a pty as CR
+      // Clear residue after the event burst settles; xterm reads ev.data,
+      // never the accumulated value (outside composition).
+      window.setTimeout(() => {
+        if (!composing && helper) helper.value = "";
+      }, 0);
+    };
+    helper?.addEventListener("compositionstart", onCompStart);
+    helper?.addEventListener("compositionend", onCompEnd);
+    helper?.addEventListener("input", onHelperInput);
+
     // Debounced fit-and-resize: only after the drag settles, because each
     // pty resize echoes a control line in the terminal.
     let debounce: number | undefined;
@@ -82,6 +112,9 @@ export function Terminal({ creds }: { creds: SessionCredentials }) {
       closedByUs = true;
       window.clearTimeout(reconnectTimer);
       window.clearTimeout(debounce);
+      helper?.removeEventListener("compositionstart", onCompStart);
+      helper?.removeEventListener("compositionend", onCompEnd);
+      helper?.removeEventListener("input", onHelperInput);
       observer.disconnect();
       dataSub.dispose();
       ws?.close();

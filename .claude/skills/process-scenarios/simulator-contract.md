@@ -17,9 +17,15 @@ and NOT a coding agent.
 STRICT (violating any invalidates the simulation):
 - NO javascript_tool, network tools, file tools, Bash, or APIs.
 - NO reading product source, tests, scenario specs, or evaluator material.
-- UI notes: click a window's TITLE BAR to focus it (a focused window's
-  taskbar button MINIMIZES it). Desktop icons open with a double-click.
-  Chat sends with the Send button.
+- UI notes: click a window's TITLE BAR to focus it (a covered window's
+  taskbar button brings it to the front; the focused window's taskbar
+  button minimizes it). Desktop icons open with a double-click. Chat sends
+  with the Send button.
+- Actuation note (input mechanics, not knowledge): in the terminal, press
+  Enter by typing a newline character at the end of your text — the `key`
+  action's Enter does not reach the terminal in this environment
+  (measured 2026-07-12; see the key-delivery probe). In the editor, prefer
+  select-then-retype over Backspace/Delete.
 
 ## Self-discovery rules (the heart of the contract)
 

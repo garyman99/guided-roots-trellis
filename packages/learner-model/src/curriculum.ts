@@ -16,8 +16,12 @@ export interface Concept {
   name: string;
   category: string;
   defaultHalfLifeDays: number;
-  /** Which digest observation feeds this concept's evidence. */
-  observation: string;
+  /**
+   * Which digest observation(s) feed this concept's evidence. Multiple keys
+   * exist because distinct labs demonstrate the same concept through their
+   * own checkpoints (e.g. reviewing a Playwright test vs authoring one).
+   */
+  observation: string | string[];
   masteryRule: MasteryRule;
   explanationTemplate: string;
 }
@@ -45,6 +49,7 @@ export function validateCurriculum(c: Curriculum): void {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(concept.id)) throw new Error(`bad concept id: ${concept.id}`);
     if (ids.has(concept.id)) throw new Error(`duplicate concept id: ${concept.id}`);
     ids.add(concept.id);
+    if (observationKeys(concept).length === 0) throw new Error(`concept has no observation keys: ${concept.id}`);
   }
   for (const e of c.edges) {
     if (!ids.has(e.from) || !ids.has(e.to)) throw new Error(`edge references unknown concept: ${e.from} → ${e.to}`);
@@ -61,6 +66,11 @@ export function validateCurriculum(c: Curriculum): void {
     state.set(id, 2);
   };
   for (const id of ids) visit(id);
+}
+
+/** Normalized accessor: a concept's observation keys as a list. */
+export function observationKeys(concept: Pick<Concept, "observation">): string[] {
+  return Array.isArray(concept.observation) ? concept.observation : [concept.observation];
 }
 
 export function conceptById(c: Curriculum, id: string): Concept | null {

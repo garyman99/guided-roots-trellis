@@ -246,12 +246,14 @@ export function extractDigest(
 /** Digest → the evidence events to append (digest itself + per-concept evidence). */
 export function digestToEvidence(
   digest: SessionDigest,
-  concepts: Array<{ id: string; observation: string }>,
+  concepts: Array<{ id: string; observation: string | string[] }>,
 ): EvidenceEvent[] {
   const at = digest.completedAt || new Date().toISOString();
   const out: EvidenceEvent[] = [{ type: "session.digest", digest, timestamp: at }];
+  const keysOf = (c: { observation: string | string[] }) =>
+    Array.isArray(c.observation) ? c.observation : [c.observation];
   for (const obs of digest.conceptObservations) {
-    for (const c of concepts.filter((c) => c.observation === obs.observation)) {
+    for (const c of concepts.filter((c) => keysOf(c).includes(obs.observation))) {
       out.push({
         type: "concept.evidence",
         conceptId: c.id,

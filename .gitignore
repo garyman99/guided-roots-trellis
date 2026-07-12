@@ -3,3 +3,4 @@ data/
 *.log
 .claude/settings.local.json
 tools/.lab-client-session.json
+dist/
