@@ -51,6 +51,7 @@ export function ChatGuide({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const seenTranscript = useRef(new Set<number>());
   const seenTasks = useRef(new Set<string>());
@@ -292,20 +293,36 @@ export function ChatGuide({
         <button className="chip" onClick={() => void runCheck()} disabled={checking}>
           {checking ? "Checking…" : "Check my work"}
         </button>
-        <button
-          className="chip"
-          title="Put the workspace back exactly how it started (your edits are removed)"
-          onClick={() => {
-            if (confirm("Reset the workspace? Everything goes back to how it started and your edits are removed.")) {
-              void api.reset(creds).then(async () => {
-                push({ from: "system", text: "Workspace reset — everything is back to the starting state. ✓" });
-                onNewData(await api.state(creds));
-              });
-            }
-          }}
-        >
-          Reset
-        </button>
+        {/* In-UI confirmation (never window.confirm: a native modal blocks the
+            main thread and cannot be seen or dismissed in embedded/driven
+            browsers — live-sim finding, froze the whole workspace). */}
+        {confirmingReset ? (
+          <>
+            <button
+              className="chip chip-primary"
+              onClick={() => {
+                setConfirmingReset(false);
+                void api.reset(creds).then(async () => {
+                  push({ from: "system", text: "Workspace reset — everything is back to the starting state. ✓" });
+                  onNewData(await api.state(creds));
+                });
+              }}
+            >
+              Yes, reset everything
+            </button>
+            <button className="chip" onClick={() => setConfirmingReset(false)}>
+              Keep working
+            </button>
+          </>
+        ) : (
+          <button
+            className="chip"
+            title="Put the workspace back exactly how it started (your edits are removed)"
+            onClick={() => setConfirmingReset(true)}
+          >
+            Reset
+          </button>
+        )}
         <textarea
           value={draft}
           placeholder={awaitingGoal ? `Tell ${botName} what you're here to do…` : `Message ${botName}…`}
