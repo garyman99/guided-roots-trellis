@@ -169,6 +169,12 @@ test("inserting the draft, submitting it UNEDITED, the checkpoint refuses", asyn
   const failed = new Set(evalr.incomplete);
   assert.ok(failed.has("reviewed-and-edited"), "unedited draft is not the learner's reply");
   assert.ok(failed.has("no-forbidden-promise"), "the helper's guarantee must be caught");
+  // The failing detail teaches the CATEGORY in the lab author's words (live-sim
+  // finding: a vague gate detail sent the learner asking "what part is it
+  // reading as a promise?").
+  const promiseReq = evalr.requirements.find((r: { id: string }) => r.id === "no-forbidden-promise");
+  assert.match(promiseReq.detail, /unapproved promise or guarantee/);
+  assert.match(promiseReq.detail, /outcome we can't control/);
 });
 
 test("editing into her own words and re-sending passes every gate", async () => {

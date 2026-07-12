@@ -523,7 +523,13 @@ export class Session {
       this.handle,
       verifyScriptPathFor(this.driverKind, this.labDir),
       this.manifest.workspace
-        ? { meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity }
+        ? {
+            meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity,
+            // Authored labels/teaching so failing gate details name what
+            // tripped (selected by measured ids, never learner prose).
+            forbiddenPhraseEntries: this.manifest.workspace.policy.forbiddenPhrases,
+            restrictedSpanEntries: this.manifest.workspace.policy.restrictedSpans,
+          }
         : undefined,
     );
     // The evaluation itself just ran the suite inside the lab env; the

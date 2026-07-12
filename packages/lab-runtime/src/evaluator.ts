@@ -26,6 +26,13 @@ export interface CheckpointRequirementSpec {
 export interface WorkspacePolicyThresholds {
   /** A submitted reply at or below this similarity counts as meaningfully edited. */
   meaningfulEditMaxSimilarity: number;
+  /**
+   * Authored policy entries, keyed by id, so a failing requirement can tell
+   * the learner WHAT tripped in the lab author's own words (labels/teaching
+   * are authored strings selected by measured ids — never learner prose).
+   */
+  forbiddenPhraseEntries?: Array<{ id: string; label: string; teaching?: string }>;
+  restrictedSpanEntries?: Array<{ id: string; label: string; reason?: string }>;
 }
 
 export interface CheckpointSpec {
@@ -197,11 +204,19 @@ function workspaceRequirement(
       return r(edited, "The submitted reply is still nearly identical to the AI helper's draft — make it your own.");
     }
 
-    case "no-restricted-in-reply":
-      return r(!!sub && sub.restrictedSpans.length === 0, sub ? "The reply still contains restricted information." : "Nothing has been submitted yet.");
+    case "no-restricted-in-reply": {
+      if (!sub) return r(false, "Nothing has been submitted yet.");
+      const tripped = (policy?.restrictedSpanEntries ?? []).filter((e) => sub.restrictedSpans.includes(e.id));
+      const why = tripped.map((e) => e.reason ? `${e.label} — ${e.reason}` : e.label).join("; ");
+      return r(sub.restrictedSpans.length === 0, `The reply still contains restricted information${why ? `: ${why}` : "."}`);
+    }
 
-    case "no-forbidden-promise":
-      return r(!!sub && sub.forbiddenPhrases.length === 0, sub ? "The reply makes a promise that has not been approved." : "Nothing has been submitted yet.");
+    case "no-forbidden-promise": {
+      if (!sub) return r(false, "Nothing has been submitted yet.");
+      const tripped = (policy?.forbiddenPhraseEntries ?? []).filter((e) => sub.forbiddenPhrases.includes(e.id));
+      const why = tripped.map((e) => e.teaching ? `${e.label}. ${e.teaching}` : e.label).join("; ");
+      return r(sub.forbiddenPhrases.length === 0, `The reply makes a promise that has not been approved${why ? `: ${why}` : "."}`);
+    }
 
     case "facts-preserved":
       return r(!!sub && sub.requiredFactsMissing.length === 0, sub ? "A required fact is missing from the reply." : "Nothing has been submitted yet.");
