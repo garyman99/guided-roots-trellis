@@ -36,6 +36,24 @@
       "observation": "checkpoint-first-playwright-review",
       "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
       "explanationTemplate": "Diagnosed and fixed a broken Playwright test (locator or assertion) in {n} lab session(s) ({dates})."
+    },
+    {
+      "id": "ai-literacy.context-selection",
+      "name": "Sharing only the context an AI tool needs",
+      "category": "ai-literacy",
+      "defaultHalfLifeDays": 60,
+      "observation": "clean-context-share",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "explanationTemplate": "Shared only task-relevant context with an AI helper (or trimmed it after noticing) in {n} lab session(s) ({dates})."
+    },
+    {
+      "id": "ai-literacy.output-verification",
+      "name": "Verifying and editing AI output before using it",
+      "category": "ai-literacy",
+      "defaultHalfLifeDays": 60,
+      "observation": "ai-output-edited-before-use",
+      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "explanationTemplate": "Reviewed and meaningfully edited AI-generated output before using it in {n} lab session(s) ({dates})."
     }
   ],
   "edges": [

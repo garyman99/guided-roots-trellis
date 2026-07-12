@@ -7,9 +7,29 @@ export interface HintRequest {
     id: string;
     title: string;
     objective: string;
-    tasks: Array<{ id: string; text: string }>;
+    tasks: Array<{ id: string; text: string; done?: boolean }>;
     /** Trusted curriculum guidance (from lab.json), incl. reveal policy. */
     instructorNotes?: string;
+    /**
+     * Which kind of lab this is: a terminal/repo lab or a simulated-apps
+     * workspace lab. Drives which coaching vocabulary providers may use —
+     * "diff"/"tests" language must never reach a workspace learner.
+     */
+    surface?: "terminal" | "workspace";
+    /**
+     * True when the lab is about reviewing a (simulated) agent's change —
+     * the diff-first coaching ladder only makes sense there. Terminal labs
+     * WITHOUT an agent change (e.g. manual test authoring) get task-focused
+     * coaching instead.
+     */
+    agentReview?: boolean;
+    /**
+     * Authored answers to predictable clarifying questions (from lab.json
+     * chat.faq). A matched question gets ITS answer — a learner asking
+     * "which file do I edit?" must never receive a generic recipe. Answers
+     * are curriculum content: vocabulary and concepts, never the solution.
+     */
+    faq?: Array<{ match: string; answer: string }>;
   };
   /** Why the instructor is speaking. */
   reason:

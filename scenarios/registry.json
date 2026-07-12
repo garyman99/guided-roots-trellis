@@ -5,6 +5,11 @@
       "imported_at": "2026-07-11",
       "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T000000-0600",
       "baseline_commit": "476fa476f344ab746876acaa9b11b421bdaf84a7"
+    },
+    "20260711T132922-0600": {
+      "imported_at": "2026-07-11",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T132922-0600",
+      "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
     }
   },
   "scenarios": {
@@ -14,14 +19,21 @@
       "class": "CURRENT-EDGE",
       "difficulty": 3,
       "execution_order": 1,
-      "status": "VALIDATED",
-      "status_reason": "Spec complete. Requires email + ai-chat workspace applications that do not exist yet (AVW Phase 2-3); this scenario is the plan's first vertical slice.",
-      "latest_completion": null,
-      "latest_score": null,
-      "highest_score": null,
+      "status": "NEEDS_IMPROVEMENT",
+      "status_reason": "Iter-4 (first fully-live evidence set) scored 76: pedagogy proven on free cognition (truthful reflection, ai-literacy profile movement) but the composer's deleted-text resurrection dragged the experience to the floor and let a corrupted artifact pass all gates. That defect is FIXED and probe-verified (415a731) but not yet exercised live. Next run: one live rerun on >=415a731 — clean composer + clean artifact + reproduced reflection/profile movement => ACCEPTED at >=92. Conditional remainder: mock instructor answers specific questions with generic templates (mock-provider ceiling; consider question-aware routing or the real-model path). Consider an artifact-hygiene gate (duplicated-greeting/garbling detection).",
+      "latest_completion": "PASS",
+      "latest_score": 76,
+      "highest_score": 91,
+      "score_history": [
+        { "iteration": 1, "score": 79, "simulator": "scripted" },
+        { "iteration": 2, "score": 91, "simulator": "scripted" },
+        { "iteration": 3, "score": null, "simulator": "live", "note": "evaluated within iter-4 report; surfaced wrong-domain reflection" },
+        { "iteration": 4, "score": 76, "simulator": "live" }
+      ],
       "acceptance_threshold": 92,
-      "iterations": 0,
-      "last_executed": null
+      "iterations": 4,
+      "last_executed": "2026-07-11",
+      "product_commit": "415a731"
     },
     "catch-invented-refund-promise": {
       "run_id": "20260711T000000-0600",
@@ -76,6 +88,41 @@
       "execution_order": 5,
       "status": "VALIDATED",
       "status_reason": "Frontier: honest model-outage degradation UX is a new product requirement.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "turn-heading-check-into-first-test": {
+      "run_id": "20260711T132922-0600",
+      "file": "scenarios/imported/20260711T132922-0600/01-turn-heading-check-into-first-test.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 1,
+      "execution_order": 1,
+      "status": "NEEDS_IMPROVEMENT",
+      "status_reason": "Lab implemented (blank test slot, semantic verify gates incl. the green-without-assertion trap). Baseline live run 70 -> improved live run 91 (+21) after goal-first onboarding, authored FAQ, and README vocabulary box - one point under the 92 bar. Evaluator's residue: live-agent terminal-Enter / editor key delivery (harness-vs-product attribution unresolved), window z-order fights (taskbar click on covered window minimizes instead of fronting), FAQ misfire on post-completion feedback (fixed post-run + tested), authoring-lab reflection phrasing (fixed post-run + tested). Next run: re-run live on these fixes; investigate key delivery; consider taskbar front-not-minimize.",
+      "latest_completion": "PASS",
+      "latest_score": 91,
+      "highest_score": 91,
+      "score_history": [
+        { "iteration": "baseline", "score": 70, "simulator": "live" },
+        { "iteration": "improved", "score": 91, "simulator": "live" }
+      ],
+      "acceptance_threshold": 92,
+      "iterations": 2,
+      "last_executed": "2026-07-12",
+      "product_commit": "dd0bff3"
+    },
+    "check-form-result-without-timing-guesses": {
+      "run_id": "20260711T132922-0600",
+      "file": "scenarios/imported/20260711T132922-0600/02-check-form-result-without-timing-guesses.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 2,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Teaches retrying visible-outcome assertions over fixed waits; same blank-slot lab support as scenario 1 of this run.",
       "latest_completion": null,
       "latest_score": null,
       "highest_score": null,

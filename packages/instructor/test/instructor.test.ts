@@ -157,6 +157,28 @@ test("GOLDEN: assembler joins on lesson concepts + prereqs, budgets, and records
   assert.deepEqual(again, { text, manifest });
 });
 
+test("habits are domain-scoped: terminal habits never reach a lesson that doesn't touch their concepts", () => {
+  const profile: LearnerProfile = {
+    ...fixtureProfile(),
+    habits: [
+      { habitId: "diff-first-rate", window: "last-2-labs", value: 1, baseline: null, evidence: [1] },
+      { habitId: "tests-before-done-rate", window: "last-2-labs", value: 1, baseline: null, evidence: [1] },
+      { habitId: "recovery-after-failure-rate", window: "last-2-labs", value: 1, baseline: null, evidence: [1] },
+    ],
+  };
+
+  // A workspace lab with no terminal concepts: git/tests habits are excluded;
+  // the domain-general recovery habit still flows.
+  const workspace = assembleProfileFacets(profile, [], curriculum);
+  const habitIds = (m: typeof workspace.manifest) => m.included.filter((i) => i.facet === "habit").map((i) => i.id);
+  assert.deepEqual(habitIds(workspace.manifest), ["recovery-after-failure-rate"]);
+  assert.ok(!workspace.text.includes("diff-first-rate"), workspace.text);
+
+  // The terminal lab that exercises those concepts still gets them.
+  const terminal = assembleProfileFacets(profile, ["agents.reviewing-agent-changes", "testing.red-green-loop"], curriculum);
+  assert.deepEqual(habitIds(terminal.manifest).sort(), ["diff-first-rate", "recovery-after-failure-rate", "tests-before-done-rate"]);
+});
+
 test("assembler enforces the budget and flags truncation", () => {
   const profile = fixtureProfile();
   const { manifest } = assembleProfileFacets(profile, ["agents.reviewing-agent-changes"], curriculum, 200);

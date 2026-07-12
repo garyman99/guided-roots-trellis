@@ -91,6 +91,10 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
 
   if (reason.kind === "question") {
     sections.push(`# LEARNER MESSAGE${reason.stuck ? " (learner pressed “I'm stuck”)" : ""}\n${fence(reason.text)}`);
+  } else if (reason.kind === "goal") {
+    sections.push(
+      `# LEARNER GOAL (their own words, stated at session start — acknowledge and orient; this is not a help request)\n${fence(reason.text)}`,
+    );
   } else {
     sections.push(
       `# INTERVENTION TRIGGER (deterministic rule engine)\nType: ${reason.trigger.type}\nEvidence: ${fenceInline(

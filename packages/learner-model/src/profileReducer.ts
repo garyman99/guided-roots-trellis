@@ -30,6 +30,22 @@ export interface HabitClaim {
   evidence: number[];
 }
 
+/**
+ * Which lesson concepts each habit is evidence FOR. The context assembler
+ * includes a habit only when the current lesson touches one of its concepts —
+ * a terminal-lab habit (diff-first-rate) must never reach the instructor in
+ * an email-workspace lesson (scenario finding: profile-facets-not-domain-scoped).
+ * A habit with no entry here is never shared: relevance must be declared,
+ * not assumed (data minimization by default).
+ */
+export const HABIT_RELATED_CONCEPTS: Record<string, string[]> = {
+  "diff-first-rate": ["git.diff-first-review", "agents.reviewing-agent-changes"],
+  "tests-before-done-rate": ["testing.red-green-loop"],
+  // Recovery is not domain-bound: recovering from a failed attempt is the
+  // same competency in a terminal, an editor, or an email workspace.
+  "recovery-after-failure-rate": ["*"],
+};
+
 export interface PreferenceClaim {
   key: string;
   value: string;
@@ -211,6 +227,9 @@ export function reduceProfile(
   mkHabit("diff-first-rate", (d) => d.diffViewedBeforeFirstEdit);
   mkHabit("tests-before-done-rate", (d) => d.testsRun > 0);
   mkHabit("recovery-after-failure-rate", (d) => !d.recoveredAfterFailure === false);
+
+  // (Habit → concept relevance lives in HABIT_RELATED_CONCEPTS below; a habit
+  // minted here without an entry there will never reach an instructor.)
 
   // ── Strategy efficacy: measured, per learner ──
   const byStrategy = new Map<string, { attempts: number; progressed: number }>();

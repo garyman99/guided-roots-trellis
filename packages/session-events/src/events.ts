@@ -36,6 +36,9 @@ export type SessionEvent =
   | ({ type: "checkpoint.evaluated"; checkpointId: string; passed: boolean; incomplete: string[] } & Base)
   | ({ type: "checkpoint.completed"; checkpointId: string } & Base)
   | ({ type: "learner.question"; text: string; stuck: boolean } & Base)
+  // The learner's own statement of what they're here to accomplish —
+  // captured once at the start of a session (goal-first onboarding).
+  | ({ type: "learner.goal.stated"; text: string } & Base)
   | ({ type: "instructor.hint"; level: number; strategy: string; contextManifest: ContextManifest | null } & Base)
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
   // The agent lane: the simulated (later: real) coding agent's own actions,
@@ -50,6 +53,51 @@ export type SessionEvent =
       openWindows: string[];
       editorFile: string | null;
       editorDirty: boolean;
+    } & Base)
+  // ── Workspace labs (simulated applications; ADR pending) ────────────────
+  // Semantic facts measured by the platform when the learner works in
+  // simulated applications (email, ai-chat, …). Content POLICY results are
+  // classifications computed server-side against the lab's authored policy —
+  // the events carry span/pattern IDs and counts, never the learner's text.
+  | ({ type: "workspace.app.opened"; appId: string } & Base)
+  | ({ type: "workspace.artifact.opened"; appId: string; artifactId: string } & Base)
+  // Context the learner explicitly shared with the simulated AI helper.
+  | ({
+      type: "aichat.context.shared";
+      chars: number;
+      /** Authored restricted-span IDs found in the shared text. */
+      restrictedSpans: string[];
+      /** Authored required-fact IDs found in the shared text. */
+      requiredFacts: string[];
+    } & Base)
+  | ({ type: "aichat.prompt.submitted"; chars: number; restrictedSpans: string[] } & Base)
+  | ({
+      type: "aichat.response.generated";
+      draftId: string;
+      /** Restricted-span IDs the assistant echoed back (it only knows what it was given). */
+      echoedRestricted: string[];
+    } & Base)
+  // The learner placed a generated draft into an editable artifact.
+  | ({ type: "workspace.draft.inserted"; artifactId: string; draftId: string } & Base)
+  | ({
+      type: "workspace.draft.updated";
+      artifactId: string;
+      revision: number;
+      /** 0..1 similarity to the inserted AI draft; null when drafted manually. */
+      similarityToGenerated: number | null;
+      chars: number;
+    } & Base)
+  // Submission runs the lab's authored content policy; results are measured facts.
+  | ({
+      type: "workspace.artifact.submitted";
+      artifactId: string;
+      revision: number;
+      similarityToGenerated: number | null;
+      restrictedSpans: string[];
+      forbiddenPhrases: string[];
+      requiredFactsMissing: string[];
+      acknowledgesInconvenience: boolean;
+      simulated: true;
     } & Base);
 
 export type SessionEventType = SessionEvent["type"];

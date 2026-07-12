@@ -98,12 +98,16 @@ documented honestly.
    point). If the slice is too large for one session, leave it PARTIALLY
    IMPLEMENTED with committed progress + notes, and record BLOCKED-style
    detail in the registry (`status_reason`). Never fabricate a passing run.
-4. **Simulate.** Spawn a simulator subagent with a persona profile derived
-   from the spec (role, knowledge, confidence, mistakes, help behavior).
-   It drives the real UI end to end, making the scenario's scripted
-   mistakes at their triggers, asking persona-realistic questions, and
-   stopping at completion/blocker/stop condition. Capture the trace to
-   `scenarios/runs/<id>/iter-<n>/simulator-trace.md`.
+4. **Simulate.** Spawn a LIVE simulator subagent: build its prompt from
+   `simulator-contract.md` (in this skill's directory — the self-discovery
+   contract: goal-first, read-the-screen, ask-the-guide-when-stuck, never
+   solve via implicit knowledge) plus a persona block derived from the spec
+   (role, knowledge, confidence, mistakes, help behavior). It drives the
+   real UI end to end and its final message is the trace — capture it to
+   `scenarios/runs/<id>/iter-<n>/simulator-trace.md`. Set up a FRESH
+   session first (localStorage.clear + reload) and capture the
+   before-profile; collect state/export/workspace/reflection/after-profile
+   as evidence afterward.
 5. **Deterministic completion.** Evaluate every gate from measured evidence
    (session events, artifacts, state API). Record PASS/FAIL per gate.
 6. **Evaluate.** Spawn an evaluator subagent with: the original spec,
@@ -112,7 +116,13 @@ documented honestly.
    guide's report format (verdict, weighted dimension scores totaling 100,
    experience values, critical failures, highest-leverage improvements,
    product vs harness defects, evidence gaps) to
-   `scenarios/runs/<id>/iter-<n>/evaluation.md`. Within 2 points of the
+   `scenarios/runs/<id>/iter-<n>/evaluation.md`. REQUIRED extra section:
+   `## Initial-Instruction Analysis` — using the run data (time to first
+   productive action, [STUCK→ASK] beats, clarifying questions, wrong
+   turns), state concretely what in the OPENING instructions (guide
+   welcome, goal prompt, first task text, README) would have let this
+   learner reach their goal faster or with more clarity; each suggestion
+   must cite the beat(s) it would have prevented. Within 2 points of the
    threshold → run a second independent evaluation; keep both.
 7. **Improve.** Convert accepted findings to `findings.yaml` (guide schema:
    finding_id, severity, category, observed/expected, evidence,
