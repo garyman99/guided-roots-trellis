@@ -16,6 +16,13 @@ export interface HintRequest {
      * "diff"/"tests" language must never reach a workspace learner.
      */
     surface?: "terminal" | "workspace";
+    /**
+     * True when the lab is about reviewing a (simulated) agent's change —
+     * the diff-first coaching ladder only makes sense there. Terminal labs
+     * WITHOUT an agent change (e.g. manual test authoring) get task-focused
+     * coaching instead.
+     */
+    agentReview?: boolean;
   };
   /** Why the instructor is speaking. */
   reason:

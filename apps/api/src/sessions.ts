@@ -378,6 +378,8 @@ export class Session {
         tasks: taskStatuses(this.manifest.tasks, state),
         instructorNotes: this.manifest.instructorNotes,
         surface: this.manifest.workspace ? "workspace" : "terminal",
+        // Diff-first coaching only fits labs built around an agent's change.
+        agentReview: Boolean(this.manifest.agentMessage),
       },
       reason,
       screen,

@@ -48,6 +48,29 @@ function terminalLadder(req: HintRequest, observed: string): string[] {
 }
 
 /**
+ * Authoring ladder: terminal labs WITHOUT an agent change (the learner is
+ * building something, not reviewing). Coaching leans on the lab's own task
+ * text and measured evidence — never on diffs or someone else's edits.
+ */
+function authoringLadder(req: HintRequest, observed: string): string[] {
+  const focus = focusTask(req);
+  return [
+    // 0 elicit
+    `Before anything else — say your goal back to yourself in one sentence: what should be true when you're done? Now, which part of that is already in your work, and which part isn't yet?${observed}`,
+    // 1 orient
+    `You're doing fine.${observed} The next step is: ${focus}`,
+    // 2 point-to-tool
+    `${observed} Everything you need is on screen: the README spells out the exact step you're automating, and the test runner's output names what ran and what it found. Compare your work against those two.`,
+    // 3 point-to-location
+    `${observed} Look at the file you're editing next to the manual step it comes from — line them up half by half. The half that's missing from your code is the one to write next. Task in focus: ${focus}`,
+    // 4 explain-concept
+    `Here's the idea: an automated check has the same two halves as your manual step — FIND the thing a visitor would look at, then STATE what you expect to be true about it. Finding without stating proves nothing; a run can even come up green with no expectation in it.`,
+    // 5 walk-through
+    `Step by step: 1) read the manual step in the README; 2) in the test body, find the target the way a visitor would (by what it says, or its role on the page); 3) add the expectation — what should be TRUE about it; 4) save, run the tests, and read what ran; 5) use the check when both halves are there.`,
+  ];
+}
+
+/**
  * Workspace ladder: talks about what's actually in front of the learner —
  * the context they share, the draft they got, the notes their team wrote.
  * Specifics come from the LAB'S OWN task text (focus), so this stays
@@ -106,7 +129,11 @@ export class MockInstructorProvider implements InstructorProvider {
     }
     const observed = evidence.length ? ` I can see ${evidence.join(", and ")}.` : "";
 
-    const byLevel = workspace ? workspaceLadder(req, observed) : terminalLadder(req, observed);
+    const byLevel = workspace
+      ? workspaceLadder(req, observed)
+      : req.lab.agentReview
+        ? terminalLadder(req, observed)
+        : authoringLadder(req, observed);
     const level = Math.max(0, Math.min(hintLevel, 5));
     return {
       message: byLevel[level],

@@ -65,12 +65,35 @@ test("restricted-context check-in carries privacy evidence, phrased for the work
   assert.ok(!FORBIDDEN_IN_WORKSPACE.test(hint.message), hint.message);
 });
 
-test("terminal labs keep their diff/tests ladder", async () => {
+test("agent-review terminal labs keep their diff/tests ladder", async () => {
   const mock = new MockInstructorProvider();
   const req = workspaceReq({ hintLevel: 5 });
   req.lab.surface = "terminal";
+  req.lab.agentReview = true;
   const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
   assert.ok(/git diff/.test(hint.message));
+});
+
+test("authoring labs (terminal, no agent change) never hear about diffs or agents", async () => {
+  const mock = new MockInstructorProvider();
+  for (let level = 0; level <= 5; level++) {
+    const req = workspaceReq({ hintLevel: level });
+    req.lab.surface = "terminal";
+    req.lab.agentReview = false;
+    req.lab.tasks = [
+      { id: "orient", text: "Read README.md.", done: true },
+      { id: "author", text: "Turn your manual step into code in tests/heading.spec.js.", done: false },
+    ];
+    const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+    assert.ok(!/\b(diff|hunk|agent's|git)\b/i.test(hint.message), `level ${level}: ${hint.message}`);
+  }
+  // Orient still points at the lab's own next task.
+  const req = workspaceReq({ hintLevel: 1 });
+  req.lab.surface = "terminal";
+  req.lab.agentReview = false;
+  req.lab.tasks = [{ id: "author", text: "Turn your manual step into code.", done: false }];
+  const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.ok(hint.message.includes("Turn your manual step into code"), hint.message);
 });
 
 test("after completion, a casual thanks gets conversation — not a hint ladder", async () => {
