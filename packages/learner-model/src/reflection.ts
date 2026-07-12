@@ -24,7 +24,7 @@ export function buildReflection(digest: SessionDigest, before: LearnerProfile, a
   // phrasing never reaches a workspace session and vice versa (a live
   // simulated learner caught "surgical fix… requested feature" + diff advice
   // in an email lesson — scenario finding, iter 3).
-  if (digest.diffViewedBeforeFirstEdit) demonstrated.push("Reviewed the agent's diff before making any edit.");
+  if (digest.agentReview && digest.diffViewedBeforeFirstEdit) demonstrated.push("Reviewed the agent's diff before making any edit.");
   if (digest.recoveredAfterFailure) demonstrated.push(`Took a failing test suite to green (${digest.testsRun} run${digest.testsRun === 1 ? "" : "s"}).`);
   if (ws) {
     if (ws.contextShares > 0 && ws.restrictedShares === 0) {
@@ -42,7 +42,11 @@ export function buildReflection(digest: SessionDigest, before: LearnerProfile, a
     }
     if (digest.checkpointCompleted) demonstrated.push("Completed the task, and the platform verified every requirement.");
   } else if (digest.checkpointCompleted) {
-    demonstrated.push("Completed the checkpoint with a surgical fix that kept the requested feature.");
+    demonstrated.push(
+      digest.agentReview
+        ? "Completed the checkpoint with a surgical fix that kept the requested feature."
+        : "Completed the task, and the platform verified every requirement.",
+    );
   }
 
   const statusBefore = new Map(before.skills.map((s) => [s.conceptId, s.status]));
@@ -59,7 +63,8 @@ export function buildReflection(digest: SessionDigest, before: LearnerProfile, a
   const habitsPositive: string[] = [];
   const habitsToImprove: string[] = [];
   if (digest.testsRun > 0) habitsPositive.push("Verified with the test suite instead of assuming.");
-  if (!ws && !digest.diffViewedBeforeFirstEdit) {
+  // Diff-first advice is only truthful where a diff exists to review.
+  if (!ws && digest.agentReview && !digest.diffViewedBeforeFirstEdit) {
     habitsToImprove.push("Edits began before the diff was reviewed — inspect first next time.");
   }
   if (ws) {

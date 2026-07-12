@@ -646,6 +646,7 @@ export class LearnerService {
       sessionId: session.id,
       labId: session.manifest.id,
       learnerId: session.learnerId,
+      agentReview: Boolean(session.manifest.agentMessage),
     });
 
     const before = this.profileFor(session.learnerId);

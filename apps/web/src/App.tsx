@@ -21,6 +21,8 @@ import type { OsStyle } from "./desktop/WindowFrame.tsx";
 
 const params = new URLSearchParams(window.location.search);
 const LAB_ID = params.get("lab") ?? "inspect-generated-changes";
+/** One session creation per page load, even across StrictMode remounts. */
+let bootInFlight: ReturnType<typeof api.createSession> | null = null;
 const UI = params.get("ui") ?? "desktop";
 const OS: OsStyle = params.get("os") === "mac" ? "mac" : "windows";
 const POLL_MS = 2000;
@@ -37,10 +39,15 @@ export function App() {
   const boot = useCallback(async () => {
     setBootError(null);
     try {
-      const fresh = await api.createSession(LAB_ID);
+      // Module-level in-flight guard: React StrictMode double-mounts effects
+      // in dev, which used to create TWO learners + TWO sessions per fresh
+      // visit (one leaked, and localStorage could keep mismatched halves).
+      bootInFlight ??= api.createSession(LAB_ID);
+      const fresh = await bootInFlight;
       saveCredentials(fresh);
       setCreds(fresh);
     } catch (err) {
+      bootInFlight = null; // a failed boot may be retried
       setBootError(`Couldn't start a lab session. Is the API running? (${String(err)})`);
     }
   }, []);

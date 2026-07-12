@@ -113,10 +113,27 @@ test("terminal-lab reflections are unchanged (regression guard)", () => {
     { type: "tests.completed", passed: 6, failed: 0, timestamp: at(40) },
     { type: "checkpoint.completed", checkpointId: "inspect-fix-verify", timestamp: at(50) },
   ];
-  const d = extractDigest(events, { sessionId: "s3", labId: "inspect-generated-changes", learnerId: "l1" });
+  const d = extractDigest(events, { sessionId: "s3", labId: "inspect-generated-changes", learnerId: "l1", agentReview: true });
   assert.equal(d.workspace, undefined);
   const empty = reduceProfile("l1", [], curriculum);
   const r = buildReflection(d, empty, empty);
   assert.ok(r.demonstrated.some((s) => s.includes("surgical fix")), String(r.demonstrated));
   assert.ok(r.demonstrated.some((s) => s.includes("failing test suite to green")), String(r.demonstrated));
+});
+
+test("authoring labs (terminal, no agent change) get truthful reflections — no diff advice, no 'requested feature'", () => {
+  const events: SessionEvent[] = [
+    { type: "session.started", lessonId: "turn-heading-check-into-first-test", learnerId: "l1", variantId: null, timestamp: at(0) },
+    { type: "file.changed", path: "tests/heading.spec.js", timestamp: at(20) },
+    { type: "intervention.proposed", triggerType: "inactivity", suggestedHintLevel: 0, timestamp: at(30) },
+    { type: "instructor.hint", level: 1, strategy: "orient", contextManifest: null, timestamp: at(31) },
+    { type: "checkpoint.completed", checkpointId: "first-authored-check", timestamp: at(50) },
+  ];
+  const d = extractDigest(events, { sessionId: "s4", labId: "turn-heading-check-into-first-test", learnerId: "l1", agentReview: false });
+  const empty = reduceProfile("l1", [], curriculum);
+  const r = buildReflection(d, empty, empty);
+  const all = JSON.stringify(r).toLowerCase();
+  assert.ok(!all.includes("diff"), all);
+  assert.ok(!all.includes("requested feature"), all);
+  assert.ok(r.demonstrated.some((s) => s.includes("verified every requirement")), String(r.demonstrated));
 });

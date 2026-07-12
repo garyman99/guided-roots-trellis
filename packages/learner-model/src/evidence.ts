@@ -39,6 +39,12 @@ export interface SessionDigest {
   conceptObservations: Array<{ observation: string }>;
   /** Present only for workspace labs (simulated applications). */
   workspace?: WorkspaceDigest;
+  /**
+   * True when the lab centers on reviewing a (simulated) agent's change.
+   * Diff-review phrasing in reflections is only truthful there — an
+   * authoring lab has no diff to inspect (live-sim finding).
+   */
+  agentReview?: boolean;
 }
 
 export interface WorkspaceDigest {
@@ -85,7 +91,7 @@ const PROGRESS_WINDOW_MS = 10 * 60_000;
  */
 export function extractDigest(
   events: SessionEvent[],
-  meta: { sessionId: string; labId: string; learnerId: string },
+  meta: { sessionId: string; labId: string; learnerId: string; agentReview?: boolean },
 ): SessionDigest {
   let startedAt = "";
   let variantId: string | null = null;
@@ -233,6 +239,7 @@ export function extractDigest(
           submittedSimilarity,
         }
       : undefined,
+    agentReview: meta.agentReview,
   };
 }
 

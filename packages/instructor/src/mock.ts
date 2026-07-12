@@ -115,6 +115,21 @@ export class MockInstructorProvider implements InstructorProvider {
       };
     }
 
+    // Post-completion conversation outranks FAQ matching: a farewell that
+    // happens to contain the word "find" must not get a locator recipe
+    // (found by live simulation — the learner's closing feedback was
+    // answered with vocabulary she no longer needed).
+    if (state.completedCheckpoints.length > 0 && reason.kind === "question" && !reason.stuck) {
+      return {
+        message:
+          "That's the whole loop — and it's verified, so take the credit. If you want, try it once more your own way; otherwise you're all set here.",
+        level: 0,
+        strategy: STRATEGY_BY_LEVEL[0],
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+
     // Authored FAQ: a specific question deserves ITS answer, not a recipe.
     // First matching entry wins; matching is case-insensitive on the
     // learner's own words. (Found by live simulation: seven clarifying
@@ -135,19 +150,6 @@ export class MockInstructorProvider implements InstructorProvider {
           /* an unparseable authored pattern never matches */
         }
       }
-    }
-
-    // Post-completion conversation (policy already chose level 0): respond
-    // like a colleague, not a hint ladder.
-    if (state.completedCheckpoints.length > 0 && reason.kind === "question" && !reason.stuck) {
-      return {
-        message:
-          "That's the whole loop — and it's verified, so take the credit. If you want, try it once more your own way; otherwise you're all set here.",
-        level: 0,
-        strategy: STRATEGY_BY_LEVEL[0],
-        promptVersion: req.promptVersion,
-        provider: this.name,
-      };
     }
 
     const evidence: string[] = [];
