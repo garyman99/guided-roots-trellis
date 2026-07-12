@@ -1,0 +1,16 @@
+{
+  "source_outbox": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T233636-0600",
+  "run_id": "20260711T233636-0600",
+  "imported_at": "2026-07-12T00:30:00-06:00",
+  "importing_branch": "feature/scenario-run-20260711T233636-0600",
+  "importing_commit_at_import_time": "a77ace42ae5f5c6b98b56d8853f7f533aa943bca",
+  "baseline_commit_declared_by_generator": "904c8fb7b9368059bac45d08fae0749175dc4e65",
+  "files": {
+    "01-run-one-existing-test-on-purpose.md": "sha256:8a179f8fb8383c2d709dd237ca6f2b10a9fecfb7dc89fbf765269694f9a1df39",
+    "02-find-form-field-by-label.md": "sha256:33c4666ddaec0439631e590f8c758fb7d51f830f302ff65cafb2d8ced5a7db87",
+    "manifest.md": "sha256:7e9032ae1d5bdceda5e8fbeca2fde8c28523b4a0d8a39cc6bb47390b52e00b74"
+  },
+  "validation": "both scenarios have complete frontmatter and required body sections (checked 2026-07-12)",
+  "note": "Verbatim copies. Never edit these files; implementation annotations live outside imported/.",
+  "branch_decision": "PR #1 (run-1 branch) merged to main before this session; this run branch was created fresh from origin/main at a77ace4."
+}
