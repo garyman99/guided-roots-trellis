@@ -32,8 +32,10 @@ export interface WorkspaceEmailSpec {
 export interface WorkspacePolicySpec {
   /** Exact scenario strings that must not reach the AI helper or the reply. */
   restrictedSpans: Array<{ id: string; text: string; label: string; reason: string }>;
-  /** Authored regexes (case-insensitive) the final reply must not match. */
-  forbiddenPhrases: Array<{ id: string; pattern: string; label: string }>;
+  /** Authored regexes (case-insensitive) the final reply must not match.
+   * `teaching` (optional) is the learner-facing explanation of the CATEGORY,
+   * surfaced when the gate trips — authored words, never learner prose. */
+  forbiddenPhrases: Array<{ id: string; pattern: string; label: string; teaching?: string }>;
   /** Authored regexes for facts that must reach the helper and stay in the reply. */
   requiredFacts: Array<{ id: string; pattern: string; label: string }>;
   /** Substrings any of which count as acknowledging the inconvenience (approximate). */

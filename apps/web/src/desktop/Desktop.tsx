@@ -213,10 +213,32 @@ export function Desktop({
       api.workspaceAction(creds, { type: "open-app", appId: id }).then(setWsView).catch(() => {});
     }
   };
+  // Fronting via the taskbar must also move real keyboard focus into the
+  // window: z-order alone leaves DOM focus wherever it was (e.g. the
+  // terminal's hidden textarea), which is how a learner's chat text ended up
+  // on the prompt line (finding taskbar-click-minimizes-covered-window).
+  const focusWindowDom = (id: AppId) => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`.window[data-app-id="${id}"]`);
+      if (!el) return;
+      const input = el.querySelector<HTMLElement>('textarea, input:not([type="hidden"]), [contenteditable="true"]');
+      (input ?? el).focus();
+    });
+  };
+  const frontWin = (id: AppId) => {
+    update(id, { minimized: false, z: ++zRef.current });
+    focusWindowDom(id);
+  };
+  const isTopWindow = (id: AppId) => {
+    const visible = APPS.filter((a) => windows[a.id]?.open && !windows[a.id]?.minimized);
+    return visible.length > 0 && visible.every((a) => a.id === id || windows[a.id].z < windows[id].z);
+  };
   const taskbarClick = (id: AppId) => {
     const w = windows[id];
     if (!w.open) return openApp(id);
-    if (w.minimized) return update(id, { minimized: false, z: ++zRef.current });
+    // Windows taskbar semantics: only the focused (top) window minimizes on
+    // click; a minimized or covered window comes to the front with focus.
+    if (w.minimized || !isTopWindow(id)) return frontWin(id);
     update(id, { minimized: true });
   };
 
@@ -250,6 +272,7 @@ export function Desktop({
         <WindowFrame
           key={a.id}
           os={os}
+          appId={a.id}
           title={a.id === "guide" ? `${a.title} — ${data.lab.title}` : a.title}
           icon={a.icon}
           state={windows[a.id]}

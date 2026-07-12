@@ -1,0 +1,10 @@
+{
+  "name": "trellis-sim-recorder",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Records live simulated learner runs to webm by driving the real web UI via Playwright. Kept out of the repo's own dependency tree on purpose.",
+  "dependencies": {
+    "playwright": "^1.56.0"
+  }
+}

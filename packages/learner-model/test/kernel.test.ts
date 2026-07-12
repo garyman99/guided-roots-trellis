@@ -99,6 +99,30 @@ test("digest extraction is deterministic and order-aware", () => {
   assert.equal(late.diffViewedBeforeFirstEdit, false, "diff after first edit does not count");
 });
 
+test("a concept with multiple observation keys collects evidence from each demonstrating lab", () => {
+  // playwright.locators-and-assertions is demonstrated by the review lab's
+  // checkpoint AND the authoring lab's checkpoint (registry lists both keys).
+  const base = { sessionId: "s1", labId: "turn-heading-check-into-first-test", learnerId: "l1" };
+  const events: SessionEvent[] = [
+    { type: "session.started", lessonId: base.labId, learnerId: "l1", variantId: null, timestamp: at(0) },
+    { type: "file.changed", path: "tests/heading.spec.js", timestamp: at(3) },
+    { type: "tests.completed", passed: 1, failed: 0, timestamp: at(5) },
+    { type: "checkpoint.completed", checkpointId: "first-authored-check", timestamp: at(6) },
+  ];
+  const d = extractDigest(events, base);
+  assert.deepEqual(
+    d.conceptObservations.map((o) => o.observation),
+    ["checkpoint-first-authored-check"],
+  );
+  const evidence = digestToEvidence(d, curriculum.concepts);
+  const conceptEv = evidence.filter((e) => e.type === "concept.evidence");
+  assert.deepEqual(
+    conceptEv.map((e) => (e.type === "concept.evidence" ? e.conceptId : "")),
+    ["playwright.locators-and-assertions"],
+    "the authoring checkpoint feeds the lesson's declared concept",
+  );
+});
+
 /* ── Phase 1: profile reducer ── */
 
 function evidenceFromSessions(n: number, opts: { diffFirst?: boolean } = {}): StoredEvidence[] {

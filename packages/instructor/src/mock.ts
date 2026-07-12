@@ -130,6 +130,32 @@ export class MockInstructorProvider implements InstructorProvider {
       };
     }
 
+    // FAQ answers are for QUESTIONS (and problem reports) — not for every
+    // message that happens to contain a keyword. A learner announcing their
+    // own recovery ("I get it now — my line only FINDS the heading") must be
+    // heard, not handed the locator recipe they just outgrew (live-sim
+    // finding faq-matcher-fires-on-non-questions, reproduced 2026-07-12).
+    // The mock cannot judge whether a statement is CORRECT, so the
+    // acknowledgment listens without endorsing.
+    const msgText = reason.kind === "question" ? reason.text : "";
+    const interrogative =
+      reason.kind === "question" &&
+      (reason.stuck ||
+        /\?/.test(msgText) ||
+        /^\s*(how|what|where|which|why|who|when|can|could|do|does|did|is|are|am|should|would|will)\b/i.test(msgText));
+    const problemReport =
+      /\b(won'?t|can'?t|doesn'?t|isn'?t|not working|nothing happen(s|ed)?|stuck|no idea|lost|broke|confus\w*|help)\b/i.test(msgText);
+    if (reason.kind === "question" && !interrogative && !problemReport) {
+      return {
+        message:
+          "Thanks for talking that through — saying it out loud is half the work. Carry on the way you described; if part of it turns into a question, ask me straight and I'll answer it.",
+        level: 0,
+        strategy: "acknowledge",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+
     // Authored FAQ: a specific question deserves ITS answer, not a recipe.
     // First matching entry wins; matching is case-insensitive on the
     // learner's own words. (Found by live simulation: seven clarifying

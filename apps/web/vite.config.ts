@@ -5,7 +5,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    // PORT lets a second session run its own dev server beside 5173.
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       "/api": "http://127.0.0.1:8787",
       "/ws": { target: "ws://127.0.0.1:8787", ws: true },

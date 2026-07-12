@@ -150,3 +150,41 @@ test("a stuck learner after completion still gets real help (no false-positive d
   const policy = choosePolicy(state, { kind: "question", text: "wait, I broke it again", stuck: true });
   assert.ok(policy.level >= 3, policy.because);
 });
+
+test("a recovery STATEMENT gets acknowledgment, never the FAQ recipe it happens to keyword-match", async () => {
+  const mock = new MockInstructorProvider();
+  const req = workspaceReq({
+    reason: {
+      kind: "question",
+      text: "Oh, I get it now — my line only FINDS the heading; it never states the expectation.",
+      stuck: false,
+    },
+    hintLevel: 2,
+  });
+  req.lab.faq = [{ match: "find|expect|visible", answer: "The finding piece is called a locator…" }];
+  const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.equal(hint.strategy, "acknowledge", hint.message);
+  assert.ok(!/locator…/.test(hint.message), "no recipe in reply to a statement");
+});
+
+test("a problem-report statement still reaches the authored FAQ (implicit question)", async () => {
+  const mock = new MockInstructorProvider();
+  const req = workspaceReq({
+    reason: { kind: "question", text: "the terminal won't take my keystrokes at all", stuck: false },
+    hintLevel: 0,
+  });
+  req.lab.faq = [{ match: "terminal|keystrokes", answer: "Click once in the dark terminal area, then type. Check my work runs your test too." }];
+  const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.equal(hint.strategy, "faq-answer");
+});
+
+test("interrogative-without-question-mark still reaches the FAQ", async () => {
+  const mock = new MockInstructorProvider();
+  const req = workspaceReq({
+    reason: { kind: "question", text: "how do I say the heading must be visible", stuck: false },
+    hintLevel: 0,
+  });
+  req.lab.faq = [{ match: "visible|expect", answer: "The checking piece starts with await expect(…)." }];
+  const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.equal(hint.strategy, "faq-answer");
+});

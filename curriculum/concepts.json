@@ -7,7 +7,11 @@
       "category": "git",
       "defaultHalfLifeDays": 60,
       "observation": "diff-before-first-edit",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 60
+      },
       "explanationTemplate": "Reviewed the agent's diff before touching any file in {n} lab session(s) ({dates})."
     },
     {
@@ -16,7 +20,11 @@
       "category": "testing",
       "defaultHalfLifeDays": 90,
       "observation": "tests-pass-after-fail",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 90 },
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 90
+      },
       "explanationTemplate": "Took a failing test suite to green in {n} lab session(s) ({dates})."
     },
     {
@@ -25,7 +33,11 @@
       "category": "agents",
       "defaultHalfLifeDays": 60,
       "observation": "checkpoint-inspect-fix-verify",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 60
+      },
       "explanationTemplate": "Completed the inspect→fix→verify checkpoint in {n} lab session(s) ({dates})."
     },
     {
@@ -33,9 +45,16 @@
       "name": "Reading Playwright failures: locators and assertions",
       "category": "playwright",
       "defaultHalfLifeDays": 60,
-      "observation": "checkpoint-first-playwright-review",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
-      "explanationTemplate": "Diagnosed and fixed a broken Playwright test (locator or assertion) in {n} lab session(s) ({dates})."
+      "observation": [
+        "checkpoint-first-playwright-review",
+        "checkpoint-first-authored-check"
+      ],
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 60
+      },
+      "explanationTemplate": "Worked hands-on with Playwright locators and assertions (diagnosed a broken test or authored a check) in {n} lab session(s) ({dates})."
     },
     {
       "id": "ai-literacy.context-selection",
@@ -43,7 +62,11 @@
       "category": "ai-literacy",
       "defaultHalfLifeDays": 60,
       "observation": "clean-context-share",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 60
+      },
       "explanationTemplate": "Shared only task-relevant context with an AI helper (or trimmed it after noticing) in {n} lab session(s) ({dates})."
     },
     {
@@ -52,13 +75,29 @@
       "category": "ai-literacy",
       "defaultHalfLifeDays": 60,
       "observation": "ai-output-edited-before-use",
-      "masteryRule": { "minCount": 2, "minDistinctLabs": 1, "windowDays": 60 },
+      "masteryRule": {
+        "minCount": 2,
+        "minDistinctLabs": 1,
+        "windowDays": 60
+      },
       "explanationTemplate": "Reviewed and meaningfully edited AI-generated output before using it in {n} lab session(s) ({dates})."
     }
   ],
   "edges": [
-    { "from": "git.diff-first-review", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" },
-    { "from": "testing.red-green-loop", "to": "agents.reviewing-agent-changes", "kind": "prerequisite" },
-    { "from": "testing.red-green-loop", "to": "playwright.locators-and-assertions", "kind": "prerequisite" }
+    {
+      "from": "git.diff-first-review",
+      "to": "agents.reviewing-agent-changes",
+      "kind": "prerequisite"
+    },
+    {
+      "from": "testing.red-green-loop",
+      "to": "agents.reviewing-agent-changes",
+      "kind": "prerequisite"
+    },
+    {
+      "from": "testing.red-green-loop",
+      "to": "playwright.locators-and-assertions",
+      "kind": "prerequisite"
+    }
   ]
 }

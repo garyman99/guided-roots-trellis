@@ -506,6 +506,9 @@ export class Session {
     const p = this.pendingIntervention;
     if (p) {
       this.transcript.push({ id: ++this.msgSeq, role: "instructor", text: p.hint.message, level: p.hint.level, at: now() });
+      // The hint event fired at proposal time; record the delivery moment too
+      // so transcript and event log tell one story.
+      this.emit({ type: "intervention.delivered", triggerType: p.type, level: p.hint.level, strategy: p.hint.strategy, timestamp: now() });
     }
     this.pendingIntervention = null;
     return p;
@@ -520,9 +523,28 @@ export class Session {
       this.handle,
       verifyScriptPathFor(this.driverKind, this.labDir),
       this.manifest.workspace
-        ? { meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity }
+        ? {
+            meaningfulEditMaxSimilarity: this.manifest.workspace.policy.meaningfulEditMaxSimilarity,
+            // Authored labels/teaching so failing gate details name what
+            // tripped (selected by measured ids, never learner prose).
+            forbiddenPhraseEntries: this.manifest.workspace.policy.forbiddenPhrases,
+            restrictedSpanEntries: this.manifest.workspace.policy.restrictedSpans,
+            // Server-side reply truth so a failing check can quote the
+            // learner's own flagged words (check result only, never events).
+            submittedReplyText: this.workspace?.view().reply.text,
+          }
         : undefined,
     );
+    // The evaluation itself just ran the suite inside the lab env; the
+    // results file lands on the instrumentation's NEXT poll (~700ms). Drain
+    // now so tests.completed precedes checkpoint.* in the log — otherwise the
+    // digest extracted at completion records testsRun: 0 for a run whose
+    // tests demonstrably passed (finding session-digest-contradicts-event-log).
+    try {
+      await this.instrumentation?.drain();
+    } catch {
+      /* the checkpoint result must never break on instrumentation hiccups */
+    }
     this.emit({
       type: "checkpoint.evaluated",
       checkpointId: result.checkpointId,

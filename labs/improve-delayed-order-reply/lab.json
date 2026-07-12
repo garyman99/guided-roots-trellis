@@ -1,7 +1,10 @@
 {
   "id": "improve-delayed-order-reply",
   "version": 1,
-  "concepts": ["ai-literacy.context-selection", "ai-literacy.output-verification"],
+  "concepts": [
+    "ai-literacy.context-selection",
+    "ai-literacy.output-verification"
+  ],
   "title": "Improve a delayed-order reply — with an AI helper",
   "objective": "Practice the context → draft → verify → edit cycle: share only the facts an AI helper needs, ask for a draft, check every claim it makes, and rewrite it in your own voice before sending.",
   "scenario": "You work the front desk and also answer customer email. Dana ordered raised-bed planters (order GR-1042); delivery is two days late and tracking now says tomorrow. Dana wants to know what's going on. You have an AI helper available — but it only knows what you tell it, it happily repeats anything you paste, and it tends to over-promise. The reply that goes out is yours, not its.",
@@ -12,12 +15,34 @@
       "Hey! Sage here 🌿 — welcome to the front desk. Everything in this space is practice: the customer is fictional, and nothing you send actually leaves the room.",
       "So: a customer named Dana wrote in about a late order, and they're not thrilled. Your job is to reply — warm, honest, no promises we can't keep.",
       "There's an AI Helper on the desktop that can draft text for you. Fair warning from me: it only knows what you paste into it, and it can get… enthusiastic. Whatever it writes, the final say is yours."
+    ],
+    "faq": [
+      {
+        "match": "need all|take (some|it|any).*(out|off)|too much|loyalty|personal (info|information|data)|share.*(whole|everything|all of)",
+        "answer": "Good instinct to ask. The helper only needs what the TASK needs: the order facts (what was ordered, the dates, what tracking shows) and the tone you want. Anything that identifies Dana beyond her first name — like a loyalty or account number — doesn't help it write a better reply, so leave it out. You can re-share a trimmed version any time; the helper works from your most recent share."
+      },
+      {
+        "match": "promise|guarantee|what part|reading as|flag|why.*(fail|reject|not pass|red)|assure",
+        "answer": "The check isn't looking for the word \"promise\" — it's looking for wording that commits us to an outcome we can't control. Things like \"guaranteed\", \"will definitely arrive\", \"I assure you\", or \"won't happen again\" all count. The safe shape: say what the tracking SHOWS, and what you'll DO (keep an eye on it, follow up) — never what WILL happen."
+      },
+      {
+        "match": "reset|start over|fresh|back to (the )?start|undo everything",
+        "answer": "Yes — the Reset button is right next to \"Check my work\" at the bottom of this chat. It puts the whole front desk back exactly how it started (your draft and shares are cleared), and I'll stay right here."
+      }
     ]
   },
   "workspace": {
     "apps": [
-      { "id": "email", "title": "Mail", "icon": "✉️" },
-      { "id": "ai-chat", "title": "AI Helper", "icon": "✨" }
+      {
+        "id": "email",
+        "title": "Mail",
+        "icon": "✉️"
+      },
+      {
+        "id": "ai-chat",
+        "title": "AI Helper",
+        "icon": "✨"
+      }
     ],
     "email": {
       "inbox": [
@@ -55,12 +80,21 @@
         {
           "id": "delivery-promise",
           "pattern": "\\b(guarantee[ds]?|promis(?:e|es|ed|ing)|i assure you|definitely (?:will )?arriv|will not be delayed again|won't happen again)\\b",
-          "label": "an unapproved promise or guarantee"
+          "label": "an unapproved promise or guarantee",
+          "teaching": "Wording that commits to an outcome we can't control — \"guaranteed\", \"will definitely arrive\", \"I assure you\", \"won't happen again\". Say what tracking shows and what you'll do next, not what will happen."
         }
       ],
       "requiredFacts": [
-        { "id": "order-id", "pattern": "GR[-\\s]?1042", "label": "Dana's order number" },
-        { "id": "delivery-expectation", "pattern": "(out for delivery|expected tomorrow|tomorrow)", "label": "what tracking currently shows" }
+        {
+          "id": "order-id",
+          "pattern": "GR[-\\s]?1042",
+          "label": "Dana's order number"
+        },
+        {
+          "id": "delivery-expectation",
+          "pattern": "(out for delivery|expected tomorrow|tomorrow)",
+          "label": "what tracking currently shows"
+        }
       ],
       "acknowledgementLexicon": [
         "sorry",
@@ -106,14 +140,46 @@
     "id": "delayed-order-reply",
     "title": "A verified, human reply — drafted with help, sent by you",
     "requirements": [
-      { "id": "used-ai-helper", "kind": "workspace", "label": "Asked the AI helper for a draft" },
-      { "id": "context-clean", "kind": "workspace", "label": "Shared the useful facts — without Dana's loyalty number" },
-      { "id": "reviewed-and-edited", "kind": "workspace", "label": "Meaningfully edited the generated text (or wrote your own)" },
-      { "id": "facts-preserved", "kind": "workspace", "label": "The reply keeps Dana's order number and what tracking shows" },
-      { "id": "no-forbidden-promise", "kind": "workspace", "label": "No promise or guarantee we can't keep" },
-      { "id": "no-restricted-in-reply", "kind": "workspace", "label": "The loyalty number stayed out of the reply" },
-      { "id": "acknowledges-inconvenience", "kind": "workspace", "label": "The reply acknowledges the inconvenience" },
-      { "id": "reply-submitted", "kind": "workspace", "label": "The simulated reply was sent" }
+      {
+        "id": "used-ai-helper",
+        "kind": "workspace",
+        "label": "Asked the AI helper for a draft"
+      },
+      {
+        "id": "context-clean",
+        "kind": "workspace",
+        "label": "Shared the useful facts — without Dana's loyalty number"
+      },
+      {
+        "id": "reviewed-and-edited",
+        "kind": "workspace",
+        "label": "Meaningfully edited the generated text (or wrote your own)"
+      },
+      {
+        "id": "facts-preserved",
+        "kind": "workspace",
+        "label": "The reply keeps Dana's order number and what tracking shows"
+      },
+      {
+        "id": "no-forbidden-promise",
+        "kind": "workspace",
+        "label": "No promise or guarantee we can't keep"
+      },
+      {
+        "id": "no-restricted-in-reply",
+        "kind": "workspace",
+        "label": "The loyalty number stayed out of the reply"
+      },
+      {
+        "id": "acknowledges-inconvenience",
+        "kind": "workspace",
+        "label": "The reply acknowledges the inconvenience"
+      },
+      {
+        "id": "reply-submitted",
+        "kind": "workspace",
+        "label": "The simulated reply was sent"
+      }
     ]
   },
   "instructorNotes": "VOICE: informal, warm, plain words, first person — a colleague at the next desk, never a lecturer. No role-play framing. Audience: an office professional with low technical confidence and beginner AI familiarity; prefers brief guidance and concrete examples. THE LESSON is the context→draft→verify→edit cycle, and the reply is THEIRS — never write the full reply for them; coach toward the next move instead. Key coaching moments: (1) restricted_context_shared trigger — the learner pasted Dana's loyalty number into the helper. Don't scold; ask what the helper actually needs to draft a reply, and note that anything pasted into an AI tool is shared data. The fix is re-sharing trimmed context (the platform counts the LATEST share). (2) unedited_ai_draft trigger — the draft is sitting untouched; ask them to read it aloud in their head: does it sound like them, and is every claim true? (3) The helper's drafts deliberately over-promise ('I can promise it will arrive tomorrow — you have my personal guarantee') and sign off with a placeholder — both must go; the tone note is the authority to cite. (4) 'expected tomorrow' from TRACKING is a fact and fine to share; PROMISING tomorrow is not — that distinction is the heart of the promise rule. Escalate slowly: elicit first (what does the tone note say about dates?), name the area second, state the specific fix only at high hint levels. Never claim the email was really sent; it's simulated and the UI says so. Never claim completion — the checkpoint decides.",

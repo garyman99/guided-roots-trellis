@@ -43,7 +43,7 @@
   "tasks": [
     {
       "id": "orient",
-      "text": "Get your bearings first. Open Code Studio from the desktop (double-click its icon) and read README.md — it holds your manual check written down, the one idea this lesson teaches, and a \"words you'll need\" list so you never have to guess spelling. Want to see the page like a visitor first? Open Garden Site from the desktop too.",
+      "text": "Get your bearings first. Open Code Studio from the desktop (double-click its icon) and read README.md — it holds your manual check written down, the one idea this lesson teaches, and a \"words you'll need\" list so you never have to guess spelling. Want to see the page like a visitor first? Open Garden Site from the desktop too. Windows can overlap — a covered window's taskbar button at the bottom brings it back to the front.",
       "auto": "any-command"
     },
     {
@@ -53,7 +53,7 @@
     },
     {
       "id": "run",
-      "text": "Run `npm test` in the terminal. Read what it prints — it names your test and tells you what ran. Careful: a test with no expectation in it can come up green while proving nothing, so green alone isn't the goal.",
+      "text": "Run `npm test` in the terminal. Read what it prints — it names your test and tells you what ran. If the terminal fights you, don't treat it as a wall: \"Check my work\" runs your test too. Careful: a test with no expectation in it can come up green while proving nothing, so green alone isn't the goal.",
       "auto": "tests-run"
     },
     {
