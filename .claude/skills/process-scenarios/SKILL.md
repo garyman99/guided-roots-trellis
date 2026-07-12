@@ -98,16 +98,25 @@ documented honestly.
    point). If the slice is too large for one session, leave it PARTIALLY
    IMPLEMENTED with committed progress + notes, and record BLOCKED-style
    detail in the registry (`status_reason`). Never fabricate a passing run.
-4. **Simulate.** Spawn a LIVE simulator subagent: build its prompt from
-   `simulator-contract.md` (in this skill's directory — the self-discovery
-   contract: goal-first, read-the-screen, ask-the-guide-when-stuck, never
-   solve via implicit knowledge) plus a persona block derived from the spec
-   (role, knowledge, confidence, mistakes, help behavior). It drives the
-   real UI end to end and its final message is the trace — capture it to
-   `scenarios/runs/<id>/iter-<n>/simulator-trace.md`. Set up a FRESH
-   session first (localStorage.clear + reload) and capture the
-   before-profile; collect state/export/workspace/reflection/after-profile
-   as evidence afterward.
+4. **Simulate.** Spawn a LIVE simulator subagent: build its prompt from a
+   simulator contract (in this skill's directory) plus a persona block
+   derived from the spec (role, knowledge, confidence, mistakes, help
+   behavior). It drives the real UI end to end and its final message is the
+   trace — capture it to `scenarios/runs/<id>/iter-<n>/simulator-trace.md`.
+   Set up a FRESH session first and capture the before-profile; collect
+   state/export/workspace/reflection/after-profile as evidence afterward.
+
+   **RECORD every live run to webm** (default). Use
+   `recorded-simulator-contract.md` + the `tools/recorder/` harness (see its
+   README): start `sim-driver.mjs` on a free port with
+   `--out scenarios/recordings/<run-id>/<scenario-id>/iter-<n>/` and
+   `--url http://localhost:5173/?lab=<labId>`, read the fresh session creds
+   with the coordinator-only `eval`, spawn the simulator against the CLI,
+   then `sim.mjs close` to finalize `run.webm` before pulling evidence and
+   removing the `trellis-lab-<sessionId>` container. `scenarios/recordings/`
+   is git-ignored — recordings are local review artifacts, never committed.
+   If the recorder is unavailable, fall back to the Browser-pane MCP with
+   the base `simulator-contract.md` and note that the run was not recorded.
 5. **Deterministic completion.** Evaluate every gate from measured evidence
    (session events, artifacts, state API). Record PASS/FAIL per gate.
 6. **Evaluate.** Spawn an evaluator subagent with: the original spec,
