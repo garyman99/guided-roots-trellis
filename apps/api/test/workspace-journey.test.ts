@@ -175,6 +175,11 @@ test("inserting the draft, submitting it UNEDITED, the checkpoint refuses", asyn
   const promiseReq = evalr.requirements.find((r: { id: string }) => r.id === "no-forbidden-promise");
   assert.match(promiseReq.detail, /unapproved promise or guarantee/);
   assert.match(promiseReq.detail, /outcome we can't control/);
+  // …and QUOTES the learner's own flagged words (live-sim finding: stale
+  // text the learner couldn't see kept tripping the gate and nothing on
+  // screen could show her which sentence it was).
+  assert.match(promiseReq.detail, /wording it found: "/);
+  assert.match(promiseReq.detail, /promise|guarantee/i);
 });
 
 test("editing into her own words and re-sending passes every gate", async () => {

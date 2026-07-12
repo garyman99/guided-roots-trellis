@@ -529,6 +529,9 @@ export class Session {
             // tripped (selected by measured ids, never learner prose).
             forbiddenPhraseEntries: this.manifest.workspace.policy.forbiddenPhrases,
             restrictedSpanEntries: this.manifest.workspace.policy.restrictedSpans,
+            // Server-side reply truth so a failing check can quote the
+            // learner's own flagged words (check result only, never events).
+            submittedReplyText: this.workspace?.view().reply.text,
           }
         : undefined,
     );

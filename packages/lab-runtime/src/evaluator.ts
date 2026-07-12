@@ -31,8 +31,16 @@ export interface WorkspacePolicyThresholds {
    * the learner WHAT tripped in the lab author's own words (labels/teaching
    * are authored strings selected by measured ids — never learner prose).
    */
-  forbiddenPhraseEntries?: Array<{ id: string; label: string; teaching?: string }>;
-  restrictedSpanEntries?: Array<{ id: string; label: string; reason?: string }>;
+  forbiddenPhraseEntries?: Array<{ id: string; label: string; teaching?: string; pattern?: string }>;
+  restrictedSpanEntries?: Array<{ id: string; label: string; reason?: string; text?: string }>;
+  /**
+   * The submitted reply's current text, server-side truth, so a failing
+   * check can QUOTE the flagged words back to the learner. Ephemeral: it
+   * feeds the check result the learner reads, never the event log (live-sim
+   * finding: a learner asked "which sentence is it seeing?" three times
+   * while stale text she couldn't see kept tripping the gate).
+   */
+  submittedReplyText?: string;
 }
 
 export interface CheckpointSpec {
@@ -215,7 +223,13 @@ function workspaceRequirement(
       if (!sub) return r(false, "Nothing has been submitted yet.");
       const tripped = (policy?.forbiddenPhraseEntries ?? []).filter((e) => sub.forbiddenPhrases.includes(e.id));
       const why = tripped.map((e) => e.teaching ? `${e.label}. ${e.teaching}` : e.label).join("; ");
-      return r(sub.forbiddenPhrases.length === 0, `The reply makes a promise that has not been approved${why ? `: ${why}` : "."}`);
+      // Quote the learner their OWN flagged words — the single fact that
+      // turns "the check is broken" into "oh, THAT line is still in there".
+      const quotes = quoteMatches(policy?.submittedReplyText, tripped.map((e) => e.pattern));
+      return r(
+        sub.forbiddenPhrases.length === 0,
+        `The reply makes a promise that has not been approved${why ? `: ${why}` : "."}${quotes ? ` In the reply you sent, this is the wording it found: ${quotes}` : ""}`,
+      );
     }
 
     case "facts-preserved":
@@ -232,6 +246,30 @@ function workspaceRequirement(
     default:
       return r(false, `Unknown workspace requirement '${req.id}'.`);
   }
+}
+
+/**
+ * Extract short learner-facing quotes of what an authored pattern matched,
+ * with a few words of surrounding context. Returns null when there is
+ * nothing to quote (no text, no patterns, or nothing matched).
+ */
+function quoteMatches(text: string | undefined, patterns: Array<string | undefined>): string | null {
+  if (!text) return null;
+  const quotes: string[] = [];
+  for (const pattern of patterns) {
+    if (!pattern) continue;
+    try {
+      const m = new RegExp(pattern, "i").exec(text);
+      if (!m) continue;
+      const start = Math.max(0, m.index - 25);
+      const end = Math.min(text.length, m.index + m[0].length + 25);
+      const snippet = `${start > 0 ? "…" : ""}${text.slice(start, end).replace(/\s+/g, " ").trim()}${end < text.length ? "…" : ""}`;
+      quotes.push(`"${snippet}"`);
+    } catch {
+      /* unparseable authored pattern — nothing to quote */
+    }
+  }
+  return quotes.length ? quotes.join(" and ") : null;
 }
 
 export function verifyScriptPathFor(driverKind: "local" | "docker", labDir: string): EvaluatorPaths {
