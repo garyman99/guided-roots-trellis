@@ -95,7 +95,9 @@ class DockerLabHandle implements LabHandle {
         `git -c user.email=lab@trellis.local -c user.name='Trellis Lab' add -A`,
         `git -c user.email=lab@trellis.local -c user.name='Trellis Lab' commit -qm 'Initial commit'`,
         // SIMULATED BEHAVIOR: the scripted "AI agent" change, uncommitted.
-        `node /opt/lab/scripts/apply-ai-change.mjs ${WORKSPACE}${this.def.variant?.defect ? " " + this.def.variant.defect : ""}`,
+        // Optional — authoring labs ship no agent change (parity with
+        // LocalProcessDriver's existsSync guard).
+        `if [ -f /opt/lab/scripts/apply-ai-change.mjs ]; then node /opt/lab/scripts/apply-ai-change.mjs ${WORKSPACE}${this.def.variant?.defect ? " " + this.def.variant.defect : ""}; fi`,
       ].join(" && "),
     );
     if (init.exitCode !== 0) throw new Error(`docker workspace init failed: ${init.stderr || init.stdout}`);

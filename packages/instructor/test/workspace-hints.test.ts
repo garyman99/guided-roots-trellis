@@ -111,6 +111,39 @@ test("after completion, a casual thanks gets conversation — not a hint ladder"
   assert.equal(hint.level, 0);
 });
 
+test("a stated goal gets orientation with the first step — never a Socratic bounce or ladder tag", async () => {
+  const state = initialState("turn-heading-check-into-first-test", "l1");
+  const policy = choosePolicy(state, { kind: "goal", text: "I want to turn my manual heading check into an automated one" });
+  assert.equal(policy.level, 1, policy.because);
+
+  const mock = new MockInstructorProvider();
+  const req = workspaceReq({
+    state,
+    reason: { kind: "goal", text: "I want to turn my manual heading check into an automated one" },
+    hintLevel: policy.level,
+  });
+  req.lab.tasks = [{ id: "orient", text: "Open Code Studio from the desktop and read README.md.", done: false }];
+  const hint = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.ok(hint.message.includes("Open Code Studio"), hint.message);
+  assert.ok(!/what do you \*expect\*|prediction/i.test(hint.message), "no elicit bounce at a goal statement");
+});
+
+test("an authored FAQ answers the learner's actual question; unmatched questions fall to the ladder", async () => {
+  const mock = new MockInstructorProvider();
+  const req = workspaceReq({ reason: { kind: "question", text: "Where do I say the heading must be visible?", stuck: false }, hintLevel: 0 });
+  req.lab.faq = [
+    { match: "visible|expect", answer: "The checking piece starts with await expect(…) and ends with .toBeVisible()." },
+  ];
+  const hit = await mock.generateHint(req, { system: "", user: "", promptVersion: "test" });
+  assert.equal(hit.strategy, "faq-answer");
+  assert.ok(hit.message.includes("toBeVisible"), hit.message);
+
+  const req2 = workspaceReq({ reason: { kind: "question", text: "what's the weather like", stuck: false }, hintLevel: 0 });
+  req2.lab.faq = req.lab.faq;
+  const miss = await mock.generateHint(req2, { system: "", user: "", promptVersion: "test" });
+  assert.notEqual(miss.strategy, "faq-answer");
+});
+
 test("a stuck learner after completion still gets real help (no false-positive damping)", () => {
   const state = initialState("x", "l1");
   state.completedCheckpoints.push("done-1");

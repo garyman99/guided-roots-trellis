@@ -82,6 +82,22 @@ test("workspace routes require the session token", async () => {
   assert.equal(bare.status, 401);
 });
 
+test("goal-first onboarding: the stated goal is measured and answered with orientation", async () => {
+  const res = await api("POST", `/api/sessions/${sessionId}/ask`, {
+    text: "I need to reply to a customer about a late order, with the AI helper",
+    goal: true,
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.body.message.text, /start/i);
+
+  const st = await state();
+  assert.equal(st.state.statedGoal, "I need to reply to a customer about a late order, with the AI helper");
+  const { body } = await api("GET", `/api/sessions/${sessionId}/export`);
+  const goalEvents = body.events.filter((e: { type: string }) => e.type === "learner.goal.stated");
+  assert.equal(goalEvents.length, 1);
+  assert.equal(body.events.some((e: { type: string; text?: string }) => e.type === "learner.question" && e.text?.includes("late order")), false);
+});
+
 test("reading the customer email is measured and completes the first task", async () => {
   const view = (await api("GET", `/api/sessions/${sessionId}/workspace`)).body;
   assert.equal(view.email.inbox.length, 1);

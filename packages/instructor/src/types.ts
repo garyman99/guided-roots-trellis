@@ -23,6 +23,13 @@ export interface HintRequest {
      * coaching instead.
      */
     agentReview?: boolean;
+    /**
+     * Authored answers to predictable clarifying questions (from lab.json
+     * chat.faq). A matched question gets ITS answer — a learner asking
+     * "which file do I edit?" must never receive a generic recipe. Answers
+     * are curriculum content: vocabulary and concepts, never the solution.
+     */
+    faq?: Array<{ match: string; answer: string }>;
   };
   /** Why the instructor is speaking. */
   reason:

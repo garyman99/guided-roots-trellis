@@ -37,11 +37,18 @@ const win = (open: boolean, rect: { x: number; y: number; w: number; h: number }
   z,
 });
 
+// Goal-first onboarding: a fresh session shows ONE thing — the guide,
+// centered — asking what the learner wants to accomplish. Everything else
+// is opened BY the learner from the desktop, guided step by step.
 const GUIDE: AppSpec = {
   id: "guide",
   title: "Trellis Guide",
   icon: "🌿",
-  initial: () => win(true, { x: window.innerWidth - 420, y: 28, w: 392, h: window.innerHeight - 140 }, 2),
+  initial: () => {
+    const w = Math.min(460, window.innerWidth - 48);
+    const h = Math.min(560, window.innerHeight - 120);
+    return win(true, { x: Math.max(16, (window.innerWidth - w) / 2), y: Math.max(20, (window.innerHeight - h) / 2 - 24), w, h }, 2);
+  },
 };
 
 /** Terminal labs: the classic desktop — Code Studio, guide, site preview. */
@@ -61,8 +68,9 @@ const TERMINAL_APPS: AppSpec[] = [
   },
 ];
 
-/** Workspace labs: apps come from the lab manifest. Per the scenario's
- * starting state, work apps begin open — arranged side by side. */
+/** Workspace labs: apps come from the lab manifest. They start CLOSED —
+ * finding and opening the right app is part of what the lesson teaches
+ * (goal-first onboarding); the guide names the app, the learner opens it. */
 function workspaceApps(declared: Array<{ id: string; title: string; icon: string }>): AppSpec[] {
   const usable = Math.max(720, window.innerWidth - 440);
   const each = Math.min(560, Math.floor(usable / Math.max(1, declared.length)) - 16);
@@ -71,7 +79,7 @@ function workspaceApps(declared: Array<{ id: string; title: string; icon: string
       id: a.id,
       title: a.title,
       icon: a.icon,
-      initial: () => win(true, { x: 24 + i * (each + 14), y: 36, w: each, h: window.innerHeight - 150 }),
+      initial: () => win(false, { x: 24 + i * (each + 14), y: 36, w: each, h: window.innerHeight - 150 }),
     })),
     GUIDE,
   ];

@@ -7,6 +7,7 @@
   "scenario": "You work the front desk and also answer customer email. Dana ordered raised-bed planters (order GR-1042); delivery is two days late and tracking now says tomorrow. Dana wants to know what's going on. You have an AI helper available — but it only knows what you tell it, it happily repeats anything you paste, and it tends to over-promise. The reply that goes out is yours, not its.",
   "chat": {
     "botName": "Sage",
+    "goalPrompt": "Hey! Sage here 🌿 — before we open anything: tell me in your own words, what are you here to get done today?",
     "welcome": [
       "Hey! Sage here 🌿 — welcome to the front desk. Everything in this space is practice: the customer is fictional, and nothing you send actually leaves the room.",
       "So: a customer named Dana wrote in about a late order, and they're not thrilled. Your job is to reply — warm, honest, no promises we can't keep.",
@@ -77,7 +78,7 @@
   "tasks": [
     {
       "id": "open-email",
-      "text": "Start in the Mail window. Click Dana's message and read it properly — what are they actually asking? Then peek at the team's tone note underneath the inbox. That note is your guardrail for everything you write today.",
+      "text": "Start with Mail — find it on the desktop and double-click its icon. Click Dana's message and read it properly — what are they actually asking? Then peek at the team's tone note underneath the inbox. That note is your guardrail for everything you write today.",
       "auto": "artifact-opened"
     },
     {

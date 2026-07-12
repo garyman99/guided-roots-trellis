@@ -28,6 +28,8 @@ export interface LearningSessionState {
   /** Commands that failed (exit != 0) more than once, with counts. */
   repeatedFailures: Array<{ command: string; count: number }>;
   learnerQuestions: string[];
+  /** What the learner said they're here to accomplish (goal-first onboarding). */
+  statedGoal?: string;
   hintsAlreadyGiven: Array<{ level: number; strategy: string }>;
   /** Milliseconds since the last learner-driven event (command/question/file). */
   msSinceLastActivity?: number;
@@ -97,6 +99,7 @@ const LEARNER_ACTIVITY: ReadonlySet<SessionEvent["type"]> = new Set([
   "terminal.command.completed",
   "file.changed",
   "learner.question",
+  "learner.goal.stated",
   "workspace.app.opened",
   "workspace.artifact.opened",
   "aichat.context.shared",
@@ -149,11 +152,13 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
         // (questions, hints) is kept so the instructor stays contextual.
         const keepQuestions = state.learnerQuestions;
         const keepHints = state.hintsAlreadyGiven;
+        const keepGoal = state.statedGoal;
         const keepMeta = { lessonId: state.lessonId, learnerId: state.learnerId, startedAt: state.startedAt };
         Object.assign(state, initialState(keepMeta.lessonId, keepMeta.learnerId));
         state.startedAt = keepMeta.startedAt;
         state.learnerQuestions = keepQuestions;
         state.hintsAlreadyGiven = keepHints;
+        state.statedGoal = keepGoal;
         state.lastEventAt = ev.timestamp;
         failureCounts.clear();
         filesChanged.clear();
@@ -217,6 +222,10 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
       case "learner.question":
         state.learnerQuestions.push(ev.text);
         if (state.learnerQuestions.length > qLimit) state.learnerQuestions.shift();
+        break;
+
+      case "learner.goal.stated":
+        state.statedGoal = ev.text;
         break;
 
       case "instructor.hint":

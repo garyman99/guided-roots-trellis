@@ -7,17 +7,43 @@
   "scenario": "You're a manual QA engineer. One of your routine manual steps: open the community-garden signup page and confirm the 'Community Garden Signup' heading is visible. Today you turn exactly that one step into an automated check. The page, a prepared test file with one empty test body, and a local test runner are ready. There is no AI in this exercise — the check is yours, written by hand.",
   "chat": {
     "botName": "Sage",
-    "goalPrompt": "Before we open anything — tell me in your own words: what are you here to get done today?",
+    "goalPrompt": "Hey! Sage here 🌿 — before we open anything: tell me in your own words, what are you here to get done today?",
     "welcome": [
-      "Hey! Sage here 🌿 — this is a practice space: everything is local and disposable, and nothing you do here can break anything real.",
+      "This is a practice space: everything is local and disposable, and nothing you do here can break anything real.",
       "Here's the situation: you already check the community-garden signup page by hand — open it, confirm the 'Community Garden Signup' heading is up there. Today that one manual step becomes your first automated check.",
-      "One honest warning from me: this exercise has no AI helper and no snippets to paste. The check will be yours, written by hand — that's the whole point. I'll point the way, but I won't write it for you."
+      "Two things worth knowing before you start: the check will be yours, written by hand — no AI helper, no snippets to paste — and you don't have to guess any spelling: README.md has a short \"words you'll need\" list with the exact Playwright pieces. Ask me anything specific along the way and I'll answer it straight."
+    ],
+    "faq": [
+      {
+        "match": "find|locator|getBy|look(ing)? for|heading that says|page\\.something|what.*write.*heading",
+        "answer": "The finding piece is called a locator, and you type it literally. Two visitor-style ways: page.getByText(\"…\") finds by the words a visitor reads, and page.getByRole(\"heading\", { name: \"…\" }) finds \"the heading that says …\". That's only the FIND half — the CHECK half is its own piece (ask me about 'visible' if you need it)."
+      },
+      {
+        "match": "visible|assert|expect|check.*true|say.*(must|should)|what word",
+        "answer": "The checking piece starts with await expect(…) — put your finder inside the parentheses — and ends with .toBeVisible(), which literally means \"should be visible\". Finding and checking are two jobs: expect(...).toBeVisible() is the sentence that does the checking."
+      },
+      {
+        "match": "terminal|npm test|enter|run (the )?test|won't run|not run",
+        "answer": "Click once anywhere in the dark terminal area (so it has the keyboard), type npm test, and press Enter. If the terminal won't take keystrokes at all, don't fight it — \"Check my work\" also runs your test for you as part of verifying, so you can keep moving."
+      },
+      {
+        "match": "reset|start over|fresh|back to (the )?start|undo everything",
+        "answer": "Yes — the Reset button is right next to \"Check my work\" at the bottom of this chat. It puts every file back exactly how it started (your edits are removed), and I'll stay right here."
+      },
+      {
+        "match": "click anything|need to click|press.*button.*page",
+        "answer": "No clicks needed for this one — it's an observation-only check. Opening the page is already written (that's the page.goto line), so your part is just find-then-check."
+      },
+      {
+        "match": "which file|what file|where.*(edit|write|type.*code)",
+        "answer": "Your file is tests/heading.spec.js — click it in Code Studio's file list on the left. Everything above the empty test body is prepared; the only part that's yours is inside the last test, where the comment says \"your check goes here\"."
+      }
     ]
   },
   "tasks": [
     {
       "id": "orient",
-      "text": "Get your bearings first. Open Code Studio from the desktop and read README.md — it holds your manual check, written down, and the one idea this lesson teaches. You can also peek at the Garden Site window to see the page exactly as a visitor would.",
+      "text": "Get your bearings first. Open Code Studio from the desktop (double-click its icon) and read README.md — it holds your manual check written down, the one idea this lesson teaches, and a \"words you'll need\" list so you never have to guess spelling. Want to see the page like a visitor first? Open Garden Site from the desktop too.",
       "auto": "any-command"
     },
     {

@@ -339,7 +339,9 @@ export const server = createServer(async (req, res) => {
         if (!text) return json(res, 400, { error: "text is required" });
         // body.screen: optional client self-report of what's on screen —
         // normalized + sanitized inside the session (untrusted input).
-        const message = await session.ask(text, body.stuck === true, body.screen);
+        // body.goal: goal-first onboarding — this message states the
+        // learner's goal rather than asking for help.
+        const message = await session.ask(text, body.stuck === true, body.screen, { goal: body.goal === true });
         return json(res, 200, { message });
       }
       if (req.method === "GET" && tail === "intervention") {

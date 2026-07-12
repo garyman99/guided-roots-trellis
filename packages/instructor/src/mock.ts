@@ -101,6 +101,42 @@ export class MockInstructorProvider implements InstructorProvider {
     const { state, reason, hintLevel } = req;
     const workspace = req.lab.surface === "workspace";
 
+    // Goal-first onboarding: the learner just said what they're here to do.
+    // Acknowledge THEIR words and hand them the first concrete step — never
+    // a Socratic prompt (a stated goal is not a question to bounce back).
+    if (reason.kind === "goal") {
+      const first = focusTask(req);
+      return {
+        message: `That's exactly what this space is for — and it's all practice, so nothing can break. Here's where to start: ${first}`,
+        level: 1,
+        strategy: STRATEGY_BY_LEVEL[1],
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+
+    // Authored FAQ: a specific question deserves ITS answer, not a recipe.
+    // First matching entry wins; matching is case-insensitive on the
+    // learner's own words. (Found by live simulation: seven clarifying
+    // questions in one baseline run, zero answered.)
+    if (reason.kind === "question" && req.lab.faq?.length) {
+      for (const f of req.lab.faq) {
+        try {
+          if (new RegExp(f.match, "i").test(reason.text)) {
+            return {
+              message: f.answer,
+              level: Math.max(0, Math.min(hintLevel, 5)),
+              strategy: "faq-answer",
+              promptVersion: req.promptVersion,
+              provider: this.name,
+            };
+          }
+        } catch {
+          /* an unparseable authored pattern never matches */
+        }
+      }
+    }
+
     // Post-completion conversation (policy already chose level 0): respond
     // like a colleague, not a hint ladder.
     if (state.completedCheckpoints.length > 0 && reason.kind === "question" && !reason.stuck) {

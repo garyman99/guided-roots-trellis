@@ -36,6 +36,9 @@ export type SessionEvent =
   | ({ type: "checkpoint.evaluated"; checkpointId: string; passed: boolean; incomplete: string[] } & Base)
   | ({ type: "checkpoint.completed"; checkpointId: string } & Base)
   | ({ type: "learner.question"; text: string; stuck: boolean } & Base)
+  // The learner's own statement of what they're here to accomplish —
+  // captured once at the start of a session (goal-first onboarding).
+  | ({ type: "learner.goal.stated"; text: string } & Base)
   | ({ type: "instructor.hint"; level: number; strategy: string; contextManifest: ContextManifest | null } & Base)
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
   // The agent lane: the simulated (later: real) coding agent's own actions,

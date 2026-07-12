@@ -23,11 +23,18 @@ export interface PolicyDecision {
 
 export type HintReason =
   | { kind: "question"; text: string; stuck: boolean }
+  | { kind: "goal"; text: string }
   | { kind: "intervention"; trigger: InterventionTrigger };
 
 export function choosePolicy(state: LearningSessionState, reason: HintReason): PolicyDecision {
   const lastGiven = state.hintsAlreadyGiven.at(-1)?.level ?? -1;
   const frustrated = state.repeatedFailures.some((f) => f.count >= 3);
+
+  // A goal statement is onboarding, not a plea for help: orient warmly at
+  // level 1 and NEVER count it toward the escalation ladder.
+  if (reason.kind === "goal") {
+    return { level: 1, strategy: STRATEGIES[1], because: "learner stated their goal — orient, no escalation" };
+  }
 
   // After the checkpoint has passed, a casual (non-stuck) message is
   // conversation, not a plea for help: never escalate the ladder at someone

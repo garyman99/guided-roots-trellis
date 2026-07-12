@@ -29,6 +29,20 @@ Every automated check has two parts, same as your manual step:
 Finding something is not the same as checking it. A test that only finds —
 or checks nothing at all — can pass while proving nothing.
 
+## The words you'll need (vocabulary, not the answer)
+
+You don't have to guess the spelling — these are the pieces Playwright
+gives you. Putting them together for YOUR check is the exercise:
+
+- **Finding** (pick the one that matches how a visitor would spot it):
+  - `page.getByText("…")` — finds by the words a visitor reads
+  - `page.getByRole("heading", { name: "…" })` — finds "the heading that says …"
+- **Checking** (the expectation, said out loud):
+  - `await expect(…).toBeVisible()` — "… should be visible"
+
+A finished check is one sentence of code: `await expect(` *your finder*
+`).toBeVisible();` — where the `…` pieces come from YOUR manual step.
+
 ## When you're ready
 
 Edit `tests/heading.spec.js`, save, and run `npm test` in the terminal.

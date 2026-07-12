@@ -80,8 +80,17 @@ export interface LabManifest {
    * Conversational voice for chat-first surfaces: informal, direct-address
    * messages the guide bot says on arrival — never "you are a…" role-play
    * framing. Optional; chat UIs fall back to title/objective phrasing.
+   *
+   * goalPrompt: goal-first onboarding — the ONE opening message asking what
+   * the learner wants to accomplish; scenario context arrives after they
+   * answer. faq: authored answers to predictable clarifying questions.
    */
-  chat?: { botName?: string; welcome?: string[] };
+  chat?: {
+    botName?: string;
+    welcome?: string[];
+    goalPrompt?: string;
+    faq?: Array<{ match: string; answer: string }>;
+  };
   tasks: LabTask[];
   checkpoint: CheckpointSpec;
   instructorNotes?: string;
@@ -380,6 +389,7 @@ export class Session {
         surface: this.manifest.workspace ? "workspace" : "terminal",
         // Diff-first coaching only fits labs built around an agent's change.
         agentReview: Boolean(this.manifest.agentMessage),
+        faq: this.manifest.chat?.faq,
       },
       reason,
       screen,
@@ -421,8 +431,12 @@ export class Session {
     }
   }
 
-  async ask(text: string, stuck: boolean, rawScreen?: unknown): Promise<InstructorMessage> {
-    this.emit({ type: "learner.question", text: text.slice(0, 2000), stuck, timestamp: now() });
+  async ask(text: string, stuck: boolean, rawScreen?: unknown, opts?: { goal?: boolean }): Promise<InstructorMessage> {
+    if (opts?.goal) {
+      this.emit({ type: "learner.goal.stated", text: text.slice(0, 1000), timestamp: now() });
+    } else {
+      this.emit({ type: "learner.question", text: text.slice(0, 2000), stuck, timestamp: now() });
+    }
     // Record what the client SAYS was on screen when they asked — provenance
     // for "what did the instructor see", never an input to profile truth.
     const screen = Session.normalizeScreen(rawScreen);
@@ -437,7 +451,11 @@ export class Session {
       });
     }
     this.transcript.push({ id: ++this.msgSeq, role: "learner", text, at: now() });
-    const req = this.hintRequest({ kind: "question", text, stuck }, this.state(), screen);
+    const req = this.hintRequest(
+      opts?.goal ? { kind: "goal", text } : { kind: "question", text, stuck },
+      this.state(),
+      screen,
+    );
     const assembled = this.assembledProfile();
     const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
     this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, contextManifest: assembled?.manifest ?? null, timestamp: now() });

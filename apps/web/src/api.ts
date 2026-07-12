@@ -44,7 +44,7 @@ export interface StatePayload {
     title: string;
     scenario: string;
     agentMessage: string | null;
-    chat: { botName?: string; welcome?: string[] } | null;
+    chat: { botName?: string; welcome?: string[]; goalPrompt?: string } | null;
     tasks: TaskStatus[];
     /** Simulated apps for workspace labs; null for terminal labs. */
     workspaceApps: Array<{ id: string; title: string; icon: string }> | null;
@@ -153,8 +153,8 @@ export const api = {
   workspace: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/workspace`, c) as Promise<WorkspaceView>,
   workspaceAction: (c: SessionCredentials, action: WorkspaceAction) =>
     req("POST", `/api/sessions/${c.sessionId}/workspace/action`, c, action) as Promise<WorkspaceView>,
-  ask: (c: SessionCredentials, text: string, stuck: boolean, screen?: ScreenReport) =>
-    req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck, screen }),
+  ask: (c: SessionCredentials, text: string, stuck: boolean, screen?: ScreenReport, goal?: boolean) =>
+    req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck, screen, goal }),
   intervention: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/intervention`, c),
   evaluate: (c: SessionCredentials) =>
     req("POST", `/api/sessions/${c.sessionId}/checkpoint/evaluate`, c) as Promise<{

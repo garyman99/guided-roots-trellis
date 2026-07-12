@@ -62,8 +62,17 @@ export function ChatGuide({
   const push = (m: Omit<ChatMsg, "key">) =>
     setMsgs((cur) => [...cur, { ...m, key: `${Date.now()}-${cur.length}-${Math.random().toString(36).slice(2, 7)}` }]);
 
-  // ── Opening beat: informal welcome, then the agent's message ─────────────
-  useEffect(() => {
+  // ── Goal-first onboarding ─────────────────────────────────────────────────
+  // A FRESH session opens with ONE message: the goal prompt. The scenario
+  // context (welcome, agent message, first step) arrives only after the
+  // learner says what they're here to do. Resumed sessions (any transcript
+  // or completed task) skip straight to the full opening.
+  const isFreshSession = data.transcript.length === 0 && data.tasks.every((t) => !t.done);
+  const [awaitingGoal, setAwaitingGoal] = useState(
+    () => isFreshSession && !!(data.lab.chat?.goalPrompt ?? true),
+  );
+
+  const scenarioOpening = (): ChatMsg[] => {
     const welcome = data.lab.chat?.welcome?.length
       ? data.lab.chat.welcome
       : [
@@ -79,14 +88,30 @@ export function ChatGuide({
         text: "That's what it says, anyway. Mind double-checking its work before we take its word for it?",
       });
     }
-    // The first open step arrives as part of the opening beat (idempotent
-    // across StrictMode's dev double-mount, which re-runs this effect).
-    const firstOpen = data.tasks.find((t) => !t.done);
-    if (firstOpen) {
-      promptedTask.current = firstOpen.id;
-      opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
+    return opening;
+  };
+
+  useEffect(() => {
+    if (awaitingGoal) {
+      // Just the greeting + goal question; everything else waits for them.
+      setMsgs([
+        {
+          key: "goal-prompt",
+          from: "bot",
+          text:
+            data.lab.chat?.goalPrompt ??
+            `Hey! I'm ${botName} 🌿 — before we open anything: tell me in your own words, what are you here to get done today?`,
+        },
+      ]);
+    } else {
+      const opening = scenarioOpening();
+      const firstOpen = data.tasks.find((t) => !t.done);
+      if (firstOpen) {
+        promptedTask.current = firstOpen.id;
+        opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
+      }
+      setMsgs(opening);
     }
-    setMsgs(opening);
     // Seed dedupe sets so pre-existing transcript/tasks don't replay as new.
     for (const m of data.transcript) seenTranscript.current.add(m.id);
     for (const t of data.tasks) if (t.done) seenTasks.current.add(t.id);
@@ -152,7 +177,27 @@ export function ChatGuide({
     if (!text.trim() || sending) return;
     setSending(true);
     setDraft("");
+    const isGoal = awaitingGoal;
     try {
+      if (isGoal) {
+        // Their goal unlocks the scenario. Thread order: their goal, the
+        // scenario context, then Sage's ack carrying the first step.
+        setAwaitingGoal(false);
+        const firstOpen = data.tasks.find((t) => !t.done);
+        if (firstOpen) promptedTask.current = firstOpen.id; // the ack delivers it
+        push({ from: "learner", text: text.trim() });
+        setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `post-goal-${m.key}` }))]);
+        const { message } = (await api.ask(creds, text.trim(), false, getScreen(), true)) as {
+          message: { id: number; text: string; level?: number };
+        };
+        // We already rendered both sides locally — don't let the transcript
+        // poll replay them.
+        seenTranscript.current.add(message.id);
+        seenTranscript.current.add(message.id - 1);
+        push({ from: "bot", text: message.text }); // no hint-ladder tag on a goal ack
+        onNewData(await api.state(creds));
+        return;
+      }
       await api.ask(creds, text.trim(), stuck, getScreen());
       onNewData(await api.state(creds));
     } finally {
@@ -247,9 +292,23 @@ export function ChatGuide({
         <button className="chip" onClick={() => void runCheck()} disabled={checking}>
           {checking ? "Checking…" : "Check my work"}
         </button>
+        <button
+          className="chip"
+          title="Put the workspace back exactly how it started (your edits are removed)"
+          onClick={() => {
+            if (confirm("Reset the workspace? Everything goes back to how it started and your edits are removed.")) {
+              void api.reset(creds).then(async () => {
+                push({ from: "system", text: "Workspace reset — everything is back to the starting state. ✓" });
+                onNewData(await api.state(creds));
+              });
+            }
+          }}
+        >
+          Reset
+        </button>
         <textarea
           value={draft}
-          placeholder={`Message ${botName}…`}
+          placeholder={awaitingGoal ? `Tell ${botName} what you're here to do…` : `Message ${botName}…`}
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
