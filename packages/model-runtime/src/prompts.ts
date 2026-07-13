@@ -34,6 +34,12 @@ export const KNOWN_PROMPTS: PromptRegistration[] = [
     description: "In-product Guide system prompt (hard rules, evidence-only coaching)",
   },
   {
+    id: "evaluator.report",
+    version: "v1",
+    file: "packages/evaluator/prompts/evaluator.v1.md",
+    description: "Repo-native evaluator system prompt (evidence-cited JSON report)",
+  },
+  {
     id: "simulator.contract",
     version: "v1",
     file: ".claude/skills/process-scenarios/simulator-contract.md",
