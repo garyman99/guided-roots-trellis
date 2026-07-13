@@ -44,13 +44,17 @@ the webm itself is produced by Playwright without ffmpeg.
      --out scenarios/recordings/<run-id>/<scenario-id>/<iter>/ \
      --url "http://localhost:60304/?lab=<labId>"
    ```
-   Wait for its `{"ready":true,...}` line (poll `sim.mjs --port 8799 ping`).
+   Wait for its `{"ready":true,...,"evalToken":"…"}` line (poll
+   `sim.mjs --port 8799 ping`) and note the **evalToken** — privileged
+   commands require it.
 3. Grab the fresh session creds for evidence collection:
    ```
-   node tools/recorder/sim.mjs --port 8799 eval \
+   SIM_EVAL_TOKEN=<evalToken> node tools/recorder/sim.mjs --port 8799 eval \
      '{"expr":"JSON.stringify({s:JSON.parse(localStorage[\"trellis.session\"]),l:JSON.parse(localStorage[\"trellis.learner\"])})"}'
    ```
-   (Coordinator-only — the simulator never uses `eval`.)
+   Coordinator-only, now ENFORCED by the driver (ADR-0006): `eval` returns
+   403 without the token from the ready line. Never pass the token (or the
+   driver's stdout) to the simulator subagent.
 4. Spawn the simulator subagent with the **recorded** contract + persona,
    passing it the port and a scratch dir for screenshots.
 5. When the subagent finishes, finalize the video and pull evidence:
