@@ -15,6 +15,11 @@
       "imported_at": "2026-07-12",
       "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-11\\20260711T233636-0600",
       "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
+    },
+    "20260712T113600-0600": {
+      "imported_at": "2026-07-12",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-12\\20260712T113600-0600",
+      "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
     }
   },
   "scenarios": {
@@ -164,6 +169,36 @@
       "execution_order": 2,
       "status": "VALIDATED",
       "status_reason": "Spec complete. Needs a two-labeled-field form + preview, a prepared test slot, and semantic label-vs-position locator classification.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "read-one-failing-result-before-editing": {
+      "run_id": "20260712T113600-0600",
+      "file": "scenarios/imported/20260712T113600-0600/01-read-one-failing-result-before-editing.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 1,
+      "execution_order": 1,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Needs a seeded lab with one prepared FAILING status test (page shows 'Plot requests are open', test expects 'Plot requests are closed'), a plain-language failure surface (test title, file:line location, expected, received), and an editable four-field evidence note (Test/Location/Expected/Received) OUTSIDE the test project that the learner fills without editing the test or page. Deterministic evidence: focused-run identity + red result, note field correctness (incl. expected/received-reversed detection), and page/test integrity. No AI surface.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "keep-test-data-and-expected-result-in-sync": {
+      "run_id": "20260712T113600-0600",
+      "file": "scenarios/imported/20260712T113600-0600/02-keep-test-data-and-expected-result-in-sync.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 2,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete. Needs a seeded welcome-form lab with a prepared focused test carrying two marked learner data slots (input nickname + expected welcome text); learner authors 'Clover' consistently in both, recovers from a Clover/Fern mismatch by fixing only the stale expected value, reruns green. Deterministic evidence: input==expected==Clover, assertion not weakened, prepared structure/page/data-card integrity, focused pass. No AI surface. Shares the manual-authoring + plain-mismatch lab support with scenario 1.",
       "latest_completion": null,
       "latest_score": null,
       "highest_score": null,
