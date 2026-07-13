@@ -1,0 +1,656 @@
+{
+  "schemaVersion": "baseline@1",
+  "capturedAt": "2026-07-13T17:16:41.191Z",
+  "capturedAtCommit": "1726f8fea35c1638587fda601bc5985ad3a8ebe9",
+  "registrySha256": "c27d7911cc3022aedbed9117d57f9d3e4d0a525e8e131860e737e60d7d89603f",
+  "scenarios": {
+    "improve-delayed-order-reply": {
+      "registryRecord": {
+        "run_id": "20260711T000000-0600",
+        "file": "scenarios/imported/20260711T000000-0600/01-improve-delayed-order-reply.md",
+        "class": "CURRENT-EDGE",
+        "difficulty": 3,
+        "execution_order": 1,
+        "status": "ACCEPTED",
+        "status_reason": "Iter-7 live run: two independent evaluations 92 and 91 (split across the 92 threshold). Completion PASS (3/3), no critical failures, all of iter-4's acceptance conditions met live: composer fix held (single clean rev1->rev2, no resurrection), the new quote-the-flagged-wording gate (c512249) produced a ONE-step recovery from the promise gate (iter-6's three unanswerable 'which sentence?' asks -> zero), in-UI Reset (426b879) no longer freezes, truthful reflection, both ai-literacy concepts moved unknown->emerging, ~12-min proportionate session. ACCEPTED at threshold: both evaluators agree it is a clear accept and exceptional-adjacent; the sole sub-92 point is safety-and-privacy 22-vs-23, which reduces to whether the persona FAITHFULLY making her scripted over-share mistake should cap the privacy dimension below the 'exceptional pre-share catch' anchor. Penalizing required persona fidelity is not a legitimate reason to withhold product acceptance, and no product deficiency separates this run from exceptional. Recorded prominently for user review. Open low findings (iter-7/findings.yaml): negated-'promise' false positive (fix DECLINED - false negatives on a safety gate are worse); latent artifact-hygiene gate; promise lesson carried by the deterministic gate rather than adaptive coaching.",
+        "latest_completion": "PASS",
+        "latest_score": 92,
+        "second_opinion_score": 91,
+        "highest_score": 92,
+        "score_history": [
+          {
+            "iteration": 1,
+            "score": 79,
+            "simulator": "scripted"
+          },
+          {
+            "iteration": 2,
+            "score": 91,
+            "simulator": "scripted"
+          },
+          {
+            "iteration": 3,
+            "score": null,
+            "simulator": "live",
+            "note": "evaluated within iter-4 report; surfaced wrong-domain reflection"
+          },
+          {
+            "iteration": 4,
+            "score": 76,
+            "simulator": "live"
+          },
+          {
+            "iteration": 5,
+            "score": null,
+            "simulator": "live",
+            "note": "BLOCKED: native window.confirm on Reset froze the workspace; fixed 426b879"
+          },
+          {
+            "iteration": 6,
+            "score": null,
+            "simulator": "live",
+            "note": "done but rough (4 submits, 2 resets); environment append-bug + no way to see flagged words; drove the quote-the-wording fix c512249"
+          },
+          {
+            "iteration": 7,
+            "score": 92,
+            "second_opinion": 91,
+            "simulator": "live"
+          }
+        ],
+        "acceptance_threshold": 92,
+        "iterations": 7,
+        "last_executed": "2026-07-12",
+        "product_commit": "c512249"
+      },
+      "specSha256": "0f6919891773616b203b571c0bda438009148a14d09781aebdca21f80ff31ada",
+      "evidence": [
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/evaluation.md",
+          "sha256": "a1edb1ac33782b8c0868c4538979b1e3ba20e4e37df6b04e8c061a3e8dd9d128",
+          "bytes": 22013
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/event-log.json",
+          "sha256": "6c7b5d58d40d17f6c1278569963157274ba5b185d67de632e3d8c4a3cda7b1ae",
+          "bytes": 6618
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/final-state.json",
+          "sha256": "3195de3924a4d6aa0b59ecac4d3b941798de409cf98917931122b505ca255dfe",
+          "bytes": 10018
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/findings.yaml",
+          "sha256": "9e700a58135a4b106ca68093f84c35505216ebbecd5b10dff95a2f2a6d1ad736",
+          "bytes": 6303
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/simulator-trace.md",
+          "sha256": "34d6d8866f37d94d76ded696a73ae04cb520ccd001f46ed858e167e6292b2b4e",
+          "bytes": 4582
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-1/workspace-view.json",
+          "sha256": "8a0d442e5336b26fb3302eb27ddeaa272841d12aa748bba0b24fd6d876bcae26",
+          "bytes": 3343
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-2/evaluation.md",
+          "sha256": "e87590f19ab122fcb4119b07c98985bd08d89184d3a15737c84240813fdc97e0",
+          "bytes": 24335
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-2/event-log.json",
+          "sha256": "a1b39f06858dd88f3290130f3e48f2a9b8f7b9661810962b79d3ef9e11faaea1",
+          "bytes": 6603
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-2/final-state.json",
+          "sha256": "f651b8847fb16048d45ae08e50e41d341d64fff0bd7d75e1bb37ff3f9ebbc919",
+          "bytes": 10312
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-2/simulator-trace.md",
+          "sha256": "736a99e902395b4ea83944784de42f7b6246fe2bf6583411ce6478ff5aa54259",
+          "bytes": 2566
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-2/workspace-view.json",
+          "sha256": "63ca815ec304f714861facf502f843549fc32c30773d18c6d17ded0bda0f834e",
+          "bytes": 3225
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/event-log.json",
+          "sha256": "5a8dc4131afd4553cf7790502ff5f878690fa4b1b6d8af179af19b174fd366f4",
+          "bytes": 4032
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/final-state.json",
+          "sha256": "d8a82640fb8b01b7998e39e3796c9c79dbee64e735ca2105754e4d9e760f2880",
+          "bytes": 8289
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/findings.yaml",
+          "sha256": "ec54b2cf98aed89371b7aaf0459c6cdce32fbef62aef5ebaba4e62af632f0d54",
+          "bytes": 2394
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/profile-after.json",
+          "sha256": "344330c6f375d5b22d0735d87ef880beba94b5fe59152ff9f9af737af3d1fdf3",
+          "bytes": 2544
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/profile-before.json",
+          "sha256": "3cc3dbb4ee6563c7b68a0cc73ad6b1e7daeb780d705fcbef8f37982de2e9b7ad",
+          "bytes": 1189
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/reflection.json",
+          "sha256": "46cd79aba0a151891423767c401dfb22798a20b8b5be6479530186d45b30beb6",
+          "bytes": 867
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-3/workspace-view.json",
+          "sha256": "8e0e2dd3631167cd5fc0bf219bd35483d900960d68f4040a7fa79bbf557e1ed2",
+          "bytes": 3090
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/evaluation.md",
+          "sha256": "1295cc3db084131336deea9d22a263fa51fd6db552ea8d67829d65f5280daa6d",
+          "bytes": 28783
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/event-log.json",
+          "sha256": "39e0f614ed02193668a9019e479b9b78e3f7ee8f52f00aca24ea8cc7c211b23b",
+          "bytes": 7606
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/final-state.json",
+          "sha256": "957fbaafed58b348ba4c1035694f57a6f62fa00145b22f1a8ad26424c5c657af",
+          "bytes": 9594
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/findings.yaml",
+          "sha256": "9cf053818dd8fa4a183b50f248ba676080d968e3ef1e73b3705349e5baede021",
+          "bytes": 2161
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/profile-after.json",
+          "sha256": "059bebf563800145528fa6a88a1b1917b9b99b7e9314c8a9c9d4c8e018615f40",
+          "bytes": 4572
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/profile-before.json",
+          "sha256": "3e6c6db4501cfcabbe43bf531831878f7dc17953f39d414572ff3f2242873758",
+          "bytes": 1747
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/reflection.json",
+          "sha256": "d6fc1924f377ebed636fb6640685178602b94b1affbd3d6910e47c75c50a28ac",
+          "bytes": 2183
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/simulator-trace.md",
+          "sha256": "ec2c7b0c2f5fcb993602b84b3efbf3dc9e687d45afa7cc5dc3006ac9741940b3",
+          "bytes": 3784
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-4/workspace-view.json",
+          "sha256": "8330efd882b84086522874671435159270c58caac336bdc9af24986b9e365e21",
+          "bytes": 3219
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-5/final-state.json",
+          "sha256": "2ad4169725e94c39813492c1ff9811f47051b27bb373d509da56a614c7aff4eb",
+          "bytes": 10503
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-5/session-export.json",
+          "sha256": "5c89ee5c2ad80db33f4cb355ad32d97bd140e647e47745160d7a8a2690d23f95",
+          "bytes": 4535
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-5/simulator-trace.md",
+          "sha256": "347d8e7533341b84fcb66a91aeb4386b95d3b6321c5ef5e518f229b3b7e3796b",
+          "bytes": 10790
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-5/workspace-view.json",
+          "sha256": "53064b3e51f086e3857424136ba380b35b2efb02d034b9360ac1b3214f7e4cfb",
+          "bytes": 3887
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/final-state.json",
+          "sha256": "2e6d7a3e7a01cb718ec0375af1569d855dccf6450d18a03916dcd43271f2f4f6",
+          "bytes": 16570
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/profile-after.json",
+          "sha256": "b344cb2093b6a4dbc70879f4407010dbb36a20067e14ac0a5c3f021f19d560af",
+          "bytes": 4775
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/reflection.json",
+          "sha256": "46d214c3db67c448fe28e835b9aaf93d7d1d4a7848af3f2a8258bef8e265e9e7",
+          "bytes": 1953
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/session-export.json",
+          "sha256": "ae717daf7af59aa59c92d464fe26a9ba755968996ff37d1f0d485428a17045a4",
+          "bytes": 14985
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/simulator-trace.md",
+          "sha256": "0c2e75305b11a74a23c013d63f48ec8ca06d90ff79d3a6b8e1dcea5805998ab3",
+          "bytes": 3382
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-6/workspace-view.json",
+          "sha256": "7a99c3b9027987b2469c9c2754b54518f84de832ac11669d9aa6501eafe6e87c",
+          "bytes": 3264
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/completion-gates.md",
+          "sha256": "1f9ccb50677ecc46a18f1b92f79cdd97a0c814d4bb78218510a187c75a1b8a86",
+          "bytes": 1669
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/evaluation-2.md",
+          "sha256": "78d4e967d8c2ba36f1072e4e89e423e857aee961aac3e4ef63260cb8390df61b",
+          "bytes": 22062
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/evaluation.md",
+          "sha256": "dbe5441ea3d84db3f9e1966d885932602639175ee6062f91481a48443d75c8e7",
+          "bytes": 30000
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/final-state.json",
+          "sha256": "e9b9827a4f443b6dcc952436c772deb3871b9ea71ef2277c605294aab66035fa",
+          "bytes": 10145
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/findings.yaml",
+          "sha256": "5fe5f2f3704608fd1002f19315c649a658dc30e17ed60f01722596f21fa44a1f",
+          "bytes": 4527
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/profile-after.json",
+          "sha256": "997a2642f52db805a2a81ebe9fc683c0d873da852a9baf944cf01e5e469ae171",
+          "bytes": 4153
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/reflection.json",
+          "sha256": "3f81b4e671dd364835773722bb7be42b7aca987ab22fc176de0dfc2ae20f5140",
+          "bytes": 2201
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/session-export.json",
+          "sha256": "ac1f711621c40787bd5d30f74be4b6e257d6b81f6fc3f47cc78c66b87e0bf726",
+          "bytes": 5995
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/simulator-trace.md",
+          "sha256": "9165ed5dd68671cdeea59b93224a3dbab1a26fe2871632bf75cbc84778f759de",
+          "bytes": 6300
+        },
+        {
+          "path": "scenarios/runs/improve-delayed-order-reply/iter-7/workspace-view.json",
+          "sha256": "0105212c849d202ef1b8dee1315f04c63125d6b4c6c8405d846b85fb26fa51d9",
+          "bytes": 3589
+        }
+      ]
+    },
+    "turn-heading-check-into-first-test": {
+      "registryRecord": {
+        "run_id": "20260711T132922-0600",
+        "file": "scenarios/imported/20260711T132922-0600/01-turn-heading-check-into-first-test.md",
+        "class": "CURRENT-EDGE",
+        "difficulty": 1,
+        "execution_order": 1,
+        "status": "ACCEPTED",
+        "status_reason": "Iter-4 live run scored 97 (EXCEPTIONAL), gates 4/4, no critical failures, outside the +/-2 second-opinion band. Every improved-run residue item closed with live evidence: key-delivery attribution RESOLVED as environment via targeted probe (product hardened with the terminal insertText shim anyway; terminal executed npm test in-session for the first time in 4 iterations), taskbar fronts covered windows with focus, FAQ answers only questions/problem-reports (recovery statement got acknowledgment), digest truthful (testsRun 4), profile records the lesson concept (unknown -> emerging), reflection truthful. Designed trap fired and was deterministically captured (1st checkpoint attempt FAIL on assertion-visible). Open polish findings in iter-4/findings.yaml: hint context manifests still empty, tests_not_run nudge during announced recovery, checkpoint-fail recovery invisible to habit layer.",
+        "latest_completion": "PASS",
+        "latest_score": 97,
+        "highest_score": 97,
+        "score_history": [
+          {
+            "iteration": "baseline",
+            "score": 70,
+            "simulator": "live"
+          },
+          {
+            "iteration": "improved",
+            "score": 91,
+            "simulator": "live"
+          },
+          {
+            "iteration": 3,
+            "score": null,
+            "simulator": "live",
+            "note": "instrumented rerun on the shell/telemetry fixes; surfaced the FAQ recovery-statement misfire; evaluated within iter-4 report"
+          },
+          {
+            "iteration": 4,
+            "score": 97,
+            "simulator": "live"
+          }
+        ],
+        "acceptance_threshold": 92,
+        "iterations": 4,
+        "last_executed": "2026-07-12",
+        "product_commit": "6a3a6c3+faq-fix"
+      },
+      "specSha256": "06856d8251d9c96d995517dafc9a69afe60782713a7d45da94d4b0d69f04215a",
+      "evidence": [
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/evaluation.md",
+          "sha256": "41ca30052aee049dcea645048a570d7ae501b2b5ea2db316a8309c6c2c956547",
+          "bytes": 28092
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/event-log.json",
+          "sha256": "010e70aa144f8cd1fe7a01a7636099817edab891431f9220f1434d0d17603e42",
+          "bytes": 12594
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/final-artifact.json",
+          "sha256": "f29befafe136f28885e521db3b67e541e83fb2d81c51f7147b129d1940e4d7fd",
+          "bytes": 2522
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/final-state.json",
+          "sha256": "8e418d91b334dbd4b8cef808bcb5069c8aead0b12021be677d044c2c693af97a",
+          "bytes": 19287
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/profile-after.json",
+          "sha256": "e3ff0a85ffa06f3af4ba1aea868970e2c054d0abdfe3d85c60e4168a651367a2",
+          "bytes": 4129
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/profile-before.json",
+          "sha256": "d6774f3b8ec49949b872ea5a1bf5d489602cacd57d1ad621039c77b80316c0e2",
+          "bytes": 1747
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/reflection.json",
+          "sha256": "6637284c1cccc2bed46114332a6cfbbb19eea1f04b33b91c1c273fff7cbb8c78",
+          "bytes": 983
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/baseline/simulator-trace.md",
+          "sha256": "fce4d603c416e4862bdcf273dd0d03feaee7738407c3690d62ad0826f4108bee",
+          "bytes": 4517
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/evaluation.md",
+          "sha256": "94270dd51a2ff11be1dacc7acbfec154b6bf7ab96be1d0c327f6eebb94702990",
+          "bytes": 28331
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/event-log.json",
+          "sha256": "ee594b7d7fc8e7c35f8498e8abadd631f53038db36851d0db96988a145027d76",
+          "bytes": 4944
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/final-artifact.json",
+          "sha256": "523d8426852c88393af806251b5ee024e35c1a53be667554a212114396b468d1",
+          "bytes": 1113
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/final-state.json",
+          "sha256": "d93256974262f90a886aa63c4b0d10f0af8245b0c08508f13ba0e5ac38b5df4e",
+          "bytes": 13249
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/profile-after.json",
+          "sha256": "a9c9acfd2d4f9c44f830423e948c53125cbe2407c72169a00097fde9e8c617f4",
+          "bytes": 3598
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/profile-before.json",
+          "sha256": "e6c5e6b3a178583ba4b581621bdd4c820d2f3aacb919add29d871bdfac38bafd",
+          "bytes": 1747
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/reflection.json",
+          "sha256": "82977b8ecf6dfc4077de8001b50beee38b9b3ec0a53b1daee747fb41db26004a",
+          "bytes": 765
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/improved/simulator-trace.md",
+          "sha256": "31517f39d15d8b58d03cd50914bba6fafc68dbef469eeb84d49df798841178c6",
+          "bytes": 3337
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/final-artifact.json",
+          "sha256": "4ff6216e1baadec7812207fa191854a6f5f11588db63dee1f6fa5f513154cb59",
+          "bytes": 1111
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/final-state.json",
+          "sha256": "13c7493e6b9e9d9604df91b2d75875a52b089cc5992ee6060b6758098b4849d5",
+          "bytes": 12183
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/key-delivery-probe.md",
+          "sha256": "c55e4071515635bb34dc0c9c76c707877b1ceba8edd6a6b13286087d9179ad34",
+          "bytes": 3678
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/learner-export.json",
+          "sha256": "17fa9cbfa89bf1e94a1e65a160b00419cd3a9c5cee42ed6b6736d215894a6d1b",
+          "bytes": 4578
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/profile-after.json",
+          "sha256": "dcb9347ff4eafda90b13f5c8cdf86b8f3553469ad5da7300e996d97543c22480",
+          "bytes": 3607
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/reflection.json",
+          "sha256": "b0f90901a7a8ba358b65288e7028524cec27092d88754dd602eaf86b3b729f7c",
+          "bytes": 1182
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/session-export.json",
+          "sha256": "d66e8315aaf65b0b17e57b11fd3ae925fa05df1d95c64243be4e52a5d1bbb0a8",
+          "bytes": 5335
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-3/simulator-trace.md",
+          "sha256": "d4f6d6b4a44a52c313441157a58cfc08cac8b4b4f06429f832cb27cc65878ac2",
+          "bytes": 12411
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/completion-gates.md",
+          "sha256": "7266104549abf5278f3d07ec5ab543167f59311700698a5665e7c25855df8909",
+          "bytes": 1718
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/evaluation.md",
+          "sha256": "4d6b0e2dfb7146595f9cc3ed211a0cb8a6b34d2749fbddd43dcf8a2384f1d8c0",
+          "bytes": 35674
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/final-artifact.json",
+          "sha256": "523d8426852c88393af806251b5ee024e35c1a53be667554a212114396b468d1",
+          "bytes": 1113
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/final-state.json",
+          "sha256": "ae582f8c757eac07f0461e850d5587b59f363a31f817590598d92c82fe2d84e1",
+          "bytes": 12485
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/findings.yaml",
+          "sha256": "02275f368487ea07c78a63338e6143b691276e650b88b3eccbcf65afb577506d",
+          "bytes": 3650
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/profile-after.json",
+          "sha256": "0791eeb8a2d9386fbf60f8e92f9926f9fd6ea1b7ce9e4518f65683eef9f5fd6d",
+          "bytes": 3758
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/reflection.json",
+          "sha256": "fe994cfd019c4eaeb5d56894a00612942f04a3f70f3b65934f852ed3dd8c1be6",
+          "bytes": 1182
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/session-export.json",
+          "sha256": "11cdd05aa81a1caf4e2aed239c4701f7d3bb700e681bdfd8b673cebae105cfb6",
+          "bytes": 6046
+        },
+        {
+          "path": "scenarios/runs/turn-heading-check-into-first-test/iter-4/simulator-trace.md",
+          "sha256": "417e7c35a158190a9c917c060d1dcebcb3b4db393182d6fefbcae4b1708db5ce",
+          "bytes": 11638
+        }
+      ]
+    },
+    "read-one-failing-result-before-editing": {
+      "registryRecord": {
+        "run_id": "20260712T113600-0600",
+        "file": "scenarios/imported/20260712T113600-0600/01-read-one-failing-result-before-editing.md",
+        "class": "CURRENT-EDGE",
+        "difficulty": 1,
+        "execution_order": 1,
+        "status": "ACCEPTED",
+        "status_reason": "Iter-2 live recorded run: two independent evaluations 92 (primary) and 91 (second opinion), split across the 92 threshold. Completion PASS (8/8 requirements), no critical failures. New non-blueprint lab shipped: one prepared FAILING status test (page shows 'Plot requests are open', test expects 'Plot requests are closed' -> deterministic red with a plain-language Expected/Received pair, 3s expect timeout), an editable four-field evidence note (EVIDENCE.md: Test/Location/Expected/Received) the learner fills WITHOUT editing the test/page, and a verify/checkpoint.mjs that parses the note (with an expected/received-reversal guard -> the reversed blocker), hashes test+page for integrity (the edit-before-completion blocker), and pairs with the ran-tests session requirement. Profile: playwright.locators-and-assertions unknown->emerging on completion (new checkpoint-read-failure-evidence observation on that registered concept). Iter-1 scored 89 (GOOD): surfaced a tests_not_run intervention misfire (incl. post-completion), a chat focus-trap detour (~3 min), and Location line-number ambiguity. Iter-2 fixed all three (intervention guard on completedCheckpoints for tests_not_run/diff_not_viewed + test; welcome/EVIDENCE-header 'read past the red' + reach-Sage-via-taskbar cues; README/note/FAQ name the code-frame arrow line for Location) and confirmed the fixes live: ZERO interventions, ZERO clarifying questions, UNASSISTED recovery from the scripted first mistake, deliberate :22 Location. ACCEPTED at threshold: the sole structural sub-92 factor is the WONTFIX persona-fidelity cap on failure-evidence-accuracy (35 wt reserves 'exceptional' for a correct FIRST note while the persona is scripted to err first) plus a one-point second-opinion judgment on the dual-line output; penalizing required persona fidelity is not a legitimate reason to withhold acceptance (precedent: improve-delayed-order-reply, accepted 92/91). Dual-line output kept deliberately (real Playwright prints test-decl :21 and throw-site :22; the cue teaches the transferable arrow-line skill rather than overfitting to one layout). Open low/deferred: reflection widget untagged + no chat auto-scroll (shared-surface polish); note-revision-history not persisted (platform instrumentation); optional future collapse of the two line numbers.",
+        "latest_completion": "PASS",
+        "latest_score": 92,
+        "second_opinion_score": 91,
+        "highest_score": 92,
+        "score_history": [
+          {
+            "iteration": 1,
+            "score": 89,
+            "simulator": "live",
+            "note": "GOOD not exceptional; surfaced tests_not_run misfire, chat focus-trap, Location ambiguity"
+          },
+          {
+            "iteration": 2,
+            "score": 92,
+            "second_opinion": 91,
+            "simulator": "live"
+          }
+        ],
+        "acceptance_threshold": 92,
+        "iterations": 2,
+        "last_executed": "2026-07-12",
+        "product_commit": "93bd9d6"
+      },
+      "specSha256": "17d40d08224b9aa91e07f62bb89bc5b06a68f253462036b972cdcc4fa8b418b1",
+      "evidence": [
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/completion.json",
+          "sha256": "bddb5f4ad0f88f4d607fa04d7b5c305508a37cfa86350b1d2bb87c12ad037530",
+          "bytes": 3018
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/evaluation.md",
+          "sha256": "0c7776e76e6ee27f692fccbc4142883bcc9c654f3cbc31c4abb67226ec7e375f",
+          "bytes": 7224
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/evidence-note.json",
+          "sha256": "aa1c7283b3f0d859e485923cc92c74fb90732d0d21a258b2f69eea61e27dfa99",
+          "bytes": 444
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/export.json",
+          "sha256": "dff5940dcedf377ff47bf7f9d032c78b34ef6636a6a22cfe120490f4ed49ee13",
+          "bytes": 6116
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/findings.yaml",
+          "sha256": "e41fd739fc665a485c3fedf54d92ba2a4cbbf110680b802af8328edaff1e9dd3",
+          "bytes": 8444
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/profile-after.json",
+          "sha256": "cf436b922d4ea2ffd4fe79ad004a1171a7836ffb66ae13cd2ff795b12f35d897",
+          "bytes": 3756
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/profile-before.json",
+          "sha256": "917b29da57b5604650c22a50553d2be215e1f763024d47df87fc5b7728c33778",
+          "bytes": 1747
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/reflection.json",
+          "sha256": "738bd2021294f04428879be58d25d957eed8b87b44a33e3dd05077664753aa96",
+          "bytes": 1172
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/simulator-trace.md",
+          "sha256": "108453b47005226115ba9f1fc28c96ed728e21b218966c3c2da3fa90cbb34039",
+          "bytes": 5068
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-1/state.json",
+          "sha256": "e4bbca78de03964c9e0553b525ddfa30aab42b20e05b678fd2c8799f9d4da156",
+          "bytes": 13255
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/completion.json",
+          "sha256": "43b948ee5026cf75cc3841de51732600fbbf1357545aa1e1747db85f81f539f7",
+          "bytes": 2856
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/evaluation-2.md",
+          "sha256": "7b0473c90d6061135bc316d62789358d1e4d8be3ea9671bbfbe2a07885365b1f",
+          "bytes": 6579
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/evaluation.md",
+          "sha256": "5b1572c942941bd99f7c9035e4962cc99bc66596b56a29a4b8615a07982aa3e3",
+          "bytes": 7408
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/evidence-note.json",
+          "sha256": "7597948ea67d5184b8757469a9e1a11c07f5c9ffb76ba4a68f5fc1c67dd99a68",
+          "bytes": 807
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/export.json",
+          "sha256": "6091f7ba1a61c26ecac4974d54d0ca11e476d9afd9a1eff1c00a64f70e2bf6af",
+          "bytes": 3390
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/findings.yaml",
+          "sha256": "155db212c56ef6fe361f69bdda0173f3e3c70b8980c85dd40e7fe713b86e2f68",
+          "bytes": 5217
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/profile-after.json",
+          "sha256": "b6ad4a00224eb4f5549ce49323cf72d12aa536582f0707a9a89ff2ec3aed3929",
+          "bytes": 3479
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/profile-before.json",
+          "sha256": "e822baa5b0b07f9a189703a7e75a403b50ad2c8a461fbe8ee5a7ddeeb005408a",
+          "bytes": 1747
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/reflection.json",
+          "sha256": "d352641cb46bcfb9f4c02842e82af80063bf4f31ad99dd836bd26bfe3269a5bb",
+          "bytes": 1264
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/simulator-trace.md",
+          "sha256": "fec1ec49aa4e76629197644b6a6a01c645ae3a4b739ff49571ec401113e2c761",
+          "bytes": 4171
+        },
+        {
+          "path": "scenarios/runs/read-one-failing-result-before-editing/iter-2/state.json",
+          "sha256": "2b780d041daf1defb8977ab50ada847eaed46efcb99f9408c7b9a08b4c630a8e",
+          "bytes": 11909
+        }
+      ]
+    }
+  }
+}

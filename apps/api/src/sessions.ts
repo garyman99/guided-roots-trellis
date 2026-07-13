@@ -42,6 +42,13 @@ import {
   type HintResponse,
   type InstructorProvider,
 } from "../../../packages/instructor/src/index.ts";
+import {
+  RunArtifactWriter,
+  newInvocationId,
+  loadPricingTable,
+  estimateCostUSD,
+  type PricingTable,
+} from "../../../packages/model-runtime/src/index.ts";
 import { loadBlueprint, resolveVariant, chooseTier, type LabVariant } from "../../../packages/lab-runtime/src/variants.ts";
 import { loadCurriculum, type Curriculum } from "../../../packages/learner-model/src/curriculum.ts";
 import { extractDigest, digestToEvidence } from "../../../packages/learner-model/src/evidence.ts";
@@ -50,6 +57,18 @@ import { corroborateHypotheses } from "../../../packages/learner-model/src/hypot
 import { buildReflection } from "../../../packages/learner-model/src/reflection.ts";
 import type { EventStore, StoredReflection } from "./store.ts";
 import { WorkspaceRuntime, type WorkspaceSpec } from "./workspace.ts";
+
+// ── model telemetry (ADR-0006) ──────────────────────────────────────────────
+// Normalized invocation records are ADDITIVE next to the token_usage store:
+// append-only JSONL under the git-ignored artifacts dir. Telemetry failures
+// must never break a hint, so both sinks are guarded independently.
+const modelArtifacts = new RunArtifactWriter(process.env.TRELLIS_ARTIFACTS_DIR ?? "artifacts");
+let pricingTable: PricingTable | null = null;
+try {
+  pricingTable = loadPricingTable();
+} catch (err) {
+  console.error("[model-runtime] pricing table unavailable — costs will be unestimated:", err);
+}
 
 export interface LabTask {
   id: string;
@@ -435,6 +454,30 @@ export class Session {
       });
     } catch (err) {
       console.error(`[token-usage] failed to record for ${this.id}:`, err);
+    }
+    try {
+      const model = hint.model ?? this.instructor.name;
+      const usage = {
+        inputTokens: hint.usage.promptTokens,
+        outputTokens: hint.usage.completionTokens,
+      };
+      modelArtifacts.appendInvocation({
+        invocationId: newInvocationId(),
+        runId: `session-${this.id}`,
+        role: "guide",
+        provider: this.instructor.name,
+        model,
+        promptVersion: hint.promptVersion,
+        // Recorded at completion; per-call timing lands with the Phase 3
+        // transport — completedAt is omitted rather than fabricated.
+        startedAt: now(),
+        usage,
+        estimatedCostUSD: pricingTable ? estimateCostUSD(usage, model, pricingTable) : undefined,
+        pricingVersion: pricingTable?.version,
+        status: "ok",
+      });
+    } catch (err) {
+      console.error(`[model-runtime] failed to record invocation for ${this.id}:`, err);
     }
   }
 

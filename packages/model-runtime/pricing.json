@@ -1,0 +1,12 @@
+{
+  "$comment": "Versioned provider pricing (ADR-0006 D40). USD per million tokens. Price changes bump `version` and update `pricedAt`; never rewrite history semantics — estimates record the version that produced them. Cache write rate is the 5-minute-TTL rate (1.25x input). Unknown models get NO estimate rather than a guess.",
+  "version": 1,
+  "pricedAt": "2026-07-13",
+  "currency": "USD",
+  "models": {
+    "claude-opus-4-8": { "inputPerMTok": 5, "outputPerMTok": 25, "cacheReadPerMTok": 0.5, "cacheWritePerMTok": 6.25 },
+    "claude-sonnet-5": { "inputPerMTok": 2, "outputPerMTok": 10, "cacheReadPerMTok": 0.2, "cacheWritePerMTok": 2.5, "notes": "introductory pricing through 2026-08-31; sticker is 3/15" },
+    "claude-haiku-4-5": { "inputPerMTok": 1, "outputPerMTok": 5, "cacheReadPerMTok": 0.1, "cacheWritePerMTok": 1.25 },
+    "mock-instructor": { "inputPerMTok": 0, "outputPerMTok": 0, "notes": "deterministic mock provider; zero cost, kept here so mock runs exercise the full cost pipeline" }
+  }
+}

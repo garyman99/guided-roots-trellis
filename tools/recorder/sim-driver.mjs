@@ -23,6 +23,7 @@ import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { mkdirSync, renameSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, arr) => {
@@ -35,6 +36,16 @@ const OUT = args.out ?? join(process.cwd(), "recording");
 const WIDTH = Number(args.width ?? 1280);
 const HEIGHT = Number(args.height ?? 800);
 const START_URL = args.url ?? null;
+
+// ── coordinator/simulator privilege split (ADR-0006) ────────────────────────
+// `eval` can read anything in the page (localStorage creds, hidden state), so
+// it is COORDINATOR-ONLY: callers must present this token in an x-eval-token
+// header. The token is printed once on the driver's stdout ready line — the
+// coordinator starts this process and reads it there; the simulator subagent
+// never sees stdout, so the learner-visibility boundary is enforced by the
+// driver, not just by the markdown contract.
+const EVAL_TOKEN = args["eval-token"] ?? randomUUID();
+const PRIVILEGED = new Set(["eval"]);
 
 mkdirSync(OUT, { recursive: true });
 
@@ -121,6 +132,11 @@ const server = createServer((req, res) => {
     const cmd = req.url.replace(/^\//, "");
     const fn = handlers[cmd];
     if (!fn) { res.writeHead(404).end(JSON.stringify({ error: `unknown command '${cmd}'` })); return; }
+    if (PRIVILEGED.has(cmd) && req.headers["x-eval-token"] !== EVAL_TOKEN) {
+      res.writeHead(403, { "content-type": "application/json" })
+        .end(JSON.stringify({ ok: false, error: `'${cmd}' is coordinator-only: missing/wrong x-eval-token` }));
+      return;
+    }
     commandCount += 1;
     try {
       const arg = body ? JSON.parse(body) : {};
@@ -165,5 +181,5 @@ process.on("SIGINT", async () => { await finalize(); process.exit(0); });
 process.on("SIGTERM", async () => { await finalize(); process.exit(0); });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(JSON.stringify({ ready: true, port: PORT, out: OUT, viewport: [WIDTH, HEIGHT], startUrl: START_URL }));
+  console.log(JSON.stringify({ ready: true, port: PORT, out: OUT, viewport: [WIDTH, HEIGHT], startUrl: START_URL, evalToken: EVAL_TOKEN }));
 });

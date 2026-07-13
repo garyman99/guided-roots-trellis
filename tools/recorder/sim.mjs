@@ -21,9 +21,15 @@ if (pi !== -1) { port = Number(argv[pi + 1]); argv.splice(pi, 2); }
 const [cmd, jsonArg] = argv;
 if (!cmd) { console.error("usage: sim.mjs [--port N] <command> [json-args]"); process.exit(2); }
 
+// Coordinator-only commands (eval) need the token from the driver's ready
+// line; the coordinator exports it as SIM_EVAL_TOKEN for its own calls and
+// never passes it to the simulator subagent (ADR-0006 boundary).
 const res = await fetch(`http://127.0.0.1:${port}/${cmd}`, {
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: {
+    "content-type": "application/json",
+    ...(process.env.SIM_EVAL_TOKEN ? { "x-eval-token": process.env.SIM_EVAL_TOKEN } : {}),
+  },
   body: jsonArg ?? "{}",
 }).catch((e) => { console.error(JSON.stringify({ ok: false, error: `driver not reachable on :${port} (${e.message})` })); process.exit(1); });
 
