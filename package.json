@@ -9,10 +9,10 @@
   "scripts": {
     "api": "node apps/api/src/server.ts",
     "web": "npm --workspace @trellis/web run dev",
-    "test": "node --test --test-concurrency=1 packages/session-events/test/*.test.ts packages/instructor/test/*.test.ts packages/learner-model/test/*.test.ts packages/lab-runtime/test/*.test.ts apps/api/test/*.test.ts",
+    "test": "node --test --test-concurrency=1 packages/model-runtime/test/*.test.ts packages/session-events/test/*.test.ts packages/instructor/test/*.test.ts packages/learner-model/test/*.test.ts packages/lab-runtime/test/*.test.ts apps/api/test/*.test.ts",
     "test:integration": "node --test packages/lab-runtime/test/*.test.ts apps/api/test/*.test.ts",
     "test:all": "npm run test && npm run test:integration",
-    "test:kernel": "node --test packages/session-events/test/*.test.ts packages/instructor/test/*.test.ts packages/learner-model/test/*.test.ts",
+    "test:kernel": "node --test packages/model-runtime/test/*.test.ts packages/session-events/test/*.test.ts packages/instructor/test/*.test.ts packages/learner-model/test/*.test.ts",
     "test:labs": "node --test --test-concurrency=1 packages/lab-runtime/test/*.test.ts",
     "test:e2e": "node --test --test-concurrency=1 apps/api/test/*.test.ts"
   },
