@@ -1,0 +1,23 @@
+{
+  "$comment": "Acceptance/experiment policy as DATA (plan Phase 4; replaces prose rules in the process-scenarios skill). An LLM evaluator is never the sole acceptance oracle: deterministic requirements gate every path. Version bumps on change; runs record which version judged them.",
+  "schemaVersion": "experiment-policy@1",
+  "version": 1,
+  "feedback": {
+    "$comment": "Rapid development: one simulation + one evaluation is enough to produce actionable feedback.",
+    "minRuns": 1
+  },
+  "promotion": {
+    "$comment": "Eligibility for ACCEPTED (regression-contract) status.",
+    "minRuns": 3,
+    "deterministicPassRequiredEveryRun": true,
+    "medianScoreThreshold": 92,
+    "minRunScoreFloor": 75,
+    "noCriticalBlockers": true,
+    "secondOpinionBandPoints": 2,
+    "regressionsMustStayGreen": true
+  },
+  "measurement": {
+    "$comment": "Changing the evaluator model/prompt changes the measuring instrument — never mix into a product comparison (ADR-0006).",
+    "evaluatorChangesAreMeasurementChanges": true
+  }
+}
