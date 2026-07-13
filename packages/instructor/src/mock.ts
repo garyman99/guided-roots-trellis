@@ -97,7 +97,24 @@ function workspaceLadder(req: HintRequest, observed: string): string[] {
 export class MockInstructorProvider implements InstructorProvider {
   readonly name = "mock";
 
-  async generateHint(req: HintRequest, _context: BuiltContext): Promise<HintResponse> {
+  /**
+   * Deterministic stand-in token accounting (~4 chars/token) so the usage
+   * pipeline — store, admin views, graphs — is exercised offline exactly like
+   * the rest of the loop.
+   */
+  async generateHint(req: HintRequest, context: BuiltContext): Promise<HintResponse> {
+    const res = await this.pick(req, context);
+    return {
+      ...res,
+      model: "mock-instructor",
+      usage: {
+        promptTokens: Math.ceil((context.system.length + context.user.length) / 4),
+        completionTokens: Math.ceil(res.message.length / 4),
+      },
+    };
+  }
+
+  private async pick(req: HintRequest, _context: BuiltContext): Promise<HintResponse> {
     const { state, reason, hintLevel } = req;
     const workspace = req.lab.surface === "workspace";
 

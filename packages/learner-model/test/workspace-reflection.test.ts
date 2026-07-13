@@ -30,7 +30,7 @@ function marisolEvents(): SessionEvent[] {
     { type: "aichat.prompt.submitted", chars: 40, restrictedSpans: [], timestamp: at(31) },
     { type: "aichat.response.generated", draftId: "d1", echoedRestricted: ["loyalty-number"], timestamp: at(32) },
     { type: "intervention.proposed", triggerType: "restricted_context_shared", suggestedHintLevel: 1, timestamp: at(35) },
-    { type: "instructor.hint", level: 1, strategy: "orient", contextManifest: null, timestamp: at(36) },
+    { type: "instructor.hint", level: 1, strategy: "orient", text: "hint", contextManifest: null, timestamp: at(36) },
     { type: "aichat.context.shared", chars: 200, restrictedSpans: [], requiredFacts: ["order-id", "delivery-expectation"], timestamp: at(60) },
     { type: "aichat.prompt.submitted", chars: 30, restrictedSpans: [], timestamp: at(61) },
     { type: "aichat.response.generated", draftId: "d2", echoedRestricted: [], timestamp: at(62) },
@@ -126,7 +126,7 @@ test("authoring labs (terminal, no agent change) get truthful reflections — no
     { type: "session.started", lessonId: "turn-heading-check-into-first-test", learnerId: "l1", variantId: null, timestamp: at(0) },
     { type: "file.changed", path: "tests/heading.spec.js", timestamp: at(20) },
     { type: "intervention.proposed", triggerType: "inactivity", suggestedHintLevel: 0, timestamp: at(30) },
-    { type: "instructor.hint", level: 1, strategy: "orient", contextManifest: null, timestamp: at(31) },
+    { type: "instructor.hint", level: 1, strategy: "orient", text: "hint", contextManifest: null, timestamp: at(31) },
     { type: "checkpoint.completed", checkpointId: "first-authored-check", timestamp: at(50) },
   ];
   const d = extractDigest(events, { sessionId: "s4", labId: "turn-heading-check-into-first-test", learnerId: "l1", agentReview: false });

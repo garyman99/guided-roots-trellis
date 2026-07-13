@@ -3,7 +3,7 @@
  * Screenshots under /landing/ are captured from the real desktop experience
  * (see apps/web/public/landing/README.md for how to regenerate them).
  */
-import { bypassAvailable, login, loginBypass } from "../auth.ts";
+import { bypassAvailable, bypassProfiles, login, loginBypass } from "../auth.ts";
 import { useReveal } from "./reveal.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
@@ -49,11 +49,12 @@ export function Landing() {
               <a className="gr-btn gr-btn-ghost" href="#tour">
                 See the workspace
               </a>
-              {bypassAvailable && (
-                <button className="gr-text-link" onClick={() => loginBypass()}>
-                  Continue as local developer
-                </button>
-              )}
+              {bypassAvailable &&
+                bypassProfiles.map((p) => (
+                  <button key={p.key} className="gr-text-link" onClick={() => loginBypass(p)}>
+                    {p.key === "developer" ? "Continue as local developer" : `Continue as ${p.name}`}
+                  </button>
+                ))}
             </div>
           </div>
           <figure className="shot-frame gr-reveal">

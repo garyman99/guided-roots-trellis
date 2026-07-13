@@ -10,8 +10,13 @@
  * URL and <origin> as an allowed logout URL.
  *
  * Local development bypass: when VITE_AUTH_BYPASS=true, or when a dev build
- * has no Auth0 config at all, the landing page offers "Continue as local
- * developer" which signs in a fake local user without touching Auth0.
+ * has no Auth0 config at all, the landing page offers named "Continue as …"
+ * profiles (see bypassProfiles) which sign in without touching Auth0. Each
+ * profile has a stable sub, so each person keeps their own learner identity
+ * (see learnerKey in api.ts).
+ *
+ * Admin: bypass profiles declare admin explicitly; Auth0 users are admin when
+ * their email is listed in VITE_ADMIN_EMAILS (comma-separated).
  *
  * UNVERIFIED: the Auth0 redirect path has not been exercised against a real
  * tenant in this environment; the bypass path is the verified one.
@@ -23,7 +28,23 @@ export interface AuthUser {
   email?: string;
   /** true when the local dev bypass minted this user */
   bypass?: boolean;
+  /** may open /admin (operator surface) */
+  admin?: boolean;
 }
+
+export interface BypassProfile {
+  key: string;
+  sub: string;
+  name: string;
+  email: string;
+  admin: boolean;
+}
+
+/** Household profiles the bypass can sign in as. First one is the default. */
+export const bypassProfiles: BypassProfile[] = [
+  { key: "developer", sub: "dev|local", name: "Developer", email: "dev@localhost", admin: true },
+  { key: "eva", sub: "dev|eva", name: "Eva", email: "eva@localhost", admin: false },
+];
 
 const USER_KEY = "trellis.auth.user";
 const PKCE_KEY = "trellis.auth.pkce";
@@ -32,6 +53,10 @@ const env = import.meta.env;
 const AUTH0_DOMAIN: string | undefined = env.VITE_AUTH0_DOMAIN;
 const AUTH0_CLIENT_ID: string | undefined = env.VITE_AUTH0_CLIENT_ID;
 const AUTH0_AUDIENCE: string | undefined = env.VITE_AUTH0_AUDIENCE;
+const ADMIN_EMAILS: string[] = (env.VITE_ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 export const auth0Configured = Boolean(AUTH0_DOMAIN && AUTH0_CLIENT_ID);
 
@@ -51,9 +76,19 @@ export function isAuthenticated(): boolean {
   return getUser() !== null;
 }
 
-/** Local dev bypass: mint a fake user and land on /home. */
-export function loginBypass(name = "Developer"): void {
-  const user: AuthUser = { sub: "dev|local", name, email: "dev@localhost", bypass: true };
+export function isAdmin(): boolean {
+  return getUser()?.admin === true;
+}
+
+/** Local dev bypass: sign in as a named household profile and land on /home. */
+export function loginBypass(profile: BypassProfile = bypassProfiles[0]): void {
+  const user: AuthUser = {
+    sub: profile.sub,
+    name: profile.name,
+    email: profile.email,
+    bypass: true,
+    admin: profile.admin,
+  };
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   window.location.assign("/home");
 }
@@ -109,10 +144,12 @@ export async function completeLogin(): Promise<string> {
   const tokens = (await res.json()) as { id_token?: string };
   if (!tokens.id_token) throw new Error("Auth0 returned no id_token.");
   const claims = decodeJwtPayload(tokens.id_token);
+  const email = typeof claims.email === "string" ? claims.email : undefined;
   const user: AuthUser = {
     sub: String(claims.sub ?? "auth0|unknown"),
     name: String(claims.name ?? claims.nickname ?? claims.email ?? "Learner"),
-    email: typeof claims.email === "string" ? claims.email : undefined,
+    email,
+    admin: email !== undefined && ADMIN_EMAILS.includes(email.toLowerCase()),
   };
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   return "/home";

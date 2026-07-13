@@ -33,6 +33,15 @@ export interface LearnerMeta {
   consents: { selfAnalytics: boolean; cohortAggregate: boolean; research: boolean };
 }
 
+export interface TokenUsageRecord {
+  learnerId: string;
+  sessionId: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  createdAt: string;
+}
+
 export interface StoredReflection {
   sessionId: string;
   learnerId: string;
@@ -40,6 +49,32 @@ export interface StoredReflection {
   reflection: Reflection;
   narrative: string;
   createdAt: string;
+}
+
+/** One lesson in a curated course — a scenario (lab) with optional course-specific framing. */
+export interface CourseLesson {
+  labId: string;
+  /** Course-voice name for this step (falls back to the scenario's own title). */
+  title?: string;
+  note?: string;
+}
+
+/**
+ * A curated course: an ordered path of scenarios. Courses are OPERATOR
+ * content (admin-managed), not learner truth — progress is always derived
+ * from the learner's own completion digests, never stored on the course.
+ */
+export interface Course {
+  courseId: string;
+  title: string;
+  description: string;
+  /** Who it's for — matches the marketplace role labels (e.g. "QA & Testing"). */
+  audience: string;
+  /** Experience level: beginner | intermediate | advanced. */
+  level: string;
+  lessons: CourseLesson[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface EventStore {
@@ -57,7 +92,17 @@ export interface EventStore {
   // reflections (Phase 2) — regenerable userland artifacts
   saveReflection(r: StoredReflection): void;
   reflectionsFor(learnerId: string): StoredReflection[];
+  // model token accounting (admin views); append-only like everything else
+  recordTokenUsage(rec: TokenUsageRecord): void;
+  tokenUsage(learnerId?: string): TokenUsageRecord[];
+  // curated courses (operator content; admin CRUD)
+  listCourses(): Course[];
+  getCourse(courseId: string): Course | null;
+  saveCourse(course: Course): void; // insert-or-replace by courseId
+  deleteCourse(courseId: string): void;
   sessionsForLearner(learnerId: string): string[];
+  /** Every stored session (admin history view); newest last. */
+  listSessions(): SessionMeta[];
   createSession(meta: SessionMeta): void;
   appendEvent(sessionId: string, event: SessionEvent): void;
   eventsFor(sessionId: string): SessionEvent[];
@@ -114,6 +159,16 @@ class SqliteStore implements EventStore {
         payload    TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_evidence_learner ON evidence_events(learner_id, seq);
+      CREATE TABLE IF NOT EXISTS token_usage (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        learner_id        TEXT NOT NULL,
+        session_id        TEXT NOT NULL,
+        model             TEXT NOT NULL,
+        prompt_tokens     INTEGER NOT NULL,
+        completion_tokens INTEGER NOT NULL,
+        created_at        TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_learner ON token_usage(learner_id, id);
       CREATE TABLE IF NOT EXISTS reflections (
         session_id TEXT PRIMARY KEY,
         learner_id TEXT NOT NULL,
@@ -121,6 +176,12 @@ class SqliteStore implements EventStore {
         reflection TEXT NOT NULL,
         narrative  TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS courses (
+        course_id  TEXT PRIMARY KEY,
+        payload    TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, type, timestamp, payload) VALUES (?, ?, ?, ?)");
@@ -200,6 +261,7 @@ class SqliteStore implements EventStore {
     for (const sid of this.sessionsForLearner(learnerId)) this.deleteSession(sid);
     this.db.prepare("DELETE FROM evidence_events WHERE learner_id = ?").run(learnerId);
     this.db.prepare("DELETE FROM reflections WHERE learner_id = ?").run(learnerId);
+    this.db.prepare("DELETE FROM token_usage WHERE learner_id = ?").run(learnerId);
     this.db.prepare("DELETE FROM learners WHERE learner_id = ?").run(learnerId);
     this.db.prepare("INSERT OR REPLACE INTO tombstones (learner_id, erased_at) VALUES (?, ?)").run(learnerId, new Date().toISOString());
   }
@@ -237,6 +299,69 @@ class SqliteStore implements EventStore {
     ).map((r) => ({ sessionId: r.session_id, learnerId: r.learner_id, labId: r.lab_id, reflection: JSON.parse(r.reflection), narrative: r.narrative, createdAt: r.created_at }));
   }
 
+  // ── token usage ──
+  recordTokenUsage(rec: TokenUsageRecord): void {
+    this.db
+      .prepare(
+        "INSERT INTO token_usage (learner_id, session_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(rec.learnerId, rec.sessionId, rec.model, rec.promptTokens, rec.completionTokens, rec.createdAt);
+  }
+
+  tokenUsage(learnerId?: string): TokenUsageRecord[] {
+    const rows = (
+      learnerId
+        ? this.db.prepare("SELECT * FROM token_usage WHERE learner_id = ? ORDER BY id ASC").all(learnerId)
+        : this.db.prepare("SELECT * FROM token_usage ORDER BY id ASC").all()
+    ) as Array<{
+      learner_id: string; session_id: string; model: string; prompt_tokens: number; completion_tokens: number; created_at: string;
+    }>;
+    return rows.map((r) => ({
+      learnerId: r.learner_id,
+      sessionId: r.session_id,
+      model: r.model,
+      promptTokens: r.prompt_tokens,
+      completionTokens: r.completion_tokens,
+      createdAt: r.created_at,
+    }));
+  }
+
+  // ── courses ──
+  listCourses(): Course[] {
+    return (this.db.prepare("SELECT payload FROM courses ORDER BY created_at ASC").all() as Array<{ payload: string }>).map(
+      (r) => JSON.parse(r.payload) as Course,
+    );
+  }
+
+  getCourse(courseId: string): Course | null {
+    const row = this.db.prepare("SELECT payload FROM courses WHERE course_id = ?").get(courseId) as { payload: string } | undefined;
+    return row ? (JSON.parse(row.payload) as Course) : null;
+  }
+
+  saveCourse(course: Course): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO courses (course_id, payload, created_at, updated_at) VALUES (?, ?, ?, ?)")
+      .run(course.courseId, JSON.stringify(course), course.createdAt, course.updatedAt);
+  }
+
+  deleteCourse(courseId: string): void {
+    this.db.prepare("DELETE FROM courses WHERE course_id = ?").run(courseId);
+  }
+
+  listSessions(): SessionMeta[] {
+    return (
+      this.db.prepare("SELECT * FROM sessions ORDER BY created_at ASC").all() as Array<{
+        session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number;
+      }>
+    ).map((r) => ({
+      sessionId: r.session_id,
+      learnerId: r.learner_id,
+      labId: r.lab_id,
+      createdAt: r.created_at,
+      consentAnalytics: r.consent_analytics === 1,
+    }));
+  }
+
   /** Session deletion is the ONE deliberate exception to append-only: a learner discarding their sandbox discards its history. */
   deleteSession(sessionId: string): void {
     this.deleteEvents.run(sessionId);
@@ -256,6 +381,8 @@ class MemoryStore implements EventStore {
   private evidence = new Map<string, StoredEvidence[]>();
   private evidenceSeq = 0;
   private reflections = new Map<string, StoredReflection>();
+  private usage: TokenUsageRecord[] = [];
+  private courses = new Map<string, Course>();
 
   createLearner(meta: LearnerMeta): void { this.learners.set(meta.learnerId, meta); }
   learnerMeta(id: string): LearnerMeta | null { return this.learners.get(id) ?? null; }
@@ -271,6 +398,7 @@ class MemoryStore implements EventStore {
     for (const sid of this.sessionsForLearner(id)) this.deleteSession(sid);
     this.evidence.delete(id);
     for (const [k, r] of this.reflections) if (r.learnerId === id) this.reflections.delete(k);
+    this.usage = this.usage.filter((u) => u.learnerId !== id);
     this.learners.delete(id);
     this.tombstones.add(id);
   }
@@ -284,6 +412,19 @@ class MemoryStore implements EventStore {
   saveReflection(r: StoredReflection): void { this.reflections.set(r.sessionId, r); }
   reflectionsFor(id: string): StoredReflection[] {
     return [...this.reflections.values()].filter((r) => r.learnerId === id);
+  }
+  recordTokenUsage(rec: TokenUsageRecord): void { this.usage.push(rec); }
+  tokenUsage(learnerId?: string): TokenUsageRecord[] {
+    return learnerId ? this.usage.filter((u) => u.learnerId === learnerId) : [...this.usage];
+  }
+  listCourses(): Course[] {
+    return [...this.courses.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  getCourse(id: string): Course | null { return this.courses.get(id) ?? null; }
+  saveCourse(course: Course): void { this.courses.set(course.courseId, course); }
+  deleteCourse(id: string): void { this.courses.delete(id); }
+  listSessions(): SessionMeta[] {
+    return [...this.sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   createSession(meta: SessionMeta): void {

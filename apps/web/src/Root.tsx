@@ -10,13 +10,15 @@
  *              the scenario tooling in tools/recorder depends on it.
  *   /home      post-login launcher (auth required)
  *   /lab       the desktop experience (auth required); ?lab=<id> selects
+ *   /admin     operator surface (auth + admin flag required)
  *   /callback  Auth0 redirect target
  */
 import { useEffect, useState } from "react";
 import { App } from "./App.tsx";
-import { completeLogin, isAuthenticated } from "./auth.ts";
+import { completeLogin, isAdmin, isAuthenticated } from "./auth.ts";
 import { Landing } from "./pages/Landing.tsx";
 import { Home } from "./pages/Home.tsx";
+import { Admin } from "./pages/Admin.tsx";
 
 export function Root() {
   const path = window.location.pathname;
@@ -28,12 +30,26 @@ export function Root() {
   if (path === "/callback") return <Callback />;
   if (path === "/home") return requireAuth(<Home />);
   if (path === "/lab") return requireAuth(<App />);
+  if (path === "/admin") return requireAdmin(<Admin />);
   return <Landing />;
 }
 
 function requireAuth(page: JSX.Element): JSX.Element | null {
   if (!isAuthenticated()) {
     window.location.replace("/");
+    return null;
+  }
+  return page;
+}
+
+/** Non-admins land on /home — the admin surface simply doesn't exist for them. */
+function requireAdmin(page: JSX.Element): JSX.Element | null {
+  if (!isAuthenticated()) {
+    window.location.replace("/");
+    return null;
+  }
+  if (!isAdmin()) {
+    window.location.replace("/home");
     return null;
   }
   return page;
