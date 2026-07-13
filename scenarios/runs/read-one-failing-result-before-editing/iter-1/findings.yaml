@@ -1,0 +1,114 @@
+- finding_id: "chat-input-focus-trap-behind-code-studio"
+  severity: "high"
+  category: "ux"
+  observed_behavior: "With Code Studio frontmost, the Sage chat input was occluded; clicking at the chat coordinates and typing sent the learner's question into the terminal instead. Recovery took three attempts and required raising the Trellis Guide via its taskbar button."
+  expected_behavior: "The Sage chat input remains reachable and focusable whenever the learner intends to type into it, regardless of which window is frontmost; keystrokes aimed at the chat never fall through to the terminal."
+  evidence:
+    - "simulator-trace.md BEATs 10-13 and Friction note"
+    - "export.json terminal.command.completed ~03:28:37 (question text leaked to shell)"
+    - "completion.json observed_friction[0]"
+  affected_values: ["clarity", "psychological-safety"]
+  learner_impact: "A low-confidence novice lost ~3 minutes and had to improvise window management to ask a single question, eroding focus when she most needed help."
+  reproduction_conditions:
+    - "Code Studio open and frontmost, covering the Guide chat"
+    - "Learner attempts to click the chat box and type"
+  acceptance_evidence:
+    - "A run where Code Studio is frontmost and typed chat input reaches Sage on the first attempt with zero terminal leakage"
+  status: "OPEN — pre-existing desktop-shell issue affecting all Code-Studio-plus-chat labs; investigated this iteration (see iter-2 notes)"
+
+- finding_id: "tests-not-run-intervention-misfires-after-completion"
+  severity: "medium"
+  category: "evaluation"
+  observed_behavior: "The 'tests_not_run' intervention was proposed at 03:25:48 and again at 03:30:27 (post checkpoint.completed) despite two prior tests.completed events."
+  expected_behavior: "The trigger must not fire when tests.completed events exist for the session, and never after checkpoint.completed."
+  evidence:
+    - "export.json intervention.proposed triggerType 'tests_not_run' at 03:25:48 and 03:30:27"
+    - "export.json tests.completed at 03:23:18 and 03:28:38; checkpoint.completed at 03:29:50"
+  affected_values: ["clarity", "psychological-safety"]
+  learner_impact: "A false 'you haven't run your tests' nudge to a low-confidence beginner who has already passed is confusing and can shake trust in the guide."
+  reproduction_conditions:
+    - "Session with at least one tests.completed event, then evaluate the tests_not_run trigger"
+  acceptance_evidence:
+    - "A run where no tests_not_run intervention is proposed after any tests.completed event or after checkpoint.completed"
+  status: "OPEN — targeted for iter-2 fix"
+
+- finding_id: "location-field-line-number-ambiguity"
+  severity: "medium"
+  category: "ux"
+  observed_behavior: "The runner shows two line numbers for one failure: ':21:1' (test declaration) in the summary header and ':22' (failing assertion) in the code frame. The learner had to guess; the verifier accepts any line number with the filename."
+  expected_behavior: "The learner-visible output points to one unambiguous 'where the check failed' line, or the note/README explicitly names which line to copy."
+  evidence:
+    - "completion.json observed_friction[1]"
+    - "verify/checkpoint.mjs note-location check (accepts any digit with the filename)"
+  affected_values: ["clarity", "transferable-learning"]
+  learner_impact: "Ambiguous location undercuts the 'find the check later' purpose and leaves the learner unsure she read it correctly, even on a pass."
+  reproduction_conditions:
+    - "Run the prepared failing test and read both the summary header and the code frame"
+  acceptance_evidence:
+    - "A run where guidance names which line to copy (the code-frame arrow line)"
+  status: "OPEN — targeted for iter-2 instruction cue"
+
+- finding_id: "reach-chat-instruction-missing-from-opening"
+  severity: "low"
+  category: "instruction"
+  observed_behavior: "The opening tells the learner a taskbar button raises a covered window, but only in the Garden Site context; nothing tells her how to bring the Sage chat forward when Code Studio covers it."
+  expected_behavior: "The welcome or task text includes a one-line cue for reaching the chat (e.g., 'click the Trellis Guide taskbar button to bring this chat forward')."
+  evidence:
+    - "lab.json tasks[0] (taskbar hint scoped to Garden Site)"
+    - "simulator-trace.md BEATs 11-13"
+  affected_values: ["clarity", "psychological-safety"]
+  learner_impact: "Even with the z-order fixed, an explicit recovery instruction shortens time-to-help for a novice."
+  reproduction_conditions:
+    - "Learner needs to ask Sage a question while Code Studio is frontmost"
+  acceptance_evidence:
+    - "A run where the learner reaches the chat on the first attempt after reading the opening guidance"
+  status: "OPEN — targeted for iter-2 instruction cue"
+
+- finding_id: "scroll-past-red-caution-not-salient-at-note-open"
+  severity: "low"
+  category: "instruction"
+  observed_behavior: "The 'red line is only a headline' caution lives in the run-task text and FAQ, but not in the welcome or the EVIDENCE.md header the learner opens right after seeing red."
+  expected_behavior: "The headline-vs-detail caution appears where the learner decides what to write (EVIDENCE.md header and/or welcome)."
+  evidence:
+    - "evidence-note.json EVIDENCE.md header (no red-summary caution)"
+    - "simulator-trace.md BEATs 7-8"
+  affected_values: ["clarity", "transferable-learning"]
+  learner_impact: "Placing the caution at the point of action softens the predictable first-note mistake and reinforces the four-question routine."
+  reproduction_conditions:
+    - "Learner opens EVIDENCE.md immediately after seeing the red summary"
+  acceptance_evidence:
+    - "A run where the note header carries the caution"
+  status: "OPEN — targeted for iter-2 instruction cue"
+
+- finding_id: "scripted-first-mistake-caps-accuracy-dimension"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: "failure-evidence-accuracy (weight 35) reserves 'exceptional' for all four facts correct on the FIRST completed note, but the persona is scripted to record 'failed'/blank first, so a faithful run cannot exceed 'acceptable' on the highest-weighted dimension."
+  expected_behavior: "Rubric and persona reconcilable: exceptional credits a clean single-hint recovery, OR the persona's first error is optional."
+  evidence:
+    - "scenario spec quality_dimensions failure-evidence-accuracy.exceptional ('first completed note')"
+    - "scenario spec user_simulation.mistakes (scripted 'failed' as Received)"
+    - "allowed_variance ('Do not penalize the initial summary-only reading when... corrected')"
+  affected_values: ["transferable-learning"]
+  learner_impact: "Faithful strong runs are structurally scored below threshold, distorting the product-quality signal."
+  reproduction_conditions:
+    - "Any faithful run honoring the scripted first-mistake then recovering"
+  acceptance_evidence:
+    - "Documented acceptance rationale (per precedent) OR authors revise the rubric/persona upstream"
+  status: "WONTFIX (scenario integrity) — do NOT weaken the scenario. Documented as the honest reason a faithful run caps below 92 on this dimension; product acceptance is judged on the fixable friction, per the improve-delayed-order-reply precedent."
+
+- finding_id: "note-revision-history-not-persisted"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: "Only the final EVIDENCE.md content is captured; the mistaken intermediate state is inferable from file.changed timestamps but not stored as a snapshot, though the spec asks for the note 'and its revision history.'"
+  expected_behavior: "Each EVIDENCE.md revision is snapshotted (or diffed) so the evaluator can verify the misread-then-corrected trajectory directly."
+  evidence:
+    - "scenario spec evidence_requirements ('Final four-field evidence note and its revision history')"
+    - "export.json file.changed x3 with no content snapshots"
+  affected_values: ["truthfulness"]
+  learner_impact: "Weakens auditability of the recovery narrative the scores rely on."
+  reproduction_conditions:
+    - "Any run where EVIDENCE.md is edited more than once"
+  acceptance_evidence:
+    - "A run whose export includes per-revision EVIDENCE.md content or diffs"
+  status: "DEFERRED — platform-wide instrumentation change (file.changed carries no content snapshot); out of scope for this lab, logged for the harness backlog."

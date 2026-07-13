@@ -182,14 +182,20 @@
       "class": "CURRENT-EDGE",
       "difficulty": 1,
       "execution_order": 1,
-      "status": "VALIDATED",
-      "status_reason": "Spec complete. Needs a seeded lab with one prepared FAILING status test (page shows 'Plot requests are open', test expects 'Plot requests are closed'), a plain-language failure surface (test title, file:line location, expected, received), and an editable four-field evidence note (Test/Location/Expected/Received) OUTSIDE the test project that the learner fills without editing the test or page. Deterministic evidence: focused-run identity + red result, note field correctness (incl. expected/received-reversed detection), and page/test integrity. No AI surface.",
-      "latest_completion": null,
-      "latest_score": null,
-      "highest_score": null,
+      "status": "ACCEPTED",
+      "status_reason": "Iter-2 live recorded run: two independent evaluations 92 (primary) and 91 (second opinion), split across the 92 threshold. Completion PASS (8/8 requirements), no critical failures. New non-blueprint lab shipped: one prepared FAILING status test (page shows 'Plot requests are open', test expects 'Plot requests are closed' -> deterministic red with a plain-language Expected/Received pair, 3s expect timeout), an editable four-field evidence note (EVIDENCE.md: Test/Location/Expected/Received) the learner fills WITHOUT editing the test/page, and a verify/checkpoint.mjs that parses the note (with an expected/received-reversal guard -> the reversed blocker), hashes test+page for integrity (the edit-before-completion blocker), and pairs with the ran-tests session requirement. Profile: playwright.locators-and-assertions unknown->emerging on completion (new checkpoint-read-failure-evidence observation on that registered concept). Iter-1 scored 89 (GOOD): surfaced a tests_not_run intervention misfire (incl. post-completion), a chat focus-trap detour (~3 min), and Location line-number ambiguity. Iter-2 fixed all three (intervention guard on completedCheckpoints for tests_not_run/diff_not_viewed + test; welcome/EVIDENCE-header 'read past the red' + reach-Sage-via-taskbar cues; README/note/FAQ name the code-frame arrow line for Location) and confirmed the fixes live: ZERO interventions, ZERO clarifying questions, UNASSISTED recovery from the scripted first mistake, deliberate :22 Location. ACCEPTED at threshold: the sole structural sub-92 factor is the WONTFIX persona-fidelity cap on failure-evidence-accuracy (35 wt reserves 'exceptional' for a correct FIRST note while the persona is scripted to err first) plus a one-point second-opinion judgment on the dual-line output; penalizing required persona fidelity is not a legitimate reason to withhold acceptance (precedent: improve-delayed-order-reply, accepted 92/91). Dual-line output kept deliberately (real Playwright prints test-decl :21 and throw-site :22; the cue teaches the transferable arrow-line skill rather than overfitting to one layout). Open low/deferred: reflection widget untagged + no chat auto-scroll (shared-surface polish); note-revision-history not persisted (platform instrumentation); optional future collapse of the two line numbers.",
+      "latest_completion": "PASS",
+      "latest_score": 92,
+      "second_opinion_score": 91,
+      "highest_score": 92,
+      "score_history": [
+        { "iteration": 1, "score": 89, "simulator": "live", "note": "GOOD not exceptional; surfaced tests_not_run misfire, chat focus-trap, Location ambiguity" },
+        { "iteration": 2, "score": 92, "second_opinion": 91, "simulator": "live" }
+      ],
       "acceptance_threshold": 92,
-      "iterations": 0,
-      "last_executed": null
+      "iterations": 2,
+      "last_executed": "2026-07-12",
+      "product_commit": "93bd9d6"
     },
     "keep-test-data-and-expected-result-in-sync": {
       "run_id": "20260712T113600-0600",
