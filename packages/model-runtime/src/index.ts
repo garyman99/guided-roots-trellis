@@ -7,6 +7,24 @@
  * fetch-based Anthropic / OpenAI-compatible clients on top of this.
  */
 export { sha256File, sha256Text } from "./hash.ts";
+export {
+  isLocalBaseUrl,
+  ModelConfigError,
+  resolveRoleConfig,
+  type ProviderKind,
+  type RoleModelConfig,
+} from "./config.ts";
+export {
+  postJson,
+  TransportError,
+  type PostJsonOptions,
+  type PostJsonResult,
+  type TransportErrorCategory,
+  type TransportLogEntry,
+} from "./transport.ts";
+export type { TextGenerationRequest, TextGenerationResult } from "./textClient.ts";
+export { anthropicGenerateText, normalizeAnthropicUsage } from "./anthropicClient.ts";
+export { normalizeOpenAIUsage, openaiGenerateText } from "./openaiClient.ts";
 export { addUsage, totalTokens, type NormalizedModelUsage } from "./usage.ts";
 export {
   newInvocationId,
