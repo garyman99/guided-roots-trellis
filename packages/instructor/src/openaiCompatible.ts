@@ -1,28 +1,34 @@
 /**
- * OpenAI-compatible chat-completions adapter.
+ * OpenAI-compatible chat-completions adapter for the Guide.
  *
  * Works with any endpoint speaking the /v1/chat/completions dialect
- * (OpenAI, Together, vLLM, Ollama's compat mode, …). Configured via env:
- *   OPENAI_BASE_URL  e.g. https://api.openai.com/v1
- *   OPENAI_API_KEY
- *   OPENAI_MODEL     e.g. gpt-4o-mini
+ * (OpenAI, Together, vLLM, Ollama compat, LM Studio, …) — including LOCAL
+ * endpoints, where the API key may be omitted (the config layer enforces
+ * keys for non-local base URLs). HTTP concerns live in the shared
+ * model-runtime transport (ADR-0006 D39).
  *
- * ⚠ UNVERIFIED IN BUILD SANDBOX (no network). The request/response shape
- * follows the public API contract; the mock provider exercises the rest of
- * the pipeline.
+ * ⚠ UNVERIFIED AGAINST A LIVE ENDPOINT in this environment (no network /
+ * no local model). The wire shape is stub-tested; the credential-gated
+ * integration test in test/providers.test.ts runs when a real endpoint is
+ * configured.
  *
  * SECURITY: the API key lives only in the API server's env. It is never
- * passed into lab environments (drivers construct lab env from an
- * allowlist) and never sent to the browser.
+ * passed into lab environments and never sent to the browser.
  */
+import { openaiGenerateText } from "../../model-runtime/src/openaiClient.ts";
+import { resolveRoleConfig, type RoleModelConfig } from "../../model-runtime/src/config.ts";
 import type { BuiltContext, HintRequest, HintResponse, InstructorProvider } from "./types.ts";
 import { STRATEGY_BY_LEVEL } from "./types.ts";
 
 export interface OpenAICompatibleOptions {
   baseUrl: string;
-  apiKey: string;
+  /** Optional for local endpoints (localhost/127.0.0.1). */
+  apiKey?: string;
   model: string;
   timeoutMs?: number;
+  maxTokens?: number;
+  /** Test seam. */
+  fetchImpl?: typeof fetch;
 }
 
 export class OpenAICompatibleProvider implements InstructorProvider {
@@ -33,61 +39,46 @@ export class OpenAICompatibleProvider implements InstructorProvider {
     this.opts = opts;
   }
 
+  static fromConfig(cfg: RoleModelConfig): OpenAICompatibleProvider {
+    if (cfg.provider !== "openai-compatible" || !cfg.model || !cfg.baseUrl) {
+      throw new Error(`OpenAICompatibleProvider needs a resolved openai-compatible config (got provider=${cfg.provider})`);
+    }
+    return new OpenAICompatibleProvider({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model });
+  }
+
+  /** @deprecated use providerFromEnv / fromConfig — kept for direct callers. */
   static fromEnv(env = process.env): OpenAICompatibleProvider {
-    const baseUrl = env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-    const apiKey = env.OPENAI_API_KEY ?? "";
-    const model = env.OPENAI_MODEL ?? "gpt-4o-mini";
-    if (!apiKey) throw new Error("OPENAI_API_KEY is required for INSTRUCTOR_PROVIDER=openai");
-    return new OpenAICompatibleProvider({ baseUrl, apiKey, model });
+    return OpenAICompatibleProvider.fromConfig(
+      resolveRoleConfig("guide", { ...env, GUIDE_PROVIDER: "openai-compatible" }),
+    );
   }
 
   async generateHint(req: HintRequest, context: BuiltContext): Promise<HintResponse> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs ?? 30_000);
-    try {
-      const res = await fetch(`${this.opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${this.opts.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.opts.model,
-          temperature: 0.3,
-          max_tokens: 300,
-          messages: [
-            { role: "system", content: context.system },
-            { role: "user", content: context.user },
-          ],
-        }),
-      });
-      if (!res.ok) {
-        throw new Error(`instructor provider HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-        model?: string;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const message = body.choices?.[0]?.message?.content?.trim();
-      if (!message) throw new Error("instructor provider returned an empty completion");
-      const level = Math.max(0, Math.min(req.hintLevel, 5));
-      return {
-        message,
-        level,
-        strategy: STRATEGY_BY_LEVEL[level],
-        promptVersion: context.promptVersion,
-        provider: this.name,
-        // Servers may echo a resolved model id (e.g. a dated snapshot); prefer it.
-        model: body.model ?? this.opts.model,
-        usage:
-          typeof body.usage?.prompt_tokens === "number" || typeof body.usage?.completion_tokens === "number"
-            ? { promptTokens: body.usage?.prompt_tokens ?? 0, completionTokens: body.usage?.completion_tokens ?? 0 }
-            : undefined,
-      };
-    } finally {
-      clearTimeout(timer);
-    }
+    const result = await openaiGenerateText({
+      baseUrl: this.opts.baseUrl,
+      apiKey: this.opts.apiKey,
+      model: this.opts.model,
+      system: context.system,
+      user: context.user,
+      temperature: 0.3,
+      maxTokens: this.opts.maxTokens ?? 300,
+      timeoutMs: this.opts.timeoutMs ?? 30_000,
+      fetchImpl: this.opts.fetchImpl,
+    });
+    const level = Math.max(0, Math.min(req.hintLevel, 5));
+    return {
+      message: result.text,
+      level,
+      strategy: STRATEGY_BY_LEVEL[level],
+      promptVersion: context.promptVersion,
+      provider: this.name,
+      // Servers may echo a resolved model id (e.g. a dated snapshot); prefer it.
+      model: result.model,
+      modelRequested: this.opts.model,
+      usage: {
+        promptTokens: result.usage.inputTokens ?? 0,
+        completionTokens: result.usage.outputTokens ?? 0,
+      },
+    };
   }
 }

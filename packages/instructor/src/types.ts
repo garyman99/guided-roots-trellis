@@ -34,6 +34,7 @@ export interface HintRequest {
   /** Why the instructor is speaking. */
   reason:
     | { kind: "question"; text: string; stuck: boolean }
+    | { kind: "goal"; text: string }
     | { kind: "intervention"; trigger: InterventionTrigger };
   /**
    * What the learner's client says is on screen right now (UNTRUSTED,
@@ -59,8 +60,23 @@ export interface HintResponse {
   provider: string;
   /** The model that produced this hint (LLM providers) or a stable stand-in id. */
   model?: string;
-  /** Token accounting, when the provider reports it; feeds the admin usage views. */
-  usage?: { promptTokens: number; completionTokens: number };
+  /**
+   * The model the adapter REQUESTED (its configured id). Servers may echo a
+   * resolved/dated id in `model`; cost estimation falls back to this when
+   * the served id has no pricing entry.
+   */
+  modelRequested?: string;
+  /**
+   * Token accounting, when the provider reports it; feeds the admin usage
+   * views and the normalized invocation records. Cache fields only when the
+   * provider actually reports them — never zero-filled.
+   */
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 }
 
 export interface InstructorProvider {
