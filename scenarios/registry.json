@@ -20,6 +20,11 @@
       "imported_at": "2026-07-12",
       "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-12\\20260712T113600-0600",
       "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
+    },
+    "20260712T233913-0600": {
+      "imported_at": "2026-07-13",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-12\\20260712T233913-0600",
+      "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
     }
   },
   "scenarios": {
@@ -205,6 +210,36 @@
       "execution_order": 2,
       "status": "VALIDATED",
       "status_reason": "Spec complete. Needs a seeded welcome-form lab with a prepared focused test carrying two marked learner data slots (input nickname + expected welcome text); learner authors 'Clover' consistently in both, recovers from a Clover/Fern mismatch by fixing only the stale expected value, reruns green. Deterministic evidence: input==expected==Clover, assertion not weakened, prepared structure/page/data-card integrity, focused pass. No AI surface. Shares the manual-authoring + plain-mismatch lab support with scenario 1.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "separate-shared-setup-from-one-test": {
+      "run_id": "20260712T233913-0600",
+      "file": "scenarios/imported/20260712T233913-0600/01-separate-shared-setup-from-one-test.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 1,
+      "execution_order": 1,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete (persona Nina Brooks, manual QA, low confidence, no AI). Read-only structural-comprehension exercise: learner opens one short prepared Playwright file (two named tests + one shared page-opening step), matches the seeded manual case card to one named test, and fills a two-part plain-language note (Shared preparation / This named test) WITHOUT editing or running. Gates: (1) opens file + identifies matching named test; (2) note classifies page-open as shared preparation for BOTH tests; (3) note assigns only the selected case's action + expected visible result to the test body; (4) project unchanged/unexecuted + no AI. Scripted first-mistake: page-open placed under the selected test, recovered after a compare-both-tests prompt. Needs a NEW no-run/no-edit lab surface: seeded readable test file view, a manual-case card, and a semantic two-part note evaluator that accepts equivalent wording (precondition/shared setup) and does NOT depend on line numbers or one syntax spelling. Distinct from turn-heading-check (locate+assert), run-one-existing-test (execution), read-one-failing (failure evidence). No AI surface; shares Code Studio + Guide.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "check-the-specific-error-message": {
+      "run_id": "20260712T233913-0600",
+      "file": "scenarios/imported/20260712T233913-0600/02-check-the-specific-error-message.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 2,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete (persona Marcus Lee, manual QA, low confidence, no AI). Assertion-precision exercise: Garden Site shows a nickname form that renders 'Please enter a garden nickname.' on empty submit; Code Studio holds a prepared focused negative-path test (navigation + empty submission + user-visible error target prepared) with ONE marked assertion slot for the learner. Learner authors a full-message assertion, saves, runs focused test. Hidden complication: a visibility-only assertion runs GREEN yet the scenario checkpoint must report 'checks too little' (under-specific green) so the learner recovers by asserting the exact visible message, then reruns until BOTH test and checkpoint pass. Constraints: change only the assertion slot; keep page/action/target unchanged; verify full message not mere visibility/non-emptiness/generic error; no AI. Needs a NEW capability: a checkpoint that semantically distinguishes a content-specific assertion from a visibility-only one (accepting equivalent Playwright spellings, not one exact string) and reports honest incomplete state after a green-but-under-specific run. Distinct from read-one-failing (read a red result) and keep-test-data-in-sync (align one data value). No AI surface.",
       "latest_completion": null,
       "latest_score": null,
       "highest_score": null,
