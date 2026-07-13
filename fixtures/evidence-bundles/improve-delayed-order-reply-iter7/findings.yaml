@@ -1,0 +1,53 @@
+# Findings from iter-7 (ACCEPTED at 92; second independent eval 91).
+# None block acceptance. Recorded for future refinement.
+
+- finding_id: "forbidden-phrase-keyword-not-intent"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: "The delivery-promise regex flagged a NEGATED, honest line — 'I don't want to promise a date I can't be certain of' — as an unapproved promise (rev1). It matches 'promise' regardless of surrounding negation."
+  expected_behavior: "Clearly-negated, non-committal phrasing ('I don't want to promise', 'I can't promise', 'no guarantees') is good service language and should not trip the guarantee gate."
+  evidence:
+    - "iter-7 session-export.json: SUBMITTED rev1 forbidden:['delivery-promise']; final reply reworded to 'I'm not able to give you a firm delivery date'"
+  affected_values: ["clarity"]
+  learner_impact: "A false positive on honest wording — now fully recoverable because the gate quotes the flagged phrase (c512249), and arguably teaches the safe default of avoiding the loaded word, but it can briefly feel unfair."
+  reproduction_conditions:
+    - "A reply that uses 'promise'/'guarantee' inside an explicit negation"
+  acceptance_evidence:
+    - "A negated honest statement passes the gate while a real over-promise still fails"
+  implementation_constraints:
+    - "DECLINED for now: a false NEGATIVE on a safety gate (letting a real over-promise through) is worse than a false positive. Any negation exemption must be provably safe — narrow, unit-tested, no new bypass. Deterministic regex only; no LLM in the gate path."
+  status: "OPEN (fix intentionally declined — risk asymmetry)"
+
+- finding_id: "artifact-hygiene-gate-still-latent"
+  severity: "low"
+  category: "reliability"
+  observed_behavior: "The eight semantic checks classify restricted spans, promises, facts, acknowledgement, and edit-similarity, but nothing detects a structurally corrupted artifact (duplicated greeting, repeated sentences, '[Your Name]' placeholder). iter-4 proved a garbled email can pass all checks; this run's artifact is clean only by the composer fix + learner care, not by a gate."
+  expected_behavior: "A hygiene check flags duplicated greetings / repeated blocks / placeholder text at or before the send gate with a learner-readable explanation."
+  evidence:
+    - "iter-4 evaluation.md (corrupted email passed all checks); iter-7 artifact clean but ungated for hygiene"
+  affected_values: ["clarity"]
+  learner_impact: "Defense-in-depth: if the composer ever regresses, a corrupted reply would again pass silently."
+  reproduction_conditions:
+    - "A submitted reply containing a duplicated greeting or placeholder token"
+  acceptance_evidence:
+    - "A corrupted-buffer fixture fails a hygiene gate with a readable reason"
+  implementation_constraints:
+    - "Author-configured patterns per lab; never inspect learner prose in events (classification results only)."
+  status: "OPEN"
+
+- finding_id: "promise-lesson-carried-by-gate-not-coaching"
+  severity: "low"
+  category: "instruction"
+  observed_behavior: "The scenario's instructional heart (don't over-promise) was carried this run by the DETERMINISTIC gate quote, not adaptive instructor content — no instructor.hint fired between the failed checkpoint (23:01:35) and the passing rev2 (23:02:49). Both evaluators noted the 92-blocker was designed out rather than beaten by better coaching, and the false-positive taught 'avoid the word' rather than intent."
+  expected_behavior: "When the promise gate trips, the instructor could additionally coach the INTENT ('say what tracking shows and what you'll do, not what will happen') so the learner internalizes the principle, not just the trigger word."
+  evidence:
+    - "iter-7 session-export.json hint sequence (orient L1, point-to-tool L2 only); reflection names the concepts but the transcript shows no promise-specific coaching turn"
+  affected_values: ["transferable-learning"]
+  learner_impact: "The learner recovers but may generalize 'avoid the word promise' rather than 'don't commit to uncontrollable outcomes'."
+  reproduction_conditions:
+    - "Any run where the promise gate trips and the learner self-recovers from the quote"
+  acceptance_evidence:
+    - "A run where the instructor coaches the promise INTENT and the learner articulates the principle (not just the word) in reflection"
+  implementation_constraints:
+    - "Mock-provider ceiling; consider a promise-gate-tripped intervention hint. No solution composition."
+  status: "OPEN"
