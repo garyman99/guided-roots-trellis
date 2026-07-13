@@ -7,9 +7,12 @@
  * only phrases the hint level it is handed. Trellis domain types never
  * expose Anthropic message shapes.
  *
- * ⚠ UNVERIFIED AGAINST THE LIVE API in this environment (no credentials).
- * The wire shape is stub-tested; the credential-gated integration test in
- * test/providers.test.ts runs when ANTHROPIC_API_KEY is present.
+ * VERIFIED against the live API (2026-07-13): credential-gated integration
+ * test green, plus a live end-to-end smoke — real server, real session,
+ * real hint (claude-haiku-4-5, 1.5s, usage + cost recorded; the dated
+ * snapshot id the server echoed exercised the requested-model pricing
+ * fallback). The integration test in test/providers.test.ts re-runs
+ * whenever ANTHROPIC_API_KEY + ANTHROPIC_TEST_MODEL are present.
  *
  * SECURITY: the API key lives only in the API server's env — never passed
  * into lab environments, never sent to the browser, never logged.
