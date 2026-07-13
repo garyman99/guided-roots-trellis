@@ -1,0 +1,118 @@
+/* Page-level layout for the landing + home surfaces. Brand primitives come
+   from ../brand/guided-roots.css; everything here is scoped inside .gr-scope. */
+
+/* ---------- nav ---------- */
+.gr-nav {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(10, 15, 11, 0.82);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.gr-nav-inner {
+  max-width: var(--container); margin: 0 auto; padding: 14px var(--gutter);
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+}
+.gr-wordmark { display: flex; align-items: center; gap: 12px; color: var(--ink); }
+.gr-wordmark img { width: 30px; height: 30px; display: block; }
+.gr-wordmark .name { font-family: var(--serif); font-size: 1.35rem; line-height: 1; }
+.gr-wordmark .by {
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase; color: var(--ink-faint); display: block; margin-top: 3px;
+}
+.gr-nav-actions { display: flex; align-items: center; gap: 14px; }
+
+/* ---------- hero ---------- */
+.gr-hero { padding: clamp(64px, 9vw, 120px) 0 0; position: relative; overflow: hidden; }
+.gr-hero-rings {
+  position: absolute; top: -120px; right: -140px; width: 560px; height: 560px;
+  opacity: 0.35; pointer-events: none; user-select: none;
+}
+.gr-hero-copy { max-width: 820px; display: grid; gap: 26px; position: relative; }
+.gr-hero-ctas { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 6px; }
+
+/* ---------- framed screenshot (floating chrome) ---------- */
+.shot-frame {
+  border: 1px solid var(--line-solid); border-radius: var(--radius);
+  background: var(--bg1); overflow: hidden;
+  box-shadow: 0 30px 70px -40px rgba(0, 0, 0, 0.8);
+}
+.shot-frame .bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line-solid);
+  background: var(--surface);
+}
+.shot-frame .bar i {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--ink-faint);
+  opacity: 0.5; display: block;
+}
+.shot-frame .bar .url {
+  font-family: var(--mono); font-size: 0.68rem; letter-spacing: var(--ls-data);
+  color: var(--ink-faint); margin-left: 10px;
+}
+.shot-frame img { display: block; width: 100%; height: auto; }
+.gr-hero .shot-frame { margin: clamp(40px, 6vw, 72px) auto 0; max-width: 1040px; }
+
+/* ---------- screenshot tour ---------- */
+.tour-row {
+  display: grid; grid-template-columns: 5fr 4fr; gap: clamp(28px, 4vw, 64px);
+  align-items: center; padding: clamp(36px, 5vw, 64px) 0;
+}
+.tour-row.flip { grid-template-columns: 4fr 5fr; }
+.tour-row.flip .tour-copy { order: -1; }
+.tour-copy { display: grid; gap: 16px; }
+.tour-copy h2 { font-size: clamp(1.7rem, 2.6vw, 2.3rem); }
+.tour-copy p { color: var(--ink-dim); max-width: 46ch; }
+@media (max-width: 880px) {
+  .tour-row, .tour-row.flip { grid-template-columns: 1fr; }
+  .tour-row.flip .tour-copy { order: 0; }
+}
+
+/* ---------- step cards ---------- */
+.step-num {
+  font-family: var(--mono); font-size: 0.78rem; color: var(--copper);
+  letter-spacing: var(--ls-label);
+}
+
+/* ---------- footer ---------- */
+.gr-footer { padding: 40px 0 48px; }
+.gr-footer-inner {
+  display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  justify-content: space-between; margin-top: 28px;
+}
+
+/* ---------- home: launch card ---------- */
+.launch-card {
+  display: grid; grid-template-columns: 1.1fr 1fr; gap: clamp(24px, 4vw, 56px);
+  align-items: center;
+  background: linear-gradient(170deg, var(--surface), rgba(13, 20, 16, 0.5));
+  border: 1px solid var(--green-deep); border-radius: var(--radius);
+  padding: clamp(28px, 4vw, 52px);
+  position: relative; overflow: hidden;
+}
+.launch-card .copy { display: grid; gap: 18px; justify-items: start; }
+.launch-card h2 { font-size: clamp(1.9rem, 3.4vw, 2.8rem); }
+.launch-card p { color: var(--ink-dim); max-width: 44ch; }
+.launch-rings {
+  position: absolute; bottom: -150px; left: -130px; width: 420px; height: 420px;
+  opacity: 0.25; pointer-events: none;
+}
+@media (max-width: 880px) { .launch-card { grid-template-columns: 1fr; } }
+
+/* ---------- home: scenario cards ---------- */
+.scenario-card { text-decoration: none; display: grid; gap: 12px; }
+.scenario-card:hover h3 { color: var(--green-bright); }
+.scenario-card h3 { transition: color var(--dur-fast) ease; }
+.scenario-card .go {
+  font-family: var(--mono); font-size: 0.74rem; letter-spacing: var(--ls-label);
+  text-transform: uppercase; color: var(--green); margin-top: 4px;
+}
+.scenario-card .go::after { content: " \2192"; }
+.scenario-card.featured { border-color: var(--green-deep); }
+.scenario-card.featured:hover { border-color: var(--green); }
+
+/* ---------- home header user chip ---------- */
+.user-chip { display: flex; align-items: center; gap: 10px; }
+.user-chip .who {
+  font-family: var(--mono); font-size: 0.74rem; letter-spacing: var(--ls-data);
+  color: var(--ink-faint);
+}
