@@ -11,7 +11,8 @@
     "welcome": [
       "This is a practice space: everything is local and disposable, and nothing you do here can break anything real.",
       "Here's the situation: there's ONE automated check already set up, and it's failing on purpose. You're not here to fix it — you're here to read it. A failing test is just evidence, the same 'expected vs actual' you already write by hand.",
-      "Two things worth knowing: there's no AI in this one — the reading is yours — and you don't have to fix or change anything. Run the test, read what it prints, and copy four facts into EVIDENCE.md. Ask me anything specific and I'll point you at where to look."
+      "One heads-up before you run it: the big red line at the top is only the headline — it just says THAT a test failed. The four facts you'll want (its name, a file-and-line, and an Expected value paired with a Received value) are printed lower down, so read past the red.",
+      "Two things worth knowing: there's no AI in this one — the reading is yours — and you don't have to fix or change anything. Run the test, read what it prints, and copy four facts into EVIDENCE.md. Ask me anything specific and I'll point you at where to look — if my chat is hidden behind Code Studio, click the Trellis Guide button in the taskbar to bring it back to the front."
     ],
     "faq": [
       {
@@ -32,7 +33,7 @@
       },
       {
         "match": "file.and.line|location|where.*fail|line number|:\\d|which file|colon.*number|points to",
-        "answer": "The Location is the file-and-line the result points to for the failed check — it looks like tests/status.spec.js:20 (a file, a colon, a line number). It's telling you WHERE the check is, so you could find it later. Copy it as-is; you don't need to open it."
+        "answer": "The Location is the file-and-line the result points to for the failed check — it looks like tests/status.spec.js:20 (a file, a colon, a line number). It's telling you WHERE the check is, so you could find it later. If you see two line numbers, use the one the code-frame arrow (>) points at — that's the line where the check actually failed. Copy it as-is; you don't need to open it."
       },
       {
         "match": "evidence|note|where.*write|EVIDENCE|four fact|fill in|record",

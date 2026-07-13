@@ -24,7 +24,8 @@ it and write down what it tells you. **You do not fix anything today.**
 3. Fill in `EVIDENCE.md` with what you read:
    - **Test** — the name the runner prints for the failed check.
    - **Location** — the file-and-line the result points to (looks like
-     `tests/status.spec.js:20`).
+     `tests/status.spec.js:20`). If two line numbers show up, use the one the
+     code-frame arrow (`>`) points at — that's the line where the check failed.
    - **Expected** — the text the test said should be there.
    - **Received** — the text the page actually showed.
 4. Use "Check my work" in the Trellis Guide when the note is filled in.
