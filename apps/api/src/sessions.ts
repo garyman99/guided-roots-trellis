@@ -421,6 +421,23 @@ export class Session {
     return screen;
   }
 
+  /** Token accounting for the admin usage views; must never break a hint. */
+  private recordHintUsage(hint: HintResponse): void {
+    if (!hint.usage) return;
+    try {
+      this.store.recordTokenUsage({
+        learnerId: this.learnerId,
+        sessionId: this.id,
+        model: hint.model ?? this.instructor.name,
+        promptTokens: hint.usage.promptTokens,
+        completionTokens: hint.usage.completionTokens,
+        createdAt: now(),
+      });
+    } catch (err) {
+      console.error(`[token-usage] failed to record for ${this.id}:`, err);
+    }
+  }
+
   /** Deterministic profile-facet selection for this lesson (may be empty). */
   assembledProfile(): AssembledProfile | null {
     try {
@@ -458,7 +475,8 @@ export class Session {
     );
     const assembled = this.assembledProfile();
     const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
-    this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, contextManifest: assembled?.manifest ?? null, timestamp: now() });
+    this.recordHintUsage(hint);
+    this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, text: hint.message.slice(0, 4000), contextManifest: assembled?.manifest ?? null, timestamp: now() });
     const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text: hint.message, level: hint.level, at: now() };
     this.transcript.push(msg);
     return msg;
@@ -497,7 +515,8 @@ export class Session {
     const req = this.hintRequest({ kind: "intervention", trigger: fresh }, state);
     const assembled = this.assembledProfile();
     const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
-    this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, contextManifest: assembled?.manifest ?? null, timestamp: now() });
+    this.recordHintUsage(hint);
+    this.emit({ type: "instructor.hint", level: hint.level, strategy: hint.strategy, text: hint.message.slice(0, 4000), contextManifest: assembled?.manifest ?? null, timestamp: now() });
     // Non-blocking: parked until the UI polls it; never interrupts typing.
     this.pendingIntervention = { ...fresh, hint };
   }
@@ -508,7 +527,7 @@ export class Session {
       this.transcript.push({ id: ++this.msgSeq, role: "instructor", text: p.hint.message, level: p.hint.level, at: now() });
       // The hint event fired at proposal time; record the delivery moment too
       // so transcript and event log tell one story.
-      this.emit({ type: "intervention.delivered", triggerType: p.type, level: p.hint.level, strategy: p.hint.strategy, timestamp: now() });
+      this.emit({ type: "intervention.delivered", triggerType: p.type, level: p.hint.level, strategy: p.hint.strategy, text: p.hint.message.slice(0, 4000), timestamp: now() });
     }
     this.pendingIntervention = null;
     return p;
@@ -809,6 +828,19 @@ export class SessionManager {
 
   async destroyAll(): Promise<void> {
     for (const id of [...this.sessions.keys()]) await this.destroy(id);
+  }
+
+  /**
+   * Shutdown path: tear down live resources (ptys, containers) but KEEP the
+   * stored session rows and event logs. Session history is learner truth the
+   * admin surface replays later; only an explicit learner DELETE (destroy) or
+   * erasure may remove it from the store.
+   */
+  async releaseAll(): Promise<void> {
+    for (const [id, s] of [...this.sessions.entries()]) {
+      await s.destroy();
+      this.sessions.delete(id);
+    }
   }
 
   /** Erasure support: tear down any live sessions belonging to a learner. */

@@ -88,7 +88,7 @@ test("tests.completed updates counters and clears changedSinceLastTestRun", () =
 test("session.reset clears workspace facts but keeps questions and hints", () => {
   const events = baseEvents();
   events.push({ type: "learner.question", text: "what is a diff?", stuck: false, timestamp: at(1) });
-  events.push({ type: "instructor.hint", level: 1, strategy: "point-to-tool", timestamp: at(2) });
+  events.push({ type: "instructor.hint", level: 1, strategy: "point-to-tool", text: "hint", contextManifest: null, timestamp: at(2) });
   events.push({ type: "file.changed", path: "src/pricing.ts", timestamp: at(3) });
   events.push({ type: "tests.completed", passed: 6, failed: 0, timestamp: at(4) });
   events.push({ type: "session.reset", timestamp: at(5) });
@@ -104,7 +104,7 @@ test("session.reset clears workspace facts but keeps questions and hints", () =>
 test("msSinceLastActivity is measured from learner activity, not instructor hints", () => {
   const events = baseEvents();
   events.push({ type: "terminal.command.started", command: "ls", timestamp: at(10) });
-  events.push({ type: "instructor.hint", level: 0, strategy: "diagnostic", timestamp: at(50) });
+  events.push({ type: "instructor.hint", level: 0, strategy: "diagnostic", text: "hint", contextManifest: null, timestamp: at(50) });
   const s = reduce(events, { nowMs: t0 + 70_000 });
   assert.equal(s.msSinceLastActivity, 60_000);
 });

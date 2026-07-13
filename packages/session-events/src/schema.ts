@@ -12,7 +12,8 @@ type RawEvent = { type: string; v?: number } & Record<string, unknown>;
 /** Current schema version per event type (absent = 1). */
 export const CURRENT_VERSIONS: Record<string, number> = {
   "session.started": 2, // v2 adds variantId (adaptive labs)
-  "instructor.hint": 2, // v2 adds contextManifest (context assembly audit)
+  "instructor.hint": 3, // v2 adds contextManifest (context assembly audit); v3 adds text (session replay)
+  "intervention.delivered": 2, // v2 adds text (session replay)
 };
 
 /** Upcast functions: UPCASTS[type][fromVersion] → event at fromVersion+1. */
@@ -22,6 +23,11 @@ const UPCASTS: Record<string, Record<number, (e: RawEvent) => RawEvent>> = {
   },
   "instructor.hint": {
     1: (e) => ({ ...e, contextManifest: null, v: 2 }),
+    // Pre-v3 events never stored the words; "" renders as "not recorded".
+    2: (e) => ({ ...e, text: "", v: 3 }),
+  },
+  "intervention.delivered": {
+    1: (e) => ({ ...e, text: "", v: 2 }),
   },
 };
 

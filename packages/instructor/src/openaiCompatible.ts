@@ -65,11 +65,27 @@ export class OpenAICompatibleProvider implements InstructorProvider {
       if (!res.ok) {
         throw new Error(`instructor provider HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       }
-      const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const body = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        model?: string;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
       const message = body.choices?.[0]?.message?.content?.trim();
       if (!message) throw new Error("instructor provider returned an empty completion");
       const level = Math.max(0, Math.min(req.hintLevel, 5));
-      return { message, level, strategy: STRATEGY_BY_LEVEL[level], promptVersion: context.promptVersion, provider: this.name };
+      return {
+        message,
+        level,
+        strategy: STRATEGY_BY_LEVEL[level],
+        promptVersion: context.promptVersion,
+        provider: this.name,
+        // Servers may echo a resolved model id (e.g. a dated snapshot); prefer it.
+        model: body.model ?? this.opts.model,
+        usage:
+          typeof body.usage?.prompt_tokens === "number" || typeof body.usage?.completion_tokens === "number"
+            ? { promptTokens: body.usage?.prompt_tokens ?? 0, completionTokens: body.usage?.completion_tokens ?? 0 }
+            : undefined,
+      };
     } finally {
       clearTimeout(timer);
     }

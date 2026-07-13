@@ -148,6 +148,50 @@ contestation → analytics gates → erasure.
   untrusted text can no longer spell the prompt's fence markers, and the
   mock instructor's hints are lab-agnostic (they hardcoded pricing paths).
 
+## Courses, marketplace, session replay (2026-07-13, feature/landing-auth-home)
+
+Owner feedback round: a way OUT of the virtual desktop, a marketplace-style
+scenario library, curated courses with progress, admin course CRUD, and an
+admin view of every learner session with a replayable recording.
+
+- **Desktop exit** · "Leave the desktop" in the Start menu + a quiet ⏻
+  taskbar button. Plain navigation (session and shell live on server-side,
+  so returning reattaches): signed-in learners land on /home, the ungated
+  tooling entry falls back to /.
+- **Session history now SURVIVES restarts** · shutdown calls the new
+  `SessionManager.releaseAll()` (tear down ptys/containers, keep store
+  rows) instead of `destroyAll()` (which deletes history and remains the
+  learner-DELETE/erasure path). Before this, every server stop silently
+  erased all session records.
+- **Instructor words are now facts** · `instructor.hint` v3 and
+  `intervention.delivered` v2 add `text` (upcasters backfill `""`), so a
+  replay shows the actual conversation. Model output stored as a record of
+  what was said — never an input to profile truth.
+- **Courses** · operator-curated ordered paths of scenarios. Store table +
+  CRUD (`POST/PUT/DELETE /api/admin/courses[/:id]`, labIds validated
+  against labs/), public shelf at `GET /api/courses`, and a seeded
+  **Playwright Foundations** course (first test → read the failure →
+  repair a broken test) that appears on first boot and is then ordinary
+  editable content. Learner progress is DERIVED at
+  `GET /api/learners/:id/progress` from completion digests — never stored
+  on the course.
+- **Home is a marketplace** · courses with measured progress bars,
+  per-lesson done/up-next states and a continue CTA; scenario library
+  filterable by role / technology / experience level (facets live in the
+  web catalog, `scenarios.ts`); completed scenarios wear a measured ✓.
+  `useReveal` now MutationObserves late content (fetched cards previously
+  never earned their reveal class).
+- **Admin: Courses + Sessions tabs** · full course editor (ordered lesson
+  picker from the catalog, per-lesson course-voice title/note, reorder,
+  delete-with-confirm) and a session history table (every session,
+  finished or not, live flag, activity counts) opening into a **replay
+  player**: the event log as a timeline — play/pause/scrub, 1×/4×/16×,
+  real gaps capped so silence never drags, chat bubbles for the
+  learner/guide conversation, milestones for checkpoints. The "recording"
+  is the deterministic event log played back, not pixels.
+- e2e: `apps/api/test/courses.e2e.test.ts` (seed, CRUD + validation +
+  gating, progress, history, replay carrying the guide's exact words).
+
 ## Unverified in this sandbox
 
 - Web UI additions: prediction-gated agent timeline, reflection card with

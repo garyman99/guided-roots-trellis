@@ -1,4 +1,5 @@
 /** Thin typed client for the Trellis API. */
+import { getUser } from "./auth.ts";
 
 export interface SessionCredentials {
   sessionId: string;
@@ -75,6 +76,30 @@ export type WorkspaceAction =
   | { type: "update-draft"; text: string }
   | { type: "submit-reply" };
 
+/** A curated course: an ordered path of scenarios (see /api/courses). */
+export interface CourseLesson {
+  labId: string;
+  title?: string;
+  note?: string;
+}
+
+export interface Course {
+  courseId: string;
+  title: string;
+  description: string;
+  audience: string;
+  level: string;
+  lessons: CourseLesson[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Derived completion facts for the signed-in learner (see /api/learners/:id/progress). */
+export interface LearnerProgress {
+  completedLabIds: string[];
+  sessions: Array<{ sessionId: string; labId: string; createdAt: string; completed: boolean }>;
+}
+
 /** Client self-report of what's on screen, sent alongside learner messages. */
 export interface ScreenReport {
   activeApp: string | null;
@@ -92,10 +117,38 @@ export interface LearnerCredentials {
 
 const LEARNER_KEY = "trellis.learner";
 
+/**
+ * Learner identity is per signed-in person: each auth sub gets its own
+ * storage slot, so Eva's learner profile never mixes with the developer's.
+ * The unscoped legacy key serves two paths: the ungated tooling entry
+ * ("/?lab=…", no auth user) keeps using it, and the original dev-bypass user
+ * ("dev|local") adopts it so pre-existing history survives the change.
+ */
+function learnerKey(): string {
+  const sub = getUser()?.sub;
+  return sub ? `${LEARNER_KEY}:${sub}` : LEARNER_KEY;
+}
+
+/**
+ * Read a user-scoped slot; "dev|local" adopts the pre-scoping legacy value
+ * ONCE (move, not alias — clearing the scoped slot must stay cleared).
+ */
+function scopedRead(scoped: string, legacy: string): string | null {
+  const existing = localStorage.getItem(scoped);
+  if (existing !== null || scoped === legacy) return existing;
+  if (getUser()?.sub !== "dev|local") return null;
+  const inherited = localStorage.getItem(legacy);
+  if (inherited !== null) {
+    localStorage.setItem(scoped, inherited);
+    localStorage.removeItem(legacy);
+  }
+  return inherited;
+}
+
 /** Persistent identity: created once, reused across sessions and months. */
 export function savedLearner(): LearnerCredentials | null {
   try {
-    const raw = localStorage.getItem(LEARNER_KEY);
+    const raw = scopedRead(learnerKey(), LEARNER_KEY);
     return raw ? (JSON.parse(raw) as LearnerCredentials) : null;
   } catch {
     return null;
@@ -103,13 +156,19 @@ export function savedLearner(): LearnerCredentials | null {
 }
 
 export function saveLearner(creds: LearnerCredentials | null): void {
-  if (creds) localStorage.setItem(LEARNER_KEY, JSON.stringify(creds));
-  else localStorage.removeItem(LEARNER_KEY);
+  if (creds) localStorage.setItem(learnerKey(), JSON.stringify(creds));
+  else localStorage.removeItem(learnerKey());
+}
+
+/** Saved sessions are user-scoped too — Eva must never resume the developer's session. */
+function sessionKey(): string {
+  const sub = getUser()?.sub;
+  return sub ? `${KEY}:${sub}` : KEY;
 }
 
 export function savedCredentials(): SessionCredentials | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = scopedRead(sessionKey(), KEY);
     return raw ? (JSON.parse(raw) as SessionCredentials) : null;
   } catch {
     return null;
@@ -117,8 +176,8 @@ export function savedCredentials(): SessionCredentials | null {
 }
 
 export function saveCredentials(creds: SessionCredentials | null): void {
-  if (creds) localStorage.setItem(KEY, JSON.stringify(creds));
-  else localStorage.removeItem(KEY);
+  if (creds) localStorage.setItem(sessionKey(), JSON.stringify(creds));
+  else localStorage.removeItem(sessionKey());
 }
 
 async function req(method: string, path: string, creds: SessionCredentials | null, body?: unknown) {
@@ -204,10 +263,20 @@ export const learnerApi = {
     return creds;
   },
   profile: (l: LearnerCredentials) => learnerReq("GET", `/api/learners/${l.learnerId}/profile`, l),
+  progress: (l: LearnerCredentials) =>
+    learnerReq("GET", `/api/learners/${l.learnerId}/progress`, l) as Promise<LearnerProgress>,
   reflections: (l: LearnerCredentials) => learnerReq("GET", `/api/learners/${l.learnerId}/reflections`, l),
   assert: (l: LearnerCredentials, body: unknown) => learnerReq("POST", `/api/learners/${l.learnerId}/assertions`, l, body),
   erase: (l: LearnerCredentials) => learnerReq("DELETE", `/api/learners/${l.learnerId}`, l),
 };
+
+/** Public course shelf — no credentials needed to browse. */
+export async function fetchCourses(): Promise<Course[]> {
+  const res = await fetch("/api/courses");
+  if (!res.ok) throw new Error(`GET /api/courses → ${res.status}`);
+  const body = (await res.json()) as { courses: Course[] };
+  return body.courses;
+}
 
 export function terminalUrl(c: SessionCredentials): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";

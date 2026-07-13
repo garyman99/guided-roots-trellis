@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./desktop.css";
 import { api, type ScreenReport, type SessionCredentials, type StatePayload, type WorkspaceView } from "../api.ts";
+import { isAuthenticated } from "../auth.ts";
 import { CodeStudio } from "./CodeStudio.tsx";
 import { ChatGuide } from "./ChatGuide.tsx";
 import { EmailApp } from "./EmailApp.tsx";
@@ -245,6 +246,12 @@ export function Desktop({
   const fmtClock = clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const fmtDate = clock.toLocaleDateString([], { month: "short", day: "numeric" });
 
+  // Leaving is plain navigation: the session (and its shell) lives on
+  // server-side, so coming back reattaches right where they left off.
+  // Signed-in learners return to the launcher; the ungated tooling entry
+  // ("/?lab=…", no auth user) falls back to the landing page.
+  const leaveDesktop = () => window.location.assign(isAuthenticated() ? "/home" : "/");
+
   return (
     <div className="desktop" data-os={os} onClick={() => setStartOpen(false)}>
       <ul className="desktop-icons">
@@ -312,6 +319,9 @@ export function Desktop({
               <span aria-hidden="true">{a.icon}</span> {a.title}
             </button>
           ))}
+          <button className="start-item start-leave" onClick={leaveDesktop}>
+            <span aria-hidden="true">⏻</span> Leave the desktop
+          </button>
           <div className="start-foot">Signed in as learner · everything here is your private lab</div>
         </div>
       )}
@@ -335,6 +345,14 @@ export function Desktop({
           );
         })}
         <div className="task-spacer" />
+        <button
+          className="task-btn task-leave"
+          onClick={leaveDesktop}
+          title="Leave the desktop — your session keeps running, so you can come back"
+        >
+          <span aria-hidden="true">⏻</span>
+          <span className="task-label">Leave</span>
+        </button>
         <span className="task-brand">⌗ Trellis</span>
         <div className="task-clock" aria-label="Clock">
           <div>{fmtClock}</div>

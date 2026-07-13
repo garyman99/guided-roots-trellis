@@ -29,6 +29,8 @@ test("v1 events upcast to current shapes; fresh events are stamped", () => {
   const oldHint = { type: "instructor.hint", level: 1, strategy: "orient", timestamp: at(1) };
   const upHint = upcastEvent(oldHint) as Extract<SessionEvent, { type: "instructor.hint" }>;
   assert.equal(upHint.contextManifest, null);
+  assert.equal(upHint.v, 3);
+  assert.equal(upHint.text, "", "pre-v3 hints upcast with empty text");
 
   const stamped = stampVersion({ type: "session.started", lessonId: "x", learnerId: "y", variantId: "t1", timestamp: at(0) });
   assert.equal(stamped.v, 2);
@@ -68,7 +70,7 @@ function goodSession(sessionId: string, opts: { diffFirst?: boolean; hints?: num
   ev.push({ type: "tests.completed", passed: 5, failed: 1, timestamp: at(4) });
   for (let i = 0; i < (opts.hints ?? 0); i++) {
     ev.push({ type: "learner.question", text: "help", stuck: false, timestamp: at(5 + i) });
-    ev.push({ type: "instructor.hint", level: i, strategy: i === 0 ? "elicit" : "orient", contextManifest: null, timestamp: at(5 + i) });
+    ev.push({ type: "instructor.hint", level: i, strategy: i === 0 ? "elicit" : "orient", text: "hint", contextManifest: null, timestamp: at(5 + i) });
   }
   ev.push({ type: "file.changed", path: "src/pricing.ts", timestamp: at(9) });
   if (!diffFirst) ev.push({ type: "git.diff.viewed", command: "git diff", timestamp: at(10) });

@@ -200,7 +200,12 @@
   text-align: left;
 }
 .start-item:hover { background: rgba(255, 255, 255, 0.08); }
+.start-leave { border-top: 1px solid var(--chrome-edge); border-radius: 0 0 8px 8px; margin-top: 6px; padding-top: 12px; }
 .start-foot { font-size: 11px; color: #5f6f64; padding: 10px 8px 4px; border-top: 1px solid var(--chrome-edge); margin-top: 8px; }
+
+/* Taskbar exit: quiet until you reach for it — the door out of the desktop. */
+.task-leave { opacity: 0.72; }
+.task-leave:hover { opacity: 1; }
 
 /* ── Code Studio ───────────────────────────────────────────────────────── */
 .codestudio { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #12161c; }

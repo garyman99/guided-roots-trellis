@@ -1,0 +1,240 @@
+/* ============================================================
+   GUIDED ROOTS — design system (pulled from the "Guided Roots
+   Design System" Claude Design project; tokens/base/utilities
+   ported verbatim, then SCOPED under .gr-scope so the desktop
+   experience's own styles.css / desktop.css are untouched.
+   Collisions avoided: the app already defines --ink, --mono,
+   --sans, --bg on :root, and styles body/h2/h3/button globally.
+   Everything brand lives inside <div class="gr-scope">.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+.gr-scope {
+  /* ---- surfaces: dark forest at dusk ---- */
+  --bg0: #0a0f0b;
+  --bg1: #0d1410;
+  --surface: #121b14;
+  --line: #25342755;
+  --line-solid: #243126;
+
+  /* ---- ink ---- */
+  --ink: #ede8da;
+  --ink-dim: #a9b6a0;
+  --ink-faint: #75826e;
+
+  /* ---- green · where it's going ---- */
+  --green: #9cc87a;
+  --green-bright: #b8e095;
+  --green-deep: #4f7a3d;
+
+  /* ---- copper · what's grown ---- */
+  --copper: #c98a52;
+  --copper-bright: #e0a468;
+  --copper-dim: #8a6240;
+
+  /* ---- washes / focus ---- */
+  --green-wash: rgba(156, 200, 122, 0.08);
+  --copper-wash: rgba(201, 138, 82, 0.08);
+  --select: rgba(156, 200, 122, 0.25);
+  --border-hover: #34503a;
+  --on-accent: #0b1408;
+  --danger: #b05a3c;
+
+  /* ---- type ---- */
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-h1: clamp(2.9rem, 6.4vw, 5.4rem);
+  --fs-h2: clamp(2.1rem, 4.2vw, 3.4rem);
+  --fs-h3: 1.06rem;
+  --fs-lede: clamp(1.05rem, 1.5vw, 1.25rem);
+  --fs-body: 17px;
+  --fs-small: 0.95rem;
+  --fs-eyebrow: 0.74rem;
+  --fs-label: 0.72rem;
+  --fs-mono-data: 0.78rem;
+  --lh-display: 1.04;
+  --lh-body: 1.65;
+  --ls-display: 0.005em;
+  --ls-eyebrow: 0.22em;
+  --ls-label: 0.14em;
+  --ls-data: 0.04em;
+
+  /* ---- layout / radius / spacing / motion ---- */
+  --container: 1180px;
+  --gutter: max(24px, 4vw);
+  --section-y: clamp(88px, 11vw, 150px);
+  --section-y-tight: clamp(60px, 7vw, 96px);
+  --radius: 12px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --ease-grow: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur-fast: 0.25s;
+  --dur-reveal: 0.8s;
+  --reveal-rise: 26px;
+
+  /* ---- page base (the DS body rules, applied to the scope) ---- */
+  background: var(--bg0);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+.gr-scope ::selection { background: var(--select); }
+
+/* ---- display headings (serif); reset the app's global h2/h3 chrome ---- */
+.gr-scope h1,
+.gr-scope h2 {
+  font-family: var(--serif);
+  font-weight: 400;
+  line-height: var(--lh-display);
+  letter-spacing: var(--ls-display);
+  text-transform: none;
+  text-wrap: balance;
+  color: var(--ink);
+  margin: 0;
+}
+.gr-scope h1 { font-size: var(--fs-h1); }
+.gr-scope h2 { font-size: var(--fs-h2); }
+
+/* one italic emphasis per headline: green = direction, copper = legacy */
+.gr-scope h1 em, .gr-scope h2 em { font-style: italic; color: var(--green); }
+.gr-scope h1 em.copper, .gr-scope h2 em.copper { color: var(--copper-bright); }
+
+.gr-scope h3 {
+  font-family: var(--sans);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink);
+  margin: 0;
+}
+
+.gr-scope p { text-wrap: pretty; margin: 0; }
+.gr-scope a { color: var(--green); text-decoration: none; }
+.gr-scope a:hover { color: var(--green-bright); }
+.gr-scope code, .gr-scope pre { font-family: var(--mono); }
+
+/* ---------- layout ---------- */
+.gr-container { max-width: var(--container); margin: 0 auto; padding: 0 var(--gutter); }
+.gr-section { padding: var(--section-y) 0; position: relative; }
+.gr-section.tight { padding: var(--section-y-tight) 0; }
+.gr-hairline {
+  border: none; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line-solid) 18%, var(--line-solid) 82%, transparent);
+}
+.gr-grid { display: grid; gap: 20px; }
+.gr-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.gr-grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 920px) { .gr-grid-3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .gr-grid-2, .gr-grid-3 { grid-template-columns: 1fr; } }
+
+/* ---------- type helpers ---------- */
+.gr-eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-eyebrow);
+  font-weight: 500;
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--copper);
+  display: flex; align-items: center; gap: 14px;
+}
+.gr-eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--copper-dim); flex: none; }
+.gr-lede { font-size: var(--fs-lede); color: var(--ink-dim); max-width: 58ch; }
+.gr-mono-note { font-family: var(--mono); font-size: var(--fs-mono-data); color: var(--ink-faint); letter-spacing: var(--ls-data); }
+
+/* ---------- buttons (a or button; resets the app's global button) ----------
+   Scoped as .gr-scope .gr-btn so these rules out-specify the .gr-scope a
+   color above when a button is an anchor. */
+.gr-scope .gr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  font-family: var(--sans); font-size: 0.92rem; font-weight: 600;
+  letter-spacing: 0.02em; padding: 14px 26px;
+  border-radius: var(--radius-pill); border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap; background: transparent; color: var(--ink);
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.gr-scope .gr-btn:active { transform: translateY(1px); }
+.gr-scope .gr-btn-primary { background: var(--green); color: var(--on-accent); }
+.gr-scope .gr-btn-primary:hover { background: var(--green-bright); color: var(--on-accent); }
+.gr-scope .gr-btn-ghost { border-color: var(--line-solid); color: var(--ink); }
+.gr-scope .gr-btn-ghost:hover { border-color: var(--green-deep); color: var(--green-bright); }
+.gr-scope .gr-btn-small { padding: 10px 20px; font-size: 0.84rem; }
+.gr-scope .gr-btn-big { padding: 18px 38px; font-size: 1.02rem; }
+
+.gr-scope .gr-text-link {
+  font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--green); display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; padding: 0;
+}
+.gr-scope .gr-text-link::after { content: "\2192"; transition: transform var(--dur-fast) ease; }
+.gr-scope .gr-text-link:hover::after { transform: translateX(4px); }
+
+/* ---------- cards ---------- */
+.gr-card {
+  background: linear-gradient(170deg, var(--surface), rgba(13, 20, 16, 0.5));
+  border: 1px solid var(--line-solid); border-radius: var(--radius);
+  padding: 30px 28px; display: grid; gap: 12px; align-content: start;
+  position: relative; overflow: hidden;
+  transition: border-color 0.3s ease;
+}
+.gr-card:hover { border-color: var(--border-hover); }
+.gr-card p { color: var(--ink-dim); font-size: var(--fs-small); }
+
+/* ring-bulleted list */
+.gr-ringlist { list-style: none; display: grid; gap: 11px; margin: 0; padding: 0; }
+.gr-ringlist li { position: relative; padding-left: 26px; color: var(--ink-dim); font-size: var(--fs-small); }
+.gr-ringlist li::before {
+  content: ""; position: absolute; left: 2px; top: 0.52em;
+  width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--green-deep);
+}
+.gr-ringlist.copper li::before { border-color: var(--copper-dim); }
+
+/* ---------- ground line divider (legacy -> modern boundary) ---------- */
+.gr-ground {
+  height: 1px; border: none;
+  background: linear-gradient(90deg, transparent, var(--copper-dim) 14%, var(--green-deep) 86%, transparent);
+}
+
+/* ---------- status dots ---------- */
+.gr-status-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; display: inline-block; position: relative; }
+.gr-status-dot.legacy { background: var(--copper); }
+.gr-status-dot.modern { background: var(--green); }
+.gr-status-dot.idle { background: var(--ink-faint); }
+.gr-status-dot.pulse::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  border: 1.5px solid currentColor; opacity: 0; animation: gr-dot-pulse 2.4s ease-out infinite;
+}
+.gr-status-dot.modern.pulse { color: var(--green); }
+@keyframes gr-dot-pulse { 0% { transform: scale(0.7); opacity: 0.7; } 70%, 100% { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .gr-status-dot.pulse::after { animation: none; } }
+
+/* ---------- forms ---------- */
+.gr-field { display: grid; gap: 8px; }
+.gr-field label {
+  font-family: var(--mono); font-size: var(--fs-label); letter-spacing: var(--ls-label);
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.gr-field input {
+  background: rgba(10, 15, 11, 0.6); border: 1px solid var(--line-solid); border-radius: var(--radius-sm);
+  padding: 13px 16px; color: var(--ink); font-family: var(--sans); font-size: var(--fs-small);
+  width: 100%; transition: border-color 0.2s ease;
+}
+.gr-field input:focus { outline: none; border-color: var(--green-deep); }
+
+/* ---------- reveal (scroll: grow / settle) ---------- */
+.gr-reveal { opacity: 0; transform: translateY(var(--reveal-rise)); }
+.gr-reveal.in { opacity: 1; transform: none; transition: opacity var(--dur-reveal) var(--ease-grow), transform var(--dur-reveal) var(--ease-grow); }
+.gr-reveal[data-delay="1"].in { transition-delay: 0.1s; }
+.gr-reveal[data-delay="2"].in { transition-delay: 0.2s; }
+.gr-reveal[data-delay="3"].in { transition-delay: 0.3s; }
+@media (prefers-reduced-motion: reduce) { .gr-reveal { opacity: 1; transform: none; } }
+
+/* ---------- section head ---------- */
+.gr-section-head { max-width: 760px; margin-bottom: clamp(40px, 5vw, 72px); display: grid; gap: 20px; }
+.gr-section-head.centered { margin-left: auto; margin-right: auto; text-align: center; }

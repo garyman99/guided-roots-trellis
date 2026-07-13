@@ -57,6 +57,10 @@ export interface HintResponse {
   strategy: string;
   promptVersion: string;
   provider: string;
+  /** The model that produced this hint (LLM providers) or a stable stand-in id. */
+  model?: string;
+  /** Token accounting, when the provider reports it; feeds the admin usage views. */
+  usage?: { promptTokens: number; completionTokens: number };
 }
 
 export interface InstructorProvider {

@@ -39,12 +39,16 @@ export type SessionEvent =
   // The learner's own statement of what they're here to accomplish —
   // captured once at the start of a session (goal-first onboarding).
   | ({ type: "learner.goal.stated"; text: string } & Base)
-  | ({ type: "instructor.hint"; level: number; strategy: string; contextManifest: ContextManifest | null } & Base)
+  // `text` is the words the learner actually saw (v3) — model output stored
+  // as a FACT about what was said, so a session replay can show the real
+  // conversation. Never an input to profile truth. Empty on pre-v3 events.
+  | ({ type: "instructor.hint"; level: number; strategy: string; text: string; contextManifest: ContextManifest | null } & Base)
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
   // A proposed intervention's hint is parked until the UI polls it; this
   // marks the moment it actually reached the transcript, so event log and
   // transcript stay 1:1 correlatable (finding session-digest-contradicts-event-log).
-  | ({ type: "intervention.delivered"; triggerType: string; level: number; strategy: string } & Base)
+  // `text` (v2): the delivered words, same rationale as instructor.hint.
+  | ({ type: "intervention.delivered"; triggerType: string; level: number; strategy: string; text: string } & Base)
   // The agent lane: the simulated (later: real) coding agent's own actions,
   // scripted per lab so learners can inspect and replay what "it" did.
   | ({ type: "agent.action"; action: string; detail: string } & Base)
