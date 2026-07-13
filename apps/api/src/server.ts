@@ -64,9 +64,26 @@ import { recommendNext } from "../../../packages/learner-model/src/recommend.ts"
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
 import type { SessionDigest } from "../../../packages/learner-model/src/evidence.ts";
 import { PROMPT_VERSION } from "../../../packages/instructor/src/index.ts";
+import { resolveRoleConfig, ModelConfigError } from "../../../packages/model-runtime/src/config.ts";
 import { defaultInterventionConfig } from "../../../packages/session-events/src/interventions.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+// Fail fast on bad provider config (plan Phase 3): a misconfigured Guide must
+// die HERE, before the SessionManager constructs its provider, with the exact
+// variable to fix — not a raw stack or a 500 on the first hint.
+const guideBootConfig = (() => {
+  try {
+    return resolveRoleConfig("guide");
+  } catch (err) {
+    if (err instanceof ModelConfigError) {
+      console.error(`[trellis-api] FATAL provider configuration error: ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+})();
+
 const store = createStore();
 export const manager = new SessionManager(store, join(repoRoot, "labs"));
 
@@ -376,18 +393,20 @@ export const server = createServer(async (req, res) => {
             active: file === `instructor.${PROMPT_VERSION}.md`,
             content: readFileSync(join(promptsDir, file), "utf8"),
           }));
-        const providerKind = (process.env.INSTRUCTOR_PROVIDER ?? "mock").toLowerCase();
-        const llm = providerKind === "openai" || providerKind === "openai-compatible";
+        // Role-scoped resolution (GUIDE_* with legacy INSTRUCTOR_PROVIDER
+        // fallback). Boot already validated it; this is display-only.
+        const guideCfg = resolveRoleConfig("guide");
+        const llm = guideCfg.provider === "anthropic" || guideCfg.provider === "openai-compatible";
         return json(res, 200, {
           agents: [
             {
               id: "instructor",
               name: "Instructor (the Guide)",
               role: "Turns measured session state into elicit-first coaching. The only component that calls a model; hint level and timing are decided by deterministic policy, never by the model.",
-              kind: llm ? "llm" : "mock",
-              provider: llm ? "openai-compatible" : "mock",
-              model: llm ? (process.env.OPENAI_MODEL ?? "gpt-4o-mini") : "mock-instructor",
-              baseUrl: llm ? (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1") : null,
+              kind: llm ? "llm" : guideCfg.provider,
+              provider: guideCfg.provider,
+              model: guideCfg.model ?? "mock-instructor",
+              baseUrl: guideCfg.baseUrl ?? null,
               promptVersion: PROMPT_VERSION,
               prompts,
             },
@@ -801,6 +820,11 @@ server.on("upgrade", (req, socket) => {
 });
 
 if (process.env.NODE_ENV !== "test") {
+  console.log(
+    `[trellis-api] guide provider: ${guideBootConfig.provider}` +
+      (guideBootConfig.model ? ` model=${guideBootConfig.model}` : "") +
+      (guideBootConfig.baseUrl ? ` baseUrl=${guideBootConfig.baseUrl}` : ""),
+  );
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`[trellis-api] listening on http://127.0.0.1:${PORT} (driver=${manager.driverKind})`);
   });

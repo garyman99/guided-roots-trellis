@@ -460,6 +460,8 @@ export class Session {
       const usage = {
         inputTokens: hint.usage.promptTokens,
         outputTokens: hint.usage.completionTokens,
+        ...(hint.usage.cacheReadTokens !== undefined ? { cacheReadTokens: hint.usage.cacheReadTokens } : {}),
+        ...(hint.usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: hint.usage.cacheWriteTokens } : {}),
       };
       modelArtifacts.appendInvocation({
         invocationId: newInvocationId(),
@@ -472,7 +474,13 @@ export class Session {
         // transport — completedAt is omitted rather than fabricated.
         startedAt: now(),
         usage,
-        estimatedCostUSD: pricingTable ? estimateCostUSD(usage, model, pricingTable) : undefined,
+        // The served model id is truth for `model`, but servers may echo a
+        // dated snapshot with no pricing entry — fall back to the id the
+        // adapter requested (which is what the operator priced).
+        estimatedCostUSD: pricingTable
+          ? (estimateCostUSD(usage, model, pricingTable) ??
+            (hint.modelRequested ? estimateCostUSD(usage, hint.modelRequested, pricingTable) : undefined))
+          : undefined,
         pricingVersion: pricingTable?.version,
         status: "ok",
       });
