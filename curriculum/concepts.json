@@ -47,7 +47,8 @@
       "defaultHalfLifeDays": 60,
       "observation": [
         "checkpoint-first-playwright-review",
-        "checkpoint-first-authored-check"
+        "checkpoint-first-authored-check",
+        "checkpoint-read-failure-evidence"
       ],
       "masteryRule": {
         "minCount": 2,

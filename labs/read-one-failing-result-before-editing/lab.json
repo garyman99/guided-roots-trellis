@@ -1,0 +1,89 @@
+{
+  "id": "read-one-failing-result-before-editing",
+  "version": 1,
+  "concepts": ["playwright.locators-and-assertions"],
+  "title": "Read one failing test before you touch anything",
+  "objective": "Run one prepared, intentionally-failing Playwright check and record four facts from its result — the failed test's name, the file-and-line the result points to, the text the test EXPECTED, and the text the page RECEIVED — without editing the test or the page.",
+  "scenario": "You're a manual QA engineer. You already write \"expected\" and \"actual\" in your defect reports by hand. Today an automated test hands you those same two values — you just have to know where to look. One check is set up and failing on purpose. Your whole job is to read it and write down what it says. You do not fix anything, and there is no AI in this exercise.",
+  "chat": {
+    "botName": "Sage",
+    "goalPrompt": "Hey! Sage here 🌿 — before we open anything: in your own words, what are you here to do today?",
+    "welcome": [
+      "This is a practice space: everything is local and disposable, and nothing you do here can break anything real.",
+      "Here's the situation: there's ONE automated check already set up, and it's failing on purpose. You're not here to fix it — you're here to read it. A failing test is just evidence, the same 'expected vs actual' you already write by hand.",
+      "Two things worth knowing: there's no AI in this one — the reading is yours — and you don't have to fix or change anything. Run the test, read what it prints, and copy four facts into EVIDENCE.md. Ask me anything specific and I'll point you at where to look."
+    ],
+    "faq": [
+      {
+        "match": "run|npm test|terminal|how do i start|start the test|execute",
+        "answer": "Click once in the dark terminal area so it has the keyboard, type npm test, and press Enter. Let it finish — it opens a real (invisible) browser, so it takes a couple of seconds. Then read what it printed, top to bottom."
+      },
+      {
+        "match": "red|summary|only says failed|just says.*fail|where.*detail|nothing else|1 failed",
+        "answer": "The red line at the very top only says THAT one test failed — that's the headline, not the story. Keep reading down: below it the runner prints the test's name, a file-and-line, and an 'Expected' value paired with a 'Received' value. Those four are what go in your note."
+      },
+      {
+        "match": "name of the test|which.*test|test name|title|which line.*name",
+        "answer": "The test's name is the short title the runner prints for the check that failed — here it's the line that reads \"garden status banner\". That's the 'Test' field. (The filename is a different fact — that's part of 'Location'.)"
+      },
+      {
+        "match": "expected mean|expected.*test or.*page|received mean|which is which|test or the page|difference between expected",
+        "answer": "Expected = what the TEST asked for ('this is what I should see'). Received = what the PAGE actually showed ('this is what was really there'). Same two columns as your manual reports: expected result vs actual result. Keep them the right way round in the note."
+      },
+      {
+        "match": "file.and.line|location|where.*fail|line number|:\\d|which file|colon.*number|points to",
+        "answer": "The Location is the file-and-line the result points to for the failed check — it looks like tests/status.spec.js:20 (a file, a colon, a line number). It's telling you WHERE the check is, so you could find it later. Copy it as-is; you don't need to open it."
+      },
+      {
+        "match": "evidence|note|where.*write|EVIDENCE|four fact|fill in|record",
+        "answer": "Your note is EVIDENCE.md — open it in Code Studio's file list. It has four blank lines: Test, Location, Expected, Received. Replace each '...' with the fact from the run. That file is yours to edit; the test and the page are not."
+      },
+      {
+        "match": "fix|edit the test|change the test|make it pass|should i (edit|fix|change)|correct the test",
+        "answer": "Not today — leave the test and the page exactly as they are. The point of this one is reading the failure, not fixing it. If the note is right, \"Check my work\" will pass even though the test is still red."
+      },
+      {
+        "match": "reset|start over|undo|back to (the )?start|messed up|restore",
+        "answer": "The Reset button is right next to \"Check my work\" at the bottom of this chat. It puts every file back exactly how it started — the failing test, the page, and a blank note — and I'll stay right here."
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "orient",
+      "text": "Get your bearings. Open Code Studio from the desktop (double-click its icon) and read README.md — it says what this workspace holds and what your four facts are. Want to see the page like a visitor? Open Garden Site too; a covered window's taskbar button at the bottom brings it back to the front. Don't change anything yet.",
+      "auto": "any-command"
+    },
+    {
+      "id": "run",
+      "text": "Run `npm test` in the terminal and let it finish. It will fail — that's expected. Read the result all the way down: the red line at the top only says THAT it failed; the four useful facts (the test's name, a file-and-line, an Expected value, and a Received value) are printed below it.",
+      "auto": "tests-run"
+    },
+    {
+      "id": "record",
+      "text": "Open EVIDENCE.md in Code Studio and fill in the four facts from what you just read: the failed test's name, the file-and-line the result points to, the text the test Expected, and the text the page Received. Copy what the result shows — don't guess, and keep Expected and Received the right way round. Save with Ctrl+S. Do not edit the test or the page.",
+      "auto": "file-edited"
+    },
+    {
+      "id": "verify",
+      "text": "When all four facts are in EVIDENCE.md and you can say which is the test's claim (Expected) and which is what the page really did (Received), use \"Check my work\" — I'll confirm the note matches the run. It's fine that the test is still red; reading it correctly is the whole goal.",
+      "auto": "file-edited"
+    }
+  ],
+  "checkpoint": {
+    "id": "read-failure-evidence",
+    "title": "One failing test, read as evidence — four facts, recorded by you",
+    "requirements": [
+      { "id": "ran-tests", "kind": "session", "label": "You ran the prepared test" },
+      { "id": "note-test", "kind": "verify", "label": "The note names the test that failed" },
+      { "id": "note-location", "kind": "verify", "label": "The note records the file-and-line the result points to" },
+      { "id": "note-expected", "kind": "verify", "label": "The note records what the test EXPECTED" },
+      { "id": "note-received", "kind": "verify", "label": "The note records what the page RECEIVED" },
+      { "id": "test-untouched", "kind": "verify", "label": "The prepared test was left unchanged" },
+      { "id": "page-untouched", "kind": "verify", "label": "The page was left unchanged" },
+      { "id": "repo-valid", "kind": "repo", "label": "Workspace is in a valid state" }
+    ]
+  },
+  "instructorNotes": "VOICE: informal, calm, brief, plain words — a colleague at the next desk. Audience: a manual QA engineer (Tessa) with low technical confidence and NO AI familiarity, reading her first automated failure. THE ONE LESSON: a failing test is EVIDENCE, not a verdict — it hands you the same two values you already write by hand, Expected (what the TEST claimed) and Received (what the PAGE actually did). Two smaller habits ride along: read PAST the red summary (the headline says only THAT it failed; the four facts are below it), and don't fix anything (reading is the whole job today). Common beginner path, expected and NOT a failure: she sees the red summary and reports only 'it failed', leaving Expected blank or writing 'failed' as the result. Redirect neutrally — 'that red line is the headline; scroll down to the paired Expected and Received labels and read them out'. Another expected slip: swapping Expected and Received. If the note reverses them, ask which value came from the test and which from the page. NEVER fill the note for her and NEVER edit the test or page — instructor-takeover and edit-before-completion are scenario critical failures; the deterministic verifier checks the note and the file integrity, so trust it and never claim completion yourself. Vocabulary to introduce gently, only after the plain-language version: 'Expected/Received' (the test's claim vs the page's actual result), 'location' ('the file-and-line the result points to, so you could find the check later' — do NOT teach stack-trace internals). There is deliberately no AI surface here; if asked, say this one is read by hand on purpose — knowing how to read a failure is what makes any test result, AI-written or not, usable.",
+  "agentTimeline": []
+}
