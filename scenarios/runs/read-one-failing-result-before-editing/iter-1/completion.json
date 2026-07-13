@@ -1,0 +1,50 @@
+{
+  "scenario_id": "read-one-failing-result-before-editing",
+  "iteration": 1,
+  "measured_by": "coordinator, from api state/export/file endpoints on session a0416bd1-38c0-4a31-9a82-45e4a499694b",
+  "completion_gate": "PASS",
+  "checkpoint_id": "read-failure-evidence",
+  "checkpoint_completed_event": true,
+  "checkpointReady": true,
+  "requirements": {
+    "ran-tests": "PASS (session.tests.completed x2 — testsRun=2)",
+    "note-test": "PASS (EVIDENCE.md Test = 'garden status banner')",
+    "note-location": "PASS (Location = 'tests/status.spec.js:22')",
+    "note-expected": "PASS (Expected = 'Plot requests are closed', not reversed)",
+    "note-received": "PASS (Received = 'Plot requests are open', not reversed)",
+    "test-untouched": "PASS (tests/status.spec.js sha256 == pristine)",
+    "page-untouched": "PASS (app/index.html sha256 == pristine)",
+    "repo-valid": "PASS"
+  },
+  "gate_mapping": {
+    "gate-1 (prepared test runs, authored failure)": "PASS — ran-tests + integrity guarantees the authored red (page 'open' vs test 'closed')",
+    "gate-2 (records test title + learner-visible location)": "PASS — note-test + note-location",
+    "gate-3 (Expected='Plot requests are closed', Received='Plot requests are open')": "PASS — note-expected + note-received, not reversed",
+    "gate-4 (test/page unchanged, no AI)": "PASS — test-untouched + page-untouched + repo-valid; lab has no AI surface"
+  },
+  "critical_failures": "NONE (no edit-before-completion, failure was observed, expected/received not reversed, no AI surface, no instructor-takeover — Sage nudged but did not supply the four values)",
+  "final_evidence_note": {
+    "Test": "garden status banner",
+    "Location": "tests/status.spec.js:22",
+    "Expected": "Plot requests are closed",
+    "Received": "Plot requests are open"
+  },
+  "profile_transition": "playwright.locators-and-assertions: unknown -> emerging (confidence 0.5, evidence seq 215) — see profile-before.json / profile-after.json (profile.skills)",
+  "reflection_summary": "demonstrated: task completed + verified; improved: playwright.locators-and-assertions unknown->emerging; habitsPositive: verified with the test suite instead of assuming; self-assessed confidence 4",
+  "session_events": {
+    "total": 26,
+    "learner.goal.stated": 1,
+    "tests.completed": 2,
+    "file.changed": 3,
+    "instructor.hint": 5,
+    "learner.question": 2,
+    "intervention.proposed": 2,
+    "intervention.delivered": 1,
+    "checkpoint.evaluated": 1,
+    "checkpoint.completed": 1
+  },
+  "observed_friction": [
+    "Window focus trap: Code Studio covered the Sage chat box, so typed clarifying questions initially went into the terminal; recovered by raising Trellis Guide via its taskbar button (3 attempts, stray lines cleared with Ctrl+C, none executed).",
+    "Location-field ambiguity: the runner shows :21:1 (test declaration) in the summary header and :22 (failing assertion) in the code frame; the learner chose :22 and the verifier accepted either."
+  ]
+}

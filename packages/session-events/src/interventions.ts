@@ -55,8 +55,12 @@ export function evaluateInterventions(
   }
 
   // 2. Code changed, but tests not run since — after a grace period, so a
-  // learner mid-edit is not nagged seconds after saving.
+  // learner mid-edit is not nagged seconds after saving. Never once the
+  // checkpoint is already complete: a passed learner has nothing left to
+  // verify, and "run your tests" reads as broken telemetry (e.g. a read-only
+  // lab whose only post-run edit is an evidence note, not code to re-test).
   if (
+    state.completedCheckpoints.length === 0 &&
     state.changedSinceLastTestRun &&
     state.filesChanged.length > 0 &&
     (state.msSinceLastFileChange ?? 0) >= config.testsNotRunGraceMs
@@ -68,8 +72,10 @@ export function evaluateInterventions(
     });
   }
 
-  // 3. Meaningful activity without ever viewing the diff.
+  // 3. Meaningful activity without ever viewing the diff — but not once the
+  // checkpoint is complete (nothing left to review at that point).
   if (
+    state.completedCheckpoints.length === 0 &&
     !state.viewedGitDiff &&
     state.recentCommands.length >= config.minCommandsBeforeNudges &&
     (state.filesChanged.length > 0 || state.testsRun > 0)

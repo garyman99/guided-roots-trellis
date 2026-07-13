@@ -1,0 +1,45 @@
+{
+  "scenario_id": "read-one-failing-result-before-editing",
+  "iteration": 2,
+  "measured_by": "coordinator, from api state/export/file endpoints on session c73fcc36-60af-49e9-a0b8-23ed0a90480c",
+  "completion_gate": "PASS",
+  "checkpoint_id": "read-failure-evidence",
+  "checkpoint_completed_event": true,
+  "checkpointReady": true,
+  "requirements_all_pass": "YES (checkpoint.completed fires only when all 8 requirements are green)",
+  "gate_mapping": {
+    "gate-1 (prepared test runs, authored failure)": "PASS — testsRun=1; integrity guarantees the authored red",
+    "gate-2 (test title + learner-visible location)": "PASS — note Test 'garden status banner', Location 'tests/status.spec.js:22' (the code-frame arrow line)",
+    "gate-3 (Expected='Plot requests are closed', Received='Plot requests are open')": "PASS — not reversed",
+    "gate-4 (test/page unchanged, no AI)": "PASS — integrity + no AI surface"
+  },
+  "critical_failures": "NONE",
+  "final_evidence_note": {
+    "Test": "garden status banner",
+    "Location": "tests/status.spec.js:22",
+    "Expected": "Plot requests are closed",
+    "Received": "Plot requests are open"
+  },
+  "profile_transition": "playwright.locators-and-assertions: unknown -> emerging (confidence 0.5)",
+  "interventions_fired": "NONE (the iter-1 tests_not_run misfire — mid-session and post-completion — did not recur; verified in export.json)",
+  "session_events": {
+    "total_types": {
+      "session.started": 1, "learner.goal.stated": 1, "ui.state.reported": 2,
+      "instructor.hint": 2, "terminal.command.started": 1, "terminal.command.completed": 1,
+      "tests.completed": 1, "file.changed": 1, "checkpoint.evaluated": 1,
+      "checkpoint.completed": 1, "learner.question": 1
+    }
+  },
+  "delta_vs_iter1": {
+    "clarifying_questions": "1 -> 0 (improved welcome + note-header + README answered before she got stuck)",
+    "focus_trap_detour": "3 failed attempts (~3 min) -> 0 (reach-Sage-via-taskbar cue worked; she fronted windows via the taskbar cleanly)",
+    "location_ambiguity": "guessed :22 -> deliberately used the code-frame arrow line :22 per the new cue",
+    "intervention_misfire": "tests_not_run fired twice (incl. post-completion) -> zero interventions",
+    "scripted_mistake_recovery": "still present and honest (BEAT 10 mistake -> BEAT 11 self-recovery from the note header, no Sage nudge needed)"
+  },
+  "residual_friction_iter2": [
+    "The confidence 1-5 reflection rating renders as clickable text rather than tagged controls (the simulator had to screenshot to locate it) — minor, non-blocking, and outside this scenario's rubric.",
+    "The chat does not auto-scroll to the newest message, so reaching the reflection required hunting for the scroll target — minor.",
+    "Taskbar toggling once minimized the guide instead of fronting it — minor."
+  ]
+}

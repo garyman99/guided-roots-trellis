@@ -37,6 +37,30 @@ test("tests_not_run fires only after the grace period, and only when untested ch
   assert.equal(evaluateInterventions(s).some((t) => t.type === "tests_not_run"), false);
 });
 
+test("tests_not_run and diff_not_viewed go silent once the checkpoint is complete", () => {
+  // A passed learner has nothing left to verify or review; task-nudges that
+  // fire post-completion read as broken telemetry (e.g. a read-only lab whose
+  // only post-run edit is an evidence note, not code to re-test).
+  const s = base();
+  s.filesChanged = ["EVIDENCE.md"];
+  s.changedSinceLastTestRun = true;
+  s.msSinceLastFileChange = defaultInterventionConfig.testsNotRunGraceMs;
+  s.recentCommands = [
+    { command: "npm test", at: "t" },
+    { command: "ls", at: "t" },
+    { command: "cat README.md", at: "t" },
+  ];
+  s.testsRun = 1;
+  // Before completion: both nudges are live.
+  assert.equal(evaluateInterventions(s).some((t) => t.type === "tests_not_run"), true);
+  assert.equal(evaluateInterventions(s).some((t) => t.type === "diff_not_viewed"), true);
+  // After the checkpoint passes: both go silent.
+  s.completedCheckpoints = ["read-failure-evidence"];
+  const after = evaluateInterventions(s);
+  assert.equal(after.some((t) => t.type === "tests_not_run"), false);
+  assert.equal(after.some((t) => t.type === "diff_not_viewed"), false);
+});
+
 test("diff_not_viewed requires real activity and no prior diff view", () => {
   const s = base();
   s.recentCommands = [
