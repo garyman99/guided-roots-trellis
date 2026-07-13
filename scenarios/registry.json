@@ -20,6 +20,11 @@
       "imported_at": "2026-07-12",
       "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-12\\20260712T113600-0600",
       "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
+    },
+    "20260712T233913-0600": {
+      "imported_at": "2026-07-13",
+      "source": "C:\\develop\\GuidedRoots\\guided-roots-tellis-test-generation\\outbox\\2026-07-12\\20260712T233913-0600",
+      "baseline_commit": "904c8fb7b9368059bac45d08fae0749175dc4e65"
     }
   },
   "scenarios": {
@@ -152,14 +157,18 @@
       "class": "CURRENT-EDGE",
       "difficulty": 1,
       "execution_order": 1,
-      "status": "VALIDATED",
-      "status_reason": "Spec complete. Needs a seeded 3-green-test project, focused-run guidance, and run-scope evidence (selected vs executed test identities).",
-      "latest_completion": null,
-      "latest_score": null,
-      "highest_score": null,
+      "status": "ACCEPTED",
+      "status_reason": "Iter-1 live recorded run (session 3e744ea8, docker driver): completion gate PASS (all 4 gates), no critical failures, single independent evaluation 95 -> EXCEPTIONAL (>= 92, and >2 above threshold so no second opinion required). Dimensions: focused-execution-understanding 34/35, result-attribution 24/25, novice-orientation 23/25, learner-agency 14/15. New no-blueprint lab shipped (commit c626ea7): Riverside Community Pickup page + THREE green tests; the learner runs ONE by name. Focus mechanism: scripts/test.mjs turns words after `npm test --` into a Playwright --grep AND writes .trellis/last-run.json naming exactly which tests the LAST run executed and whether they passed; verify/checkpoint.mjs reads that record to enforce focused scope (one test not the suite -> wrong-scope-accepted blocker), the named test, the pass, and byte-for-byte integrity of tests+page (editing the suite to leave one runnable test -> project-mutated blocker). Session ran-tests + repo-valid round it out. Live run was textbook: persona Renee Park (manual QA, low confidence, no AI) stated her goal (1 up-front clarifying question, ZERO mid-task STUCK->ASK), lived the scripted full-suite scope mistake (npm test -> 3 passed), RECOVERED UNASSISTED from the README's 'running all vs one' section (only the opening orient hint in the log; no scope hint) to a focused run (npm test -- 'Weekday pickup hours are shown' -> 1 passed), verified BOTH count(1) and title before Check my work, and reflected honestly (confidence 4/5). Zero AI/agent events; filesChanged=[]. The sub-95 deductions are all product-side and did not touch her demonstrated understanding: (1) MEDIUM ux - the shared instrumented terminal banner 'This is a real shell - look around' contradicts the bounded-runner framing (deliberately NOT changed: it is a platform-wide surface that fits the exploratory framing of other accepted labs; changing it for one novice scenario risks regression + overfitting); (2) MEDIUM profile - no concept for playwright.run-one-test so a clean run advances no skill (scenario explicitly needs no profile update; deferred); (3) LOW eval - recovery-habit metric ignores scope correction because the first run passed rather than failed; (4) LOW eval - self-rated confidence not persisted structurally. All 4 findings open/deferred (iter-1/findings.yaml). Diff is strictly additive (new lab + one catalog entry); no shared platform code changed.",
+      "latest_completion": "PASS",
+      "latest_score": 95,
+      "highest_score": 95,
+      "score_history": [
+        { "iteration": 1, "score": 95, "simulator": "live-recorded", "note": "EXCEPTIONAL; gate PASS; faithful scope mistake + unassisted README-driven recovery; 4 open product-side findings (2 shared-surface, deferred)" }
+      ],
       "acceptance_threshold": 92,
-      "iterations": 0,
-      "last_executed": null
+      "iterations": 1,
+      "last_executed": "2026-07-13",
+      "product_commit": "c626ea7"
     },
     "find-form-field-by-label": {
       "run_id": "20260711T233636-0600",
@@ -205,6 +214,36 @@
       "execution_order": 2,
       "status": "VALIDATED",
       "status_reason": "Spec complete. Needs a seeded welcome-form lab with a prepared focused test carrying two marked learner data slots (input nickname + expected welcome text); learner authors 'Clover' consistently in both, recovers from a Clover/Fern mismatch by fixing only the stale expected value, reruns green. Deterministic evidence: input==expected==Clover, assertion not weakened, prepared structure/page/data-card integrity, focused pass. No AI surface. Shares the manual-authoring + plain-mismatch lab support with scenario 1.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "separate-shared-setup-from-one-test": {
+      "run_id": "20260712T233913-0600",
+      "file": "scenarios/imported/20260712T233913-0600/01-separate-shared-setup-from-one-test.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 1,
+      "execution_order": 1,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete (persona Nina Brooks, manual QA, low confidence, no AI). Read-only structural-comprehension exercise: learner opens one short prepared Playwright file (two named tests + one shared page-opening step), matches the seeded manual case card to one named test, and fills a two-part plain-language note (Shared preparation / This named test) WITHOUT editing or running. Gates: (1) opens file + identifies matching named test; (2) note classifies page-open as shared preparation for BOTH tests; (3) note assigns only the selected case's action + expected visible result to the test body; (4) project unchanged/unexecuted + no AI. Scripted first-mistake: page-open placed under the selected test, recovered after a compare-both-tests prompt. Needs a NEW no-run/no-edit lab surface: seeded readable test file view, a manual-case card, and a semantic two-part note evaluator that accepts equivalent wording (precondition/shared setup) and does NOT depend on line numbers or one syntax spelling. Distinct from turn-heading-check (locate+assert), run-one-existing-test (execution), read-one-failing (failure evidence). No AI surface; shares Code Studio + Guide.",
+      "latest_completion": null,
+      "latest_score": null,
+      "highest_score": null,
+      "acceptance_threshold": 92,
+      "iterations": 0,
+      "last_executed": null
+    },
+    "check-the-specific-error-message": {
+      "run_id": "20260712T233913-0600",
+      "file": "scenarios/imported/20260712T233913-0600/02-check-the-specific-error-message.md",
+      "class": "CURRENT-EDGE",
+      "difficulty": 2,
+      "execution_order": 2,
+      "status": "VALIDATED",
+      "status_reason": "Spec complete (persona Marcus Lee, manual QA, low confidence, no AI). Assertion-precision exercise: Garden Site shows a nickname form that renders 'Please enter a garden nickname.' on empty submit; Code Studio holds a prepared focused negative-path test (navigation + empty submission + user-visible error target prepared) with ONE marked assertion slot for the learner. Learner authors a full-message assertion, saves, runs focused test. Hidden complication: a visibility-only assertion runs GREEN yet the scenario checkpoint must report 'checks too little' (under-specific green) so the learner recovers by asserting the exact visible message, then reruns until BOTH test and checkpoint pass. Constraints: change only the assertion slot; keep page/action/target unchanged; verify full message not mere visibility/non-emptiness/generic error; no AI. Needs a NEW capability: a checkpoint that semantically distinguishes a content-specific assertion from a visibility-only one (accepting equivalent Playwright spellings, not one exact string) and reports honest incomplete state after a green-but-under-specific run. Distinct from read-one-failing (read a red result) and keep-test-data-in-sync (align one data value). No AI surface.",
       "latest_completion": null,
       "latest_score": null,
       "highest_score": null,

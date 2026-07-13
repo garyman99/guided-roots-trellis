@@ -1,0 +1,83 @@
+{
+  "id": "run-one-existing-test-on-purpose",
+  "version": 1,
+  "title": "Run one existing test on purpose",
+  "objective": "Run ONE prepared, already-passing Playwright test — the one named \"Weekday pickup hours are shown\" — on purpose, and confirm the result belongs to that test, without editing, skipping, or deleting any test or the page.",
+  "scenario": "You're a manual QA engineer. You already run one manual case at a time from a checklist. An automated suite is the same idea: a list of tests you can run all at once or one at a time. There are three prepared tests here and they all pass. Your whole job is to run just ONE of them on purpose and check that the result names the test you chose. You don't fix or change anything, and there is no AI in this exercise.",
+  "chat": {
+    "botName": "Sage",
+    "goalPrompt": "Hey! Sage here 🌿 — before we open anything: in your own words, what are you setting out to do today?",
+    "welcome": [
+      "This is a practice space — everything is local and disposable, and nothing you do here can reach anything real.",
+      "Here's the situation: there are THREE automated checks already set up on a little pickup page, and all three pass. You're not fixing anything today — you're going to run just ONE of them on purpose: the test named \"Weekday pickup hours are shown\".",
+      "The terminal is the dark text box at the bottom of Code Studio — just where you type a run instruction to this local project. Typing `npm test` runs all three; the README shows the small change that runs only the one you want. Running all three and running one on purpose are different actions, and the difference is the whole point.",
+      "There's no AI in this one, and nothing to edit — pick the test, run it, and read the result to confirm it's the one you meant. Ask me anything specific and I'll point you the right way. If my chat is hidden behind Code Studio, click the Trellis Guide button in the taskbar to bring it back."
+    ],
+    "faq": [
+      {
+        "match": "run|npm test|terminal|how do i start|start the test|execute|command",
+        "answer": "Click once in the dark terminal box at the bottom of Code Studio so it has the keyboard, type your run instruction, and press Enter. `npm test` runs all three checks. Let it finish — it opens a real (invisible) browser, so it takes a couple of seconds."
+      },
+      {
+        "match": "one test|just one|only.*test|single test|focus|narrow|filter|which command|how.*only",
+        "answer": "Add the test's name after `npm test --`, in quotes:  npm test -- \"Weekday pickup hours are shown\"  . The `--` just means \"the rest is the test name.\" That filters the run down to that one title. Part of the name works too (npm test -- Weekday) as long as it points at only that test."
+      },
+      {
+        "match": "how many|three|3 tests|all ran|whole suite|too many|ran everything|scope|meant to run",
+        "answer": "Good thing to check. Look at how many the runner says it ran: `npm test` on its own runs 3. You wanted 1. It's a totally normal first run — just add the name after `npm test --` and run it again so only your chosen test runs."
+      },
+      {
+        "match": "which test|title|name of the test|did it run mine|right test|belongs|confirm|how.*know.*ran",
+        "answer": "Two things tell you the run was yours: the COUNT (it should say 1 test ran, not 3) and the TITLE the runner prints (it should read \"Weekday pickup hours are shown\"). A green badge alone doesn't say which test ran — the count and the title do."
+      },
+      {
+        "match": "find|where.*test|open.*test|pickup.spec|test file|see the tests",
+        "answer": "Open tests/pickup.spec.js in Code Studio's file list. Each test starts with test(\"…\") and the words in quotes are its name. The one you want is \"Weekday pickup hours are shown\"."
+      },
+      {
+        "match": "edit|fix|change the test|skip|delete|comment out|remove.*test|make it one",
+        "answer": "Leave every file exactly as it is. Deleting or commenting out the other two tests would make one test RUN, but that's changing the project — not running one on purpose. Focus the run by NAME instead; the files stay untouched."
+      },
+      {
+        "match": "reset|start over|undo|back to (the )?start|messed up|restore",
+        "answer": "The Reset button is right next to \"Check my work\" at the bottom of this chat. It puts every file back exactly how it started and clears your run history, and I'll stay right here."
+      },
+      {
+        "match": "ai|generate|write.*command.*me|do it for me|assistant",
+        "answer": "No AI in this one, on purpose — choosing and running the test is the skill. I'll point you at where to look, but the run is yours. Tell me what the result said and I'll help you read it."
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "orient",
+      "text": "Get your bearings. Open Code Studio from the desktop (double-click its icon) and read README.md. Then open tests/pickup.spec.js and find the test named \"Weekday pickup hours are shown\". Want to see the page like a visitor? Open Garden Site too. Don't change anything.",
+      "auto": "any-command"
+    },
+    {
+      "id": "run-one",
+      "text": "Run ONLY the test named \"Weekday pickup hours are shown\". The README shows the focused command: add the name after `npm test --` in quotes. (If your first run does all three, that's normal — just add the name and run it again.)",
+      "auto": "tests-run"
+    },
+    {
+      "id": "confirm",
+      "text": "Read the result and confirm the run was yours: it should say 1 test ran (not 3) and show the title \"Weekday pickup hours are shown\", passing. When it does, use \"Check my work\".",
+      "auto": "tests-run"
+    }
+  ],
+  "checkpoint": {
+    "id": "focused-run",
+    "title": "One test, run on purpose — just the one you chose, and it passed",
+    "requirements": [
+      { "id": "ran-tests", "kind": "session", "label": "You ran the test runner" },
+      { "id": "focused-scope", "kind": "verify", "label": "Your last run was ONE test, not the whole suite" },
+      { "id": "named-test-ran", "kind": "verify", "label": "The test you ran was “Weekday pickup hours are shown”" },
+      { "id": "test-passed", "kind": "verify", "label": "That test passed" },
+      { "id": "tests-untouched", "kind": "verify", "label": "The prepared tests were left unchanged" },
+      { "id": "page-untouched", "kind": "verify", "label": "The page was left unchanged" },
+      { "id": "repo-valid", "kind": "repo", "label": "Workspace is in a valid state" }
+    ]
+  },
+  "instructorNotes": "VOICE: informal, calm, brief, plain words — a colleague at the next desk. Audience: a manual QA engineer (Renee Park) with low technical confidence and NO AI familiarity, who has never used a command-line test filter. THE ONE LESSON: running the WHOLE suite and running ONE named test on purpose are different actions — and you prove which test ran by its SCOPE (how many ran) and its TITLE, not by a generic green. Two habits ride along: the terminal is just a bounded local runner (not a scary shell), and a focused run is done by the test's visible NAME, never by deleting the other tests. Common beginner path, expected and NOT a failure: her first run is `npm test`, all three pass, and she reads the green 3-test summary as done. Redirect neutrally and concretely — 'nice, the suite's green; how many did you mean to run, and how many did it run?' — then point her at adding the name after `npm test --`. Let that first full-suite run happen; it is a normal, recoverable mistake, never something to blame her for (psychological-safety). NEVER run the test for her and NEVER hand her an opaque command without the idea behind it (focus = filter by the test's name) — instructor-takeover and 'generated command' are scenario critical failures. The deterministic verifier checks the run's scope, the title, the pass, and that no file was changed, so trust it and never declare completion yourself. If she tries to edit or delete tests to leave one, gently steer back: that changes the project; focus by NAME keeps the files untouched (editing to force one test is a blocker). Vocabulary to introduce gently, only after the plain-language version: 'focused run' / 'filter by title' (running just the test whose name you name), 'the suite' (all the tests together). There is deliberately no AI surface here; if asked, say this one is done by hand on purpose — knowing how to run and read one test is what makes any result trustworthy.",
+  "agentTimeline": []
+}

@@ -48,6 +48,16 @@ export const scenarios: Scenario[] = [
     level: "beginner",
   },
   {
+    labId: "run-one-existing-test-on-purpose",
+    title: "Run one existing test on purpose",
+    blurb:
+      "Three prepared Playwright checks all pass. Run just ONE of them by its name — not the whole suite — and confirm from the count and the title that the result belongs to the test you chose.",
+    tag: "PLAYWRIGHT · FOCUSED RUN",
+    role: "QA & Testing",
+    technologies: ["Playwright"],
+    level: "beginner",
+  },
+  {
     labId: "learn-playwright-basics",
     title: "Fix a broken Playwright test",
     blurb:
