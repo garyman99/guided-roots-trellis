@@ -6,3 +6,4 @@ tools/.lab-client-session.json
 dist/
 scenarios/recordings/
 tools/recorder/node_modules/
+artifacts/
