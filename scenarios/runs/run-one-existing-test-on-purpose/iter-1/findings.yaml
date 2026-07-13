@@ -1,0 +1,102 @@
+# Findings — run-one-existing-test-on-purpose · iter-1
+# Source: evaluation.md (live recorded run, score 95, EXCEPTIONAL, gate PASS).
+# Disposition: scenario ACCEPTED at iter-1. All findings medium/low and product-side;
+# none block acceptance. The two shared-surface items (terminal banner; profile taxonomy)
+# are deliberately NOT changed this run to avoid regressing other labs / overfitting one
+# scenario; deferred as open. Recovery-habit + confidence-rating are platform metric gaps.
+
+- finding_id: "terminal-banner-contradicts-bounded-framing"
+  severity: "medium"
+  category: "ux"
+  observed_behavior: >
+    The runtime terminal prints "Welcome to the lab. This is a real shell — look
+    around" on first use, contradicting the welcome/README framing of the terminal
+    as a bounded, safe local runner that cannot reach anything real.
+  expected_behavior: >
+    The terminal's own greeting should match the deliberately bounded, non-scary
+    framing the orientation copy establishes, so a low-confidence, no-CLI learner
+    meets a consistent message at first contact (BEAT 8).
+  evidence:
+    - "export.json terminal.command.completed outputSummary: 'Welcome to the lab. This is a real shell — look around.'"
+    - "lab.json chat.welcome[2] and template/README.md 'The terminal, in one sentence' (bounded local runner, 'can't reach the internet or anything real')"
+    - "simulator-trace.md BEAT 8 (first terminal contact)"
+  affected_values:
+    - "clarity"
+    - "psychological-safety"
+  learner_impact: >
+    Dissonant 'real shell' language at the scariest surface can raise anxiety for
+    the target persona (low technical confidence, no CLI background) at the exact
+    moment the orientation tried to lower it.
+  acceptance_evidence:
+    - "Terminal greeting reads as a bounded local runner consistent with the README/welcome; no 'real shell' phrasing."
+    - "A future novice run reaches first productive action with no framing contradiction at first terminal use."
+  status: open
+
+- finding_id: "profile-omits-focused-run-capability"
+  severity: "medium"
+  category: "profile"
+  observed_behavior: >
+    After a clean, textbook completion, every profile skill remains status
+    "unknown", confidence 0; the skill taxonomy has no concept for the scenario's
+    target capabilities (playwright.run-one-test / focused execution / result
+    attribution). Only labsCompleted (0→1) and generic habits advanced.
+  expected_behavior: >
+    A successful demonstration of the scenario's stated capability should produce
+    skill-graph evidence for that capability, so mastery is observable downstream.
+  evidence:
+    - "profile-after.json skills[]: all status 'unknown', confidence 0; labsCompleted 1"
+    - "01-run-one-existing-test-on-purpose.md coverage.capabilities: playwright.identify-test-structure, playwright.run-one-test"
+  affected_values:
+    - "transferable-learning"
+  learner_impact: >
+    The platform cannot recommend next steps or credit mastery of the exact skill
+    this scenario teaches, weakening adaptive progression for the learner.
+  acceptance_evidence:
+    - "A concept representing focused-run/result-attribution exists and moves from unknown toward observed after a passing run."
+  status: open
+
+- finding_id: "recovery-habit-misses-scope-correction"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: >
+    The session digest records recoveredAfterFailure:false and
+    recovery-after-failure-rate:0, because the first run passed (3/3), even though
+    the learner performed the pedagogically central recovery from a wrong-scope run
+    to a focused run.
+  expected_behavior: >
+    The recovery signal should recognize scope correction (wrong-scope → focused
+    rerun), not only recovery from a failing (red) test, so the metric reflects the
+    scenario's actual learning moment.
+  evidence:
+    - "profile-after.json evidence[0].digest.recoveredAfterFailure: false; habits recovery-after-failure-rate value 0"
+    - "simulator-trace.md BEAT 11 (notices 3 ran) → BEAT 12 (README) → BEAT 14 (focused pass)"
+  affected_values:
+    - "transferable-learning"
+  learner_impact: >
+    The most instructive behavior in the run is invisible to the habit metric,
+    understating the learner's demonstrated recovery competence.
+  acceptance_evidence:
+    - "A wrong-scope-then-focused-rerun sequence registers as a recovery in the digest/habit metric."
+  status: open
+
+- finding_id: "no-logged-numeric-confidence-rating"
+  severity: "low"
+  category: "evaluation"
+  observed_behavior: >
+    The learner's self-rated confidence (4/5, per trace BEAT 19) is not stored as a
+    structured value; reflection.json and export.json capture only free-text.
+  expected_behavior: >
+    If confidence self-rating is part of the reflection, it should be persisted as a
+    structured field for calibration and cross-run comparison.
+  evidence:
+    - "reflection.json (free-text only, no numeric field)"
+    - "export.json learner.question reflection event (no rating field)"
+    - "simulator-trace.md BEAT 19 'Rated my confidence a 4'"
+  affected_values:
+    - "transferable-learning"
+  learner_impact: >
+    Calibration (profile.calibration is null) cannot use the self-rating, so
+    confidence-vs-competence tracking is unavailable.
+  acceptance_evidence:
+    - "A structured numeric confidence value appears in the reflection/export for a run where the learner rates confidence."
+  status: open

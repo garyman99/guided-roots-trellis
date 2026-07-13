@@ -157,14 +157,18 @@
       "class": "CURRENT-EDGE",
       "difficulty": 1,
       "execution_order": 1,
-      "status": "VALIDATED",
-      "status_reason": "Spec complete. Needs a seeded 3-green-test project, focused-run guidance, and run-scope evidence (selected vs executed test identities).",
-      "latest_completion": null,
-      "latest_score": null,
-      "highest_score": null,
+      "status": "ACCEPTED",
+      "status_reason": "Iter-1 live recorded run (session 3e744ea8, docker driver): completion gate PASS (all 4 gates), no critical failures, single independent evaluation 95 -> EXCEPTIONAL (>= 92, and >2 above threshold so no second opinion required). Dimensions: focused-execution-understanding 34/35, result-attribution 24/25, novice-orientation 23/25, learner-agency 14/15. New no-blueprint lab shipped (commit c626ea7): Riverside Community Pickup page + THREE green tests; the learner runs ONE by name. Focus mechanism: scripts/test.mjs turns words after `npm test --` into a Playwright --grep AND writes .trellis/last-run.json naming exactly which tests the LAST run executed and whether they passed; verify/checkpoint.mjs reads that record to enforce focused scope (one test not the suite -> wrong-scope-accepted blocker), the named test, the pass, and byte-for-byte integrity of tests+page (editing the suite to leave one runnable test -> project-mutated blocker). Session ran-tests + repo-valid round it out. Live run was textbook: persona Renee Park (manual QA, low confidence, no AI) stated her goal (1 up-front clarifying question, ZERO mid-task STUCK->ASK), lived the scripted full-suite scope mistake (npm test -> 3 passed), RECOVERED UNASSISTED from the README's 'running all vs one' section (only the opening orient hint in the log; no scope hint) to a focused run (npm test -- 'Weekday pickup hours are shown' -> 1 passed), verified BOTH count(1) and title before Check my work, and reflected honestly (confidence 4/5). Zero AI/agent events; filesChanged=[]. The sub-95 deductions are all product-side and did not touch her demonstrated understanding: (1) MEDIUM ux - the shared instrumented terminal banner 'This is a real shell - look around' contradicts the bounded-runner framing (deliberately NOT changed: it is a platform-wide surface that fits the exploratory framing of other accepted labs; changing it for one novice scenario risks regression + overfitting); (2) MEDIUM profile - no concept for playwright.run-one-test so a clean run advances no skill (scenario explicitly needs no profile update; deferred); (3) LOW eval - recovery-habit metric ignores scope correction because the first run passed rather than failed; (4) LOW eval - self-rated confidence not persisted structurally. All 4 findings open/deferred (iter-1/findings.yaml). Diff is strictly additive (new lab + one catalog entry); no shared platform code changed.",
+      "latest_completion": "PASS",
+      "latest_score": 95,
+      "highest_score": 95,
+      "score_history": [
+        { "iteration": 1, "score": 95, "simulator": "live-recorded", "note": "EXCEPTIONAL; gate PASS; faithful scope mistake + unassisted README-driven recovery; 4 open product-side findings (2 shared-surface, deferred)" }
+      ],
       "acceptance_threshold": 92,
-      "iterations": 0,
-      "last_executed": null
+      "iterations": 1,
+      "last_executed": "2026-07-13",
+      "product_commit": "c626ea7"
     },
     "find-form-field-by-label": {
       "run_id": "20260711T233636-0600",

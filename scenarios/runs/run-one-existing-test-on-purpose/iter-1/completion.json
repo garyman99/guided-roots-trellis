@@ -1,0 +1,21 @@
+{
+  "scenario": "run-one-existing-test-on-purpose",
+  "iteration": 1,
+  "simulator": "live-recorded",
+  "session": "3e744ea8-51e2-4ef0-a800-51c74e1888b2",
+  "completion_gate": "PASS",
+  "gates": {
+    "gate-1_locates_named_test": "PASS — opened tests/pickup.spec.js and found \"Weekday pickup hours are shown\" (trace BEAT 7); focused run-record names it.",
+    "gate-2_focused_exactly_one": "PASS — final run-record ran=[{Weekday pickup hours are shown, ok:true}], length 1; checkpoint focused-scope + named-test-ran green; final tests.completed passed=1.",
+    "gate-3_passes_and_verified": "PASS — test-passed green; learner verified count(1)+title (trace BEAT 14/17).",
+    "gate-4_no_change_no_ai": "PASS — filesChanged=[]; tests-untouched + page-untouched green; zero AI/agent events in the log."
+  },
+  "critical_failures": "NONE (wrong-scope-accepted: no; project-mutated: no; ai-or-generated-command: no; instructor-takeover: no — Sage guided only)",
+  "evidence": {
+    "tests_completed_events": [{"passed":3,"failed":0},{"passed":1,"failed":0}],
+    "final_run_record": {"focus":"Weekday pickup hours are shown","ran":[{"title":"Weekday pickup hours are shown","ok":true}],"passed":1,"failed":0},
+    "completed_checkpoints": ["focused-run"],
+    "files_changed": [],
+    "ai_events": "NONE"
+  }
+}
