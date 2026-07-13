@@ -151,7 +151,15 @@ export async function postJson<T = unknown>(opts: PostJsonOptions): Promise<Post
           bodySnippet,
         });
         if (!RETRIABLE.has(category) || attempt > maxRetries) throw lastError;
-        await sleep(retryDelayMs * 2 ** (attempt - 1));
+        let delay = retryDelayMs * 2 ** (attempt - 1);
+        if (res.status === 429) {
+          // Respect Retry-After (seconds) — a per-minute token window can't
+          // be cleared by millisecond backoff. Capped so callers keep a
+          // bounded worst case.
+          const ra = Number(res.headers.get("retry-after"));
+          if (Number.isFinite(ra) && ra > 0) delay = Math.max(delay, Math.min(ra * 1000, 70_000));
+        }
+        await sleep(delay);
         continue;
       }
 
