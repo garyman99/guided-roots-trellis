@@ -75,3 +75,49 @@ workspace-journey e2e still won't catch this: it posts workspace actions to
 the API directly, bypassing the UI button entirely. Once the mouse click
 stages context, re-run this scheduled task; the model-backed comparison can
 then proceed within budget.
+
+---
+
+## Update (2026-07-14) — root cause found and FIXED in this PR
+
+The preflight was instrumented (event listeners + `elementFromPoint`) to find
+the mechanism, all model-free:
+
+- On a real mouse click, the button's own `pointerdown`/`mousedown`/`click`
+  listeners **never fired**; a document-level capture showed the click's
+  target was `DIV.desktop` — the desktop root, an *ancestor* of the button.
+- Geometry walk: the Mail `SECTION.window` bottom edge is at y686 with
+  `overflow: hidden`, but the action row (`.mail-msg-actions`, holding the
+  button) laid out at y684–716 — its **center (y700) is below the window's
+  clipped bottom**. So the button was rendered off the bottom of its own
+  window and a click there passed through to the desktop behind it.
+- Why: `.mail-reading` scrolled as one block, and the action row is the last
+  child *after* a long email `<pre>`. With Dana's full-length email, the row
+  was pushed past the scroll fold and past the window frame — invisible to a
+  human learner too, not just to mouse actuation.
+
+**Product fix** (`apps/web/src/desktop/desktop.css`): the reading pane now
+scrolls **only the email body** (`.mail-msg-body` → `flex:1; overflow-y:auto`);
+the message header and the action row are pinned (`flex:none`), so the
+"Send text to AI Helper" button is always on-screen and clickable regardless
+of email length — the same pattern the compose box and AI-chat composer
+already use.
+
+**Tooling fix** (`tools/recorder/sim-driver.mjs`): the recorder's occlusion
+hit-test masked this bug by listing the un-clickable button as a valid
+target. Its condition `el.contains(hit) || hit.contains(el)` wrongly counted
+hitting an *ancestor* as reachable; a click bubbles **up**, so a target only
+receives it when `el.contains(hit)`. Tightened to `el.contains(hit)` only.
+
+**Verification (real mouse click, still $0 model spend):** after the fix the
+button sits at y354 (fully within the window), `elementFromPoint` at its
+center returns the button itself, the email body scrolls independently
+(`scrollHeight 441 > clientHeight 96`), and the canonical preflight now
+**PASSES** — the AI Helper "Context to share" textarea carries
+`"Hi,\n\nI ordered a set of raised-bed planters…"`. Web build is clean; the
+two `lab-runtime/lifecycle.test.ts` failures are pre-existing and
+environmental (container-dependent), unrelated to this change.
+
+**Next:** with staging working via real mouse clicks, re-run this scheduled
+task to attempt the model-backed completion comparison against archived
+iter-7 (92/91) within the budget cap.
