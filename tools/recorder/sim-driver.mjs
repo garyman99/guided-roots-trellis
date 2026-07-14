@@ -81,9 +81,17 @@ async function snapshot() {
     // this, elements behind windows are listed with coordinates that click
     // the covering window instead (found live: a simulated learner
     // double-clicked a desktop icon behind the Mail window for 6 turns).
+    // A click at (cx,cy) is dispatched to elementFromPoint and BUBBLES UP, so
+    // `el` only receives it if el === hit or el is an ancestor of hit — i.e.
+    // `el.contains(hit)`. The reverse (`hit.contains(el)`, el a descendant of
+    // an ancestor that was hit) does NOT reach el: a click on a container
+    // behind/around el bubbles away from it. Listing that case masked a real
+    // product bug — the Mail "Send text to AI Helper" button was rendered
+    // below the window's clipped edge, so its center hit the desktop root
+    // (an ancestor); the old test still reported it clickable.
     const hitTest = (el, cx, cy) => {
       const hit = document.elementFromPoint(cx, cy);
-      return hit !== null && (el.contains(hit) || hit.contains(el));
+      return hit !== null && el.contains(hit);
     };
     for (const el of document.querySelectorAll(sel)) {
       if (!vis(el)) continue;
