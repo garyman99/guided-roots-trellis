@@ -397,3 +397,7 @@
 .beat-bubble.instructor { border-color: var(--green-deep); background: rgba(107, 165, 95, 0.06); }
 .beat-bubble .beat-who { font-size: 0.62rem; }
 .beat-bubble .beat-detail { font-family: var(--mono); }
+
+/* Users tab: clickable roster rows */
+.admin-clickable tbody tr { cursor: pointer; }
+.admin-clickable tbody tr:hover td { background: rgba(107, 165, 95, 0.07); }

@@ -30,6 +30,10 @@ export interface LearnerMeta {
   learnerId: string;
   token: string;
   createdAt: string;
+  /** Display identity from the auth layer (e.g. "Eva") — for the operator
+   *  surface; sanitized+capped at the API boundary, never trusted further. */
+  name?: string | null;
+  email?: string | null;
   consents: { selfAnalytics: boolean; cohortAggregate: boolean; research: boolean };
 }
 
@@ -39,6 +43,13 @@ export interface TokenUsageRecord {
   model: string;
   promptTokens: number;
   completionTokens: number;
+  /** Provider-reported cache tokens, when present — never zero-filled. */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** USD estimate at write time from the versioned pricing table; absent
+   *  when the model has no pricing entry (never guessed). */
+  estimatedCostUSD?: number;
+  pricingVersion?: number;
   createdAt: string;
 }
 
@@ -143,6 +154,8 @@ class SqliteStore implements EventStore {
         learner_id TEXT PRIMARY KEY,
         token      TEXT NOT NULL,
         created_at TEXT NOT NULL,
+        name       TEXT,
+        email      TEXT,
         consent_self INTEGER NOT NULL DEFAULT 1,
         consent_cohort INTEGER NOT NULL DEFAULT 0,
         consent_research INTEGER NOT NULL DEFAULT 0
@@ -166,6 +179,10 @@ class SqliteStore implements EventStore {
         model             TEXT NOT NULL,
         prompt_tokens     INTEGER NOT NULL,
         completion_tokens INTEGER NOT NULL,
+        cache_read_tokens  INTEGER,
+        cache_write_tokens INTEGER,
+        estimated_cost_usd REAL,
+        pricing_version    INTEGER,
         created_at        TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_usage_learner ON token_usage(learner_id, id);
@@ -184,6 +201,23 @@ class SqliteStore implements EventStore {
         updated_at TEXT NOT NULL
       );
     `);
+    // Older DBs predate the identity/cost columns; ALTERs are idempotent-by-
+    // failure (SQLite has no IF NOT EXISTS for columns). Fresh DBs get them
+    // from CREATE TABLE above.
+    for (const alter of [
+      "ALTER TABLE learners ADD COLUMN name TEXT",
+      "ALTER TABLE learners ADD COLUMN email TEXT",
+      "ALTER TABLE token_usage ADD COLUMN cache_read_tokens INTEGER",
+      "ALTER TABLE token_usage ADD COLUMN cache_write_tokens INTEGER",
+      "ALTER TABLE token_usage ADD COLUMN estimated_cost_usd REAL",
+      "ALTER TABLE token_usage ADD COLUMN pricing_version INTEGER",
+    ]) {
+      try {
+        this.db.exec(alter);
+      } catch {
+        /* column already exists */
+      }
+    }
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, type, timestamp, payload) VALUES (?, ?, ?, ?)");
     this.selectEvents = this.db.prepare("SELECT payload FROM events WHERE session_id = ? ORDER BY id ASC");
     this.insertSession = this.db.prepare(
@@ -226,19 +260,32 @@ class SqliteStore implements EventStore {
   // ── learners / consent / erasure ──
   createLearner(meta: LearnerMeta): void {
     this.db
-      .prepare("INSERT INTO learners (learner_id, token, created_at, consent_self, consent_cohort, consent_research) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(meta.learnerId, meta.token, meta.createdAt, meta.consents.selfAnalytics ? 1 : 0, meta.consents.cohortAggregate ? 1 : 0, meta.consents.research ? 1 : 0);
+      .prepare(
+        "INSERT INTO learners (learner_id, token, created_at, name, email, consent_self, consent_cohort, consent_research) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        meta.learnerId,
+        meta.token,
+        meta.createdAt,
+        meta.name ?? null,
+        meta.email ?? null,
+        meta.consents.selfAnalytics ? 1 : 0,
+        meta.consents.cohortAggregate ? 1 : 0,
+        meta.consents.research ? 1 : 0,
+      );
   }
 
   learnerMeta(learnerId: string): LearnerMeta | null {
     const row = this.db.prepare("SELECT * FROM learners WHERE learner_id = ?").get(learnerId) as
-      | { learner_id: string; token: string; created_at: string; consent_self: number; consent_cohort: number; consent_research: number }
+      | { learner_id: string; token: string; created_at: string; name: string | null; email: string | null; consent_self: number; consent_cohort: number; consent_research: number }
       | undefined;
     if (!row) return null;
     return {
       learnerId: row.learner_id,
       token: row.token,
       createdAt: row.created_at,
+      name: row.name,
+      email: row.email,
       consents: { selfAnalytics: row.consent_self === 1, cohortAggregate: row.consent_cohort === 1, research: row.consent_research === 1 },
     };
   }
@@ -303,9 +350,20 @@ class SqliteStore implements EventStore {
   recordTokenUsage(rec: TokenUsageRecord): void {
     this.db
       .prepare(
-        "INSERT INTO token_usage (learner_id, session_id, model, prompt_tokens, completion_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO token_usage (learner_id, session_id, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, estimated_cost_usd, pricing_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(rec.learnerId, rec.sessionId, rec.model, rec.promptTokens, rec.completionTokens, rec.createdAt);
+      .run(
+        rec.learnerId,
+        rec.sessionId,
+        rec.model,
+        rec.promptTokens,
+        rec.completionTokens,
+        rec.cacheReadTokens ?? null,
+        rec.cacheWriteTokens ?? null,
+        rec.estimatedCostUSD ?? null,
+        rec.pricingVersion ?? null,
+        rec.createdAt,
+      );
   }
 
   tokenUsage(learnerId?: string): TokenUsageRecord[] {
@@ -314,7 +372,8 @@ class SqliteStore implements EventStore {
         ? this.db.prepare("SELECT * FROM token_usage WHERE learner_id = ? ORDER BY id ASC").all(learnerId)
         : this.db.prepare("SELECT * FROM token_usage ORDER BY id ASC").all()
     ) as Array<{
-      learner_id: string; session_id: string; model: string; prompt_tokens: number; completion_tokens: number; created_at: string;
+      learner_id: string; session_id: string; model: string; prompt_tokens: number; completion_tokens: number;
+      cache_read_tokens: number | null; cache_write_tokens: number | null; estimated_cost_usd: number | null; pricing_version: number | null; created_at: string;
     }>;
     return rows.map((r) => ({
       learnerId: r.learner_id,
@@ -322,6 +381,10 @@ class SqliteStore implements EventStore {
       model: r.model,
       promptTokens: r.prompt_tokens,
       completionTokens: r.completion_tokens,
+      ...(r.cache_read_tokens !== null ? { cacheReadTokens: r.cache_read_tokens } : {}),
+      ...(r.cache_write_tokens !== null ? { cacheWriteTokens: r.cache_write_tokens } : {}),
+      ...(r.estimated_cost_usd !== null ? { estimatedCostUSD: r.estimated_cost_usd } : {}),
+      ...(r.pricing_version !== null ? { pricingVersion: r.pricing_version } : {}),
       createdAt: r.created_at,
     }));
   }

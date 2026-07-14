@@ -443,26 +443,37 @@ export class Session {
   /** Token accounting for the admin usage views; must never break a hint. */
   private recordHintUsage(hint: HintResponse): void {
     if (!hint.usage) return;
+    const model = hint.model ?? this.instructor.name;
+    const usage = {
+      inputTokens: hint.usage.promptTokens,
+      outputTokens: hint.usage.completionTokens,
+      ...(hint.usage.cacheReadTokens !== undefined ? { cacheReadTokens: hint.usage.cacheReadTokens } : {}),
+      ...(hint.usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: hint.usage.cacheWriteTokens } : {}),
+    };
+    // The served model id is truth for `model`, but servers may echo a dated
+    // snapshot with no pricing entry — fall back to the id the adapter
+    // requested (which is what the operator priced).
+    const estimatedCostUSD = pricingTable
+      ? (estimateCostUSD(usage, model, pricingTable) ??
+        (hint.modelRequested ? estimateCostUSD(usage, hint.modelRequested, pricingTable) : undefined))
+      : undefined;
     try {
       this.store.recordTokenUsage({
         learnerId: this.learnerId,
         sessionId: this.id,
-        model: hint.model ?? this.instructor.name,
+        model,
         promptTokens: hint.usage.promptTokens,
         completionTokens: hint.usage.completionTokens,
+        cacheReadTokens: hint.usage.cacheReadTokens,
+        cacheWriteTokens: hint.usage.cacheWriteTokens,
+        estimatedCostUSD,
+        pricingVersion: pricingTable?.version,
         createdAt: now(),
       });
     } catch (err) {
       console.error(`[token-usage] failed to record for ${this.id}:`, err);
     }
     try {
-      const model = hint.model ?? this.instructor.name;
-      const usage = {
-        inputTokens: hint.usage.promptTokens,
-        outputTokens: hint.usage.completionTokens,
-        ...(hint.usage.cacheReadTokens !== undefined ? { cacheReadTokens: hint.usage.cacheReadTokens } : {}),
-        ...(hint.usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: hint.usage.cacheWriteTokens } : {}),
-      };
       modelArtifacts.appendInvocation({
         invocationId: newInvocationId(),
         runId: `session-${this.id}`,
@@ -474,13 +485,7 @@ export class Session {
         // transport — completedAt is omitted rather than fabricated.
         startedAt: now(),
         usage,
-        // The served model id is truth for `model`, but servers may echo a
-        // dated snapshot with no pricing entry — fall back to the id the
-        // adapter requested (which is what the operator priced).
-        estimatedCostUSD: pricingTable
-          ? (estimateCostUSD(usage, model, pricingTable) ??
-            (hint.modelRequested ? estimateCostUSD(usage, hint.modelRequested, pricingTable) : undefined))
-          : undefined,
+        estimatedCostUSD,
         pricingVersion: pricingTable?.version,
         status: "ok",
       });
