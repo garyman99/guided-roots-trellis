@@ -64,8 +64,9 @@ test("agents view lists configured agents with their prompts", async () => {
 });
 
 test("guide exchanges record token usage that surfaces in users and usage views", async () => {
-  // learner + workspace session (no lab environment needed)
-  const learner = await api("POST", "/api/learners", {});
+  // learner + workspace session (no lab environment needed) — with the
+  // display identity the web app now sends from the auth layer
+  const learner = await api("POST", "/api/learners", { name: "Eva", email: "eva@localhost" });
   assert.equal(learner.status, 201);
   const { learnerId, learnerToken } = learner.body as { learnerId: string; learnerToken: string };
 
@@ -82,26 +83,46 @@ test("guide exchanges record token usage that surfaces in users and usage views"
   const ask2 = await api("POST", `/api/sessions/${session.sessionId}/ask`, { text: "what should the reply include?", stuck: true }, session.token);
   assert.equal(ask2.status, 200);
 
-  // users view: this learner appears with activity + per-model usage + profile
+  // users view: this learner appears with identity, activity, per-model
+  // usage WITH cost, roll-up totals, and the derived profile
   const users = await admin("/api/admin/users");
   assert.equal(users.status, 200);
-  const me = (users.body as { users: Array<{ learnerId: string; activity: { hintCalls: number; lastActiveAt: string }; usageByModel: Array<{ model: string; calls: number; totalTokens: number }>; profile: { skills: unknown[] } }> }).users.find(
+  const me = (users.body as { users: Array<{ learnerId: string; name: string | null; email: string | null; totals: { calls: number; totalTokens: number; estimatedCostUSD: number; unpricedCalls: number }; activity: { hintCalls: number; lastActiveAt: string }; usageByModel: Array<{ model: string; calls: number; totalTokens: number; estimatedCostUSD: number; unpricedCalls: number }>; profile: { skills: unknown[] } }> }).users.find(
     (u) => u.learnerId === learnerId,
   );
   assert.ok(me, "learner appears in the admin users view");
+  assert.equal(me.name, "Eva", "display name from the auth layer surfaces");
+  assert.equal(me.email, "eva@localhost");
   assert.equal(me.activity.hintCalls, 2);
   assert.equal(me.usageByModel.length, 1);
   assert.equal(me.usageByModel[0].model, "mock-instructor");
   assert.equal(me.usageByModel[0].calls, 2);
   assert.ok(me.usageByModel[0].totalTokens > 0, "mock provider reports non-zero tokens");
+  assert.equal(me.usageByModel[0].estimatedCostUSD, 0, "mock is priced at $0 — the cost PIPELINE ran");
+  assert.equal(me.usageByModel[0].unpricedCalls, 0, "mock has a pricing entry, so nothing is unpriced");
+  assert.equal(me.totals.calls, 2);
+  assert.equal(me.totals.totalTokens, me.usageByModel[0].totalTokens);
+  assert.equal(me.totals.estimatedCostUSD, 0);
   assert.ok(Array.isArray(me.profile.skills), "derived profile rides along");
 
-  // usage view: totals by model + a day-bucketed series
+  // the drill-down's session list + replay: this user's session is on
+  // record and its recording plays back the ask we just made
+  const sessions = await admin("/api/admin/sessions");
+  assert.equal(sessions.status, 200);
+  const mine = (sessions.body as { sessions: Array<{ sessionId: string; learnerId: string }> }).sessions.filter((s) => s.learnerId === learnerId);
+  assert.equal(mine.length, 1, "the user's session appears for the drill-down");
+  const replay = await admin(`/api/admin/sessions/${session.sessionId}/replay`);
+  assert.equal(replay.status, 200);
+  const events = (replay.body as { events: Array<{ type: string }> }).events;
+  assert.ok(events.some((e) => e.type === "learner.question"), "replay carries the recorded conversation");
+
+  // usage view: totals by model (with cost) + a day-bucketed series
   const usage = await admin("/api/admin/usage");
   assert.equal(usage.status, 200);
-  const u = usage.body as { calls: number; byModel: Array<{ model: string; totalTokens: number }>; series: Array<{ day: string; model: string; totalTokens: number }> };
+  const u = usage.body as { calls: number; byModel: Array<{ model: string; totalTokens: number; estimatedCostUSD: number }>; series: Array<{ day: string; model: string; totalTokens: number }> };
   assert.ok(u.calls >= 2);
   assert.equal(u.byModel[0].model, "mock-instructor");
+  assert.equal(typeof u.byModel[0].estimatedCostUSD, "number", "usage view carries cost");
   assert.ok(u.series.length >= 1);
   assert.match(u.series[0].day, /^\d{4}-\d{2}-\d{2}$/);
   const seriesTotal = u.series.reduce((s, r) => s + r.totalTokens, 0);

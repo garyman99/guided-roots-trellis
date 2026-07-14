@@ -207,20 +207,46 @@ interface ModelUsageTotals {
   calls: number;
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
+  /** Sum of per-call write-time estimates (versioned pricing). */
+  estimatedCostUSD: number;
+  /** Calls that had no pricing entry at write time — their cost is NOT in
+   *  estimatedCostUSD; surfaced so a total can never quietly understate. */
+  unpricedCalls: number;
 }
 
 function usageByModel(records: TokenUsageRecord[]): ModelUsageTotals[] {
   const byModel = new Map<string, ModelUsageTotals>();
   for (const r of records) {
-    const m = byModel.get(r.model) ?? { model: r.model, calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const m =
+      byModel.get(r.model) ??
+      { model: r.model, calls: 0, promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, estimatedCostUSD: 0, unpricedCalls: 0 };
     m.calls += 1;
     m.promptTokens += r.promptTokens;
     m.completionTokens += r.completionTokens;
+    m.cacheReadTokens += r.cacheReadTokens ?? 0;
+    m.cacheWriteTokens += r.cacheWriteTokens ?? 0;
     m.totalTokens += r.promptTokens + r.completionTokens;
+    if (r.estimatedCostUSD !== undefined) m.estimatedCostUSD += r.estimatedCostUSD;
+    else m.unpricedCalls += 1;
     byModel.set(r.model, m);
   }
   return [...byModel.values()].sort((a, b) => b.totalTokens - a.totalTokens);
+}
+
+/** Roll a per-model breakdown up into one user-level line. */
+function usageTotals(byModel: ModelUsageTotals[]) {
+  return byModel.reduce(
+    (t, m) => ({
+      calls: t.calls + m.calls,
+      totalTokens: t.totalTokens + m.totalTokens,
+      estimatedCostUSD: t.estimatedCostUSD + m.estimatedCostUSD,
+      unpricedCalls: t.unpricedCalls + m.unpricedCalls,
+    }),
+    { calls: 0, totalTokens: 0, estimatedCostUSD: 0, unpricedCalls: 0 },
+  );
 }
 
 /** Resolve + authenticate a session or answer with the right error. */
@@ -245,10 +271,16 @@ export const server = createServer(async (req, res) => {
     // POST /api/learners — persistent learner identity + consent tiers
     if (req.method === "POST" && url.pathname === "/api/learners") {
       const body = await readBody(req);
+      // Display identity from the auth layer — untrusted input, capped and
+      // reduced to plain strings; shown only on the operator surface.
+      const asName = (v: unknown, cap: number) =>
+        typeof v === "string" && v.trim() ? v.replace(/[\r\n\t]/g, " ").trim().slice(0, cap) : null;
       const meta: LearnerMeta = {
         learnerId: newLearnerId(),
         token: randomBytes(24).toString("base64url"),
         createdAt: new Date().toISOString(),
+        name: asName(body.name, 80),
+        email: asName(body.email, 120),
         consents: {
           selfAnalytics: body.consentSelfAnalytics !== false, // the product itself; default on
           cohortAggregate: body.consentCohortAggregate === true,
@@ -449,9 +481,12 @@ export const server = createServer(async (req, res) => {
               .filter((t): t is string => Boolean(t))
               .sort()
               .at(-1) ?? meta.createdAt;
+          const byModel = usageByModel(usage);
           return {
             learnerId: id,
             createdAt: meta.createdAt,
+            name: meta.name ?? null,
+            email: meta.email ?? null,
             consents: meta.consents,
             activity: {
               sessionsOnRecord: store.sessionsForLearner(id).length,
@@ -461,7 +496,8 @@ export const server = createServer(async (req, res) => {
               lastActiveAt,
               summary: learnerSummary(digests),
             },
-            usageByModel: usageByModel(usage),
+            usageByModel: byModel,
+            totals: usageTotals(byModel),
             // The derived profile — exactly what the context assembler draws
             // from when it briefs the instructor about this learner.
             profile,
