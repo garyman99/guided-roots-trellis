@@ -22,6 +22,8 @@ export interface LearningSessionState {
     at: string;
   }>;
   filesChanged: string[];
+  /** Workspace files the learner opened in the GUI editor (platform-served reads). */
+  viewedFiles: string[];
   viewedGitDiff: boolean;
   testsRun: number;
   latestTestResult?: { passed: number; failed: number };
@@ -98,6 +100,7 @@ const LEARNER_ACTIVITY: ReadonlySet<SessionEvent["type"]> = new Set([
   "terminal.command.started",
   "terminal.command.completed",
   "file.changed",
+  "file.viewed",
   "learner.question",
   "learner.goal.stated",
   "workspace.app.opened",
@@ -116,6 +119,7 @@ export function initialState(lessonId = "", learnerId = ""): LearningSessionStat
     completedCheckpoints: [],
     recentCommands: [],
     filesChanged: [],
+    viewedFiles: [],
     viewedGitDiff: false,
     testsRun: 0,
     repeatedFailures: [],
@@ -193,6 +197,10 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
         filesChanged.add(ev.path);
         state.changedSinceLastTestRun = true;
         lastFileChangeAt = ev.timestamp;
+        break;
+
+      case "file.viewed":
+        if (!state.viewedFiles.includes(ev.path)) state.viewedFiles.push(ev.path);
         break;
 
       case "git.diff.viewed":

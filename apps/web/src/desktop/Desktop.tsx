@@ -38,18 +38,30 @@ const win = (open: boolean, rect: { x: number; y: number; w: number; h: number }
   z,
 });
 
-// Goal-first onboarding: a fresh session shows ONE thing — the guide,
-// centered — asking what the learner wants to accomplish. Everything else
-// is opened BY the learner from the desktop, guided step by step.
+// ── Default window placement ────────────────────────────────────────────────
+// The guide DOCKS on the right — a tall chat column that stays out of the
+// way of the applications the lesson asks the learner to open. Every other
+// window defaults into the LEFT region, so opening an app never buries the
+// guide (and the guide never covers the work). All of it stays draggable and
+// resizable; these are just the placeholders windows start from.
+const TASKBAR_ALLOWANCE = 110;
+
+function guideRect(): { x: number; y: number; w: number; h: number } {
+  const w = Math.min(460, Math.max(360, Math.floor(window.innerWidth * 0.3)), window.innerWidth - 48);
+  const h = window.innerHeight - TASKBAR_ALLOWANCE;
+  return { x: Math.max(16, window.innerWidth - w - 20), y: 16, w, h };
+}
+
+/** Horizontal space left of the guide's dock for application windows. */
+function leftRegionWidth(): number {
+  return Math.max(560, guideRect().x - 40);
+}
+
 const GUIDE: AppSpec = {
   id: "guide",
   title: "Trellis Guide",
   icon: "🌿",
-  initial: () => {
-    const w = Math.min(460, window.innerWidth - 48);
-    const h = Math.min(560, window.innerHeight - 120);
-    return win(true, { x: Math.max(16, (window.innerWidth - w) / 2), y: Math.max(20, (window.innerHeight - h) / 2 - 24), w, h }, 2);
-  },
+  initial: () => win(true, guideRect(), 2),
 };
 
 /** Terminal labs: the classic desktop — Code Studio, guide, site preview. */
@@ -58,14 +70,14 @@ const TERMINAL_APPS: AppSpec[] = [
     id: "code",
     title: "Code Studio",
     icon: "🧩",
-    initial: () => win(false, { x: 60, y: 40, w: Math.min(1020, window.innerWidth - 480), h: window.innerHeight - 160 }),
+    initial: () => win(false, { x: 24, y: 28, w: Math.min(1080, leftRegionWidth()), h: window.innerHeight - 150 }),
   },
   GUIDE,
   {
     id: "preview",
     title: "Garden Site",
     icon: "🌐",
-    initial: () => win(false, { x: 140, y: 90, w: 640, h: 560 }),
+    initial: () => win(false, { x: 90, y: 70, w: Math.min(680, leftRegionWidth() - 50), h: Math.min(600, window.innerHeight - 160) }),
   },
 ];
 
@@ -73,7 +85,7 @@ const TERMINAL_APPS: AppSpec[] = [
  * finding and opening the right app is part of what the lesson teaches
  * (goal-first onboarding); the guide names the app, the learner opens it. */
 function workspaceApps(declared: Array<{ id: string; title: string; icon: string }>): AppSpec[] {
-  const usable = Math.max(720, window.innerWidth - 440);
+  const usable = leftRegionWidth();
   const each = Math.min(560, Math.floor(usable / Math.max(1, declared.length)) - 16);
   return [
     ...declared.map((a, i) => ({
@@ -198,7 +210,8 @@ export function Desktop({
   const [hasSite, setHasSite] = useState(false);
   useEffect(() => {
     if (isWorkspaceLab) return; // no lab filesystem to probe
-    api.fsRead(creds, "app/index.html").then(() => setHasSite(true)).catch(() => setHasSite(false));
+    // probe: feature detection, not a learner action — must not emit file.viewed.
+    api.fsRead(creds, "app/index.html", { probe: true }).then(() => setHasSite(true)).catch(() => setHasSite(false));
   }, [creds, isWorkspaceLab]);
   const visibleApps = useMemo(() => APPS.filter((a) => a.id !== "preview" || hasSite), [APPS, hasSite]);
 

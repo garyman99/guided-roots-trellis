@@ -24,11 +24,25 @@ export interface PolicyDecision {
 export type HintReason =
   | { kind: "question"; text: string; stuck: boolean }
   | { kind: "goal"; text: string }
+  | { kind: "greeting" }
+  | { kind: "progress"; completedTaskIds: string[] }
   | { kind: "intervention"; trigger: InterventionTrigger };
 
 export function choosePolicy(state: LearningSessionState, reason: HintReason): PolicyDecision {
   const lastGiven = state.hintsAlreadyGiven.at(-1)?.level ?? -1;
   const frustrated = state.repeatedFailures.some((f) => f.count >= 3);
+
+  // The session opening: the guide speaks first, before any learner input.
+  // Pure welcome-and-orient — never part of the escalation ladder.
+  if (reason.kind === "greeting") {
+    return { level: 1, strategy: STRATEGIES[1], because: "session opening — welcome into the lesson, no escalation" };
+  }
+
+  // Measured task completion: acknowledge and hand over the next step.
+  // Progress is good news, never a plea for help — no escalation.
+  if (reason.kind === "progress") {
+    return { level: 1, strategy: STRATEGIES[1], because: "measured task completion — mark it and orient to the next step" };
+  }
 
   // A goal statement is onboarding, not a plea for help: orient warmly at
   // level 1 and NEVER count it toward the escalation ladder.

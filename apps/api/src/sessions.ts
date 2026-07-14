@@ -72,6 +72,8 @@ try {
 
 export interface LabTask {
   id: string;
+  /** Short display title — the checklist heading the guide renders. */
+  title?: string;
   text: string;
   /** How instrumentation recognizes this task as done (see taskStatuses). */
   auto?:
@@ -79,6 +81,9 @@ export interface LabTask {
     | "diff-viewed"
     | "tests-run"
     | "file-edited"
+    // Learner opened a workspace file in the GUI editor. KNOWN LIMITATION:
+    // reading the same file via `cat` in the terminal is not detected.
+    | "file-viewed"
     | "tests-green"
     // workspace labs (simulated applications):
     | "artifact-opened"
@@ -86,6 +91,8 @@ export interface LabTask {
     | "context-clean"
     | "draft-edited"
     | "reply-submitted";
+  /** For auto "file-viewed": the workspace path that counts (any file when omitted). */
+  autoPath?: string;
 }
 
 export interface LabManifest {
@@ -142,7 +149,7 @@ export interface InstructorMessage {
 /** Pure + tested: which tasks does the measured state show as done? */
 export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
   const ws = state.workspace;
-  const done = (auto?: LabTask["auto"]): boolean => {
+  const done = ({ auto, autoPath }: LabTask): boolean => {
     switch (auto) {
       case "any-command":
         return state.recentCommands.length > 0;
@@ -152,6 +159,8 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
         return state.testsRun > 0;
       case "file-edited":
         return state.filesChanged.length > 0;
+      case "file-viewed":
+        return autoPath ? state.viewedFiles.includes(autoPath) : state.viewedFiles.length > 0;
       case "tests-green":
         return state.testsRun > 0 && state.latestTestResult?.failed === 0 && !state.changedSinceLastTestRun;
       case "artifact-opened":
@@ -168,7 +177,7 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
         return false;
     }
   };
-  return tasks.map((t) => ({ ...t, done: done(t.auto) }));
+  return tasks.map((t) => ({ ...t, done: done(t) }));
 }
 
 const SCROLLBACK_CAP = 64 * 1024;
@@ -364,7 +373,7 @@ export class Session {
     return JSON.parse(await this.fsExec(program, {})) as Array<{ path: string; dir: boolean }>;
   }
 
-  async readWorkspaceFile(path: string): Promise<{ path: string; content: string; truncated: boolean }> {
+  async readWorkspaceFile(path: string, opts?: { probe?: boolean }): Promise<{ path: string; content: string; truncated: boolean }> {
     if (!Session.validFsPath(path)) throw new Error("invalid path");
     const program =
       'const fs=require("fs"),p=require("path");const rel=Buffer.from(process.env.TRELLIS_FS_PATH,"base64").toString();' +
@@ -372,6 +381,10 @@ export class Session {
       "const raw=fs.readFileSync(abs,\"utf8\");const cap=200*1024;" +
       "console.log(JSON.stringify({content:raw.slice(0,cap),truncated:raw.length>cap}));";
     const parsed = JSON.parse(await this.fsExec(program, { TRELLIS_FS_PATH: Buffer.from(path).toString("base64") }));
+    // MEASURED: the platform served this file to the learner's editor — a
+    // truthful "they opened it". UI probes (feature detection, previews the
+    // learner didn't click) pass probe to keep inference out of the record.
+    if (!opts?.probe) this.emit({ type: "file.viewed", path, timestamp: now() });
     return { path, content: parsed.content, truncated: parsed.truncated };
   }
 
@@ -402,6 +415,8 @@ export class Session {
         id: this.manifest.id,
         title: this.manifest.title,
         objective: this.manifest.objective,
+        scenario: this.manifest.scenario,
+        botName: this.manifest.chat?.botName,
         // With measured done-ness: providers may point at the actual next step.
         tasks: taskStatuses(this.manifest.tasks, state),
         instructorNotes: this.manifest.instructorNotes,
@@ -504,6 +519,71 @@ export class Session {
     }
   }
 
+  // ── session-opening greeting ────────────────────────────────────────────
+  // The first thing the learner reads. Generated ONCE per session by the
+  // guide provider from the lesson (title/objective/scenario/tasks) plus the
+  // assembled learner profile — so clicking a lesson link lands the learner
+  // IN that lesson, personally addressed, instead of a generic chat opener.
+  // Concurrent requests share one promise; a provider failure falls back to
+  // the authored goalPrompt so onboarding never blocks on a model.
+  private greetingPromise: Promise<{ text: string; generated: boolean }> | null = null;
+
+  async greeting(): Promise<{ text: string; generated: boolean }> {
+    this.greetingPromise ??= this.generateGreeting().catch((err) => {
+      console.error(`[instructor] greeting generation failed for ${this.id}:`, err);
+      this.greetingPromise = null; // a later request may retry
+      return { text: this.authoredGreeting(), generated: false };
+    });
+    return this.greetingPromise;
+  }
+
+  private authoredGreeting(): string {
+    return (
+      this.manifest.chat?.goalPrompt ??
+      `Hey! I'm ${this.manifest.chat?.botName ?? "Sage"} 🌿 — before we open anything: tell me in your own words, what are you here to get done today?`
+    );
+  }
+
+  private async generateGreeting(): Promise<{ text: string; generated: boolean }> {
+    const req = this.hintRequest({ kind: "greeting" });
+    const assembled = this.assembledProfile();
+    const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
+    this.recordHintUsage(hint);
+    this.emit({ type: "instructor.greeting", text: hint.message.slice(0, 4000), contextManifest: assembled?.manifest ?? null, timestamp: now() });
+    return { text: hint.message, generated: true };
+  }
+
+  /**
+   * Measured progress beat: the client observed task(s) flip to done and asks
+   * for the guide's next-step message — completed items checked off, the next
+   * open task handed over (or a nudge when the measured state warrants one).
+   * Falls back to the next task's authored text so the path never stalls on a
+   * provider hiccup. Ids are validated against the manifest (untrusted input).
+   */
+  async progressMessage(completedTaskIds: unknown): Promise<InstructorMessage> {
+    const known = new Set(this.manifest.tasks.map((t) => t.id));
+    const ids = (Array.isArray(completedTaskIds) ? completedTaskIds : [])
+      .filter((id): id is string => typeof id === "string" && known.has(id))
+      .slice(0, 20);
+    const state = this.state();
+    const req = this.hintRequest({ kind: "progress", completedTaskIds: ids }, state);
+    const assembled = this.assembledProfile();
+    let text: string;
+    try {
+      const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
+      this.recordHintUsage(hint);
+      text = hint.message;
+    } catch (err) {
+      console.error(`[instructor] progress generation failed for ${this.id}:`, err);
+      const next = taskStatuses(this.manifest.tasks, state).find((t) => !t.done);
+      text = next?.text ?? 'Everything on the list is measured done — run "Check my work" when you\'re ready.';
+    }
+    this.emit({ type: "instructor.progress", completedTaskIds: ids, text: text.slice(0, 4000), contextManifest: assembled?.manifest ?? null, timestamp: now() });
+    const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text, at: now() };
+    this.transcript.push(msg);
+    return msg;
+  }
+
   async ask(text: string, stuck: boolean, rawScreen?: unknown, opts?: { goal?: boolean }): Promise<InstructorMessage> {
     if (opts?.goal) {
       this.emit({ type: "learner.goal.stated", text: text.slice(0, 1000), timestamp: now() });
@@ -577,16 +657,38 @@ export class Session {
     this.pendingIntervention = { ...fresh, hint };
   }
 
+  /** Offered-but-unanswered check-in: the hint text is parked here and only
+   *  DELIVERED (transcript + event) if the learner accepts the nudge — one
+   *  message at a time, never a nudge immediately followed by its hint. */
+  private offeredIntervention: (InterventionTrigger & { hint: HintResponse }) | null = null;
+
   takePendingIntervention() {
     const p = this.pendingIntervention;
-    if (p) {
-      this.transcript.push({ id: ++this.msgSeq, role: "instructor", text: p.hint.message, level: p.hint.level, at: now() });
-      // The hint event fired at proposal time; record the delivery moment too
-      // so transcript and event log tell one story.
-      this.emit({ type: "intervention.delivered", triggerType: p.type, level: p.hint.level, strategy: p.hint.strategy, text: p.hint.message.slice(0, 4000), timestamp: now() });
-    }
+    if (p) this.offeredIntervention = p;
     this.pendingIntervention = null;
     return p;
+  }
+
+  /**
+   * The learner answered the check-in. Accepted → the parked hint becomes a
+   * real delivery (transcript + intervention.delivered) and is returned.
+   * Declined (or nothing offered) → null; the proposal stays in the log.
+   */
+  answerIntervention(accepted: boolean): InstructorMessage | null {
+    const offered = this.offeredIntervention;
+    this.offeredIntervention = null;
+    if (!offered || !accepted) return null;
+    this.emit({
+      type: "intervention.delivered",
+      triggerType: offered.type,
+      level: offered.hint.level,
+      strategy: offered.hint.strategy,
+      text: offered.hint.message.slice(0, 4000),
+      timestamp: now(),
+    });
+    const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text: offered.hint.message, level: offered.hint.level, at: now() };
+    this.transcript.push(msg);
+    return msg;
   }
 
   // ── checkpoint / lifecycle ──────────────────────────────────────────────

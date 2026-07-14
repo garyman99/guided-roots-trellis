@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type RequirementResult, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
 import { ContextDrawer, ReflectionCard } from "../panels.tsx";
+import { ChatMarkdown } from "./ChatMarkdown.tsx";
 
 interface ChatMsg {
   key: string;
@@ -31,6 +32,8 @@ interface ChatMsg {
   nudge?: boolean;
   /** Inline checkpoint result card. */
   checkpoint?: { passed: boolean; requirements: RequirementResult[] };
+  /** Render animated typing dots instead of text (message still arriving). */
+  typing?: boolean;
 }
 
 const FALLBACK_BOT = "Sage";
@@ -93,17 +96,24 @@ export function ChatGuide({
   };
 
   useEffect(() => {
+    let stale = false;
     if (awaitingGoal) {
-      // Just the greeting + goal question; everything else waits for them.
-      setMsgs([
-        {
-          key: "goal-prompt",
-          from: "bot",
-          text:
-            data.lab.chat?.goalPrompt ??
-            `Hey! I'm ${botName} 🌿 — before we open anything: tell me in your own words, what are you here to get done today?`,
-        },
-      ]);
+      // Just the opening + goal question; everything else waits for them.
+      // The opening is GENERATED per session (lesson scenario + learner
+      // profile briefed to the guide model) — typing dots while it arrives,
+      // the authored goalPrompt if the request fails.
+      setMsgs([{ key: "goal-typing", from: "bot", text: "", typing: true }]);
+      const authored =
+        data.lab.chat?.goalPrompt ??
+        `Hey! I'm ${botName} 🌿 — before we open anything: tell me in your own words, what are you here to get done today?`;
+      api
+        .greeting(creds)
+        .then(({ message }) => {
+          if (!stale) setMsgs([{ key: "goal-prompt", from: "bot", text: message.text }]);
+        })
+        .catch(() => {
+          if (!stale) setMsgs([{ key: "goal-prompt", from: "bot", text: authored }]);
+        });
     } else {
       const opening = scenarioOpening();
       const firstOpen = data.tasks.find((t) => !t.done);
@@ -116,6 +126,9 @@ export function ChatGuide({
     // Seed dedupe sets so pre-existing transcript/tasks don't replay as new.
     for (const m of data.transcript) seenTranscript.current.add(m.id);
     for (const t of data.tasks) if (t.done) seenTasks.current.add(t.id);
+    return () => {
+      stale = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creds.sessionId]);
 
@@ -124,17 +137,44 @@ export function ChatGuide({
   // offers the NEXT step — the lesson path delivered as conversation, not as
   // a checklist document.
   useEffect(() => {
-    let progressed = false;
+    const newlyDone: string[] = [];
     for (const t of data.tasks) {
       if (t.done && !seenTasks.current.has(t.id)) {
         seenTasks.current.add(t.id);
-        progressed = true;
-        push({ from: "system", text: `Saw that — nicely done. ✓` });
+        newlyDone.push(t.id);
       }
     }
     const next = data.tasks.find((t) => !t.done);
-    const shouldPrompt = next && promptedTask.current !== next.id && (progressed || promptedTask.current === null);
-    if (shouldPrompt) {
+    if (newlyDone.length > 0) {
+      push({ from: "system", text: `Saw that — nicely done. ✓` });
+      if (!completed) {
+        // Measured progress → the guide GENERATES the beat: completed items
+        // checked off, the next step handed over (typing dots meanwhile;
+        // the authored task text if generation fails).
+        promptedTask.current = next?.id ?? "all-done";
+        const typingKey = `prog-typing-${newlyDone.join("-")}`;
+        setMsgs((cur) => [...cur, { key: typingKey, from: "bot", text: "", typing: true }]);
+        api
+          .progress(creds, newlyDone)
+          .then(({ message }) => {
+            // The server recorded it in the transcript too — don't replay it.
+            seenTranscript.current.add(message.id);
+            setMsgs((cur) =>
+              cur.map((m) => (m.key === typingKey ? { key: `prog-${message.id}`, from: "bot" as const, text: message.text } : m)),
+            );
+          })
+          .catch(() => {
+            setMsgs((cur) =>
+              cur.map((m) =>
+                m.key === typingKey
+                  ? { key: `${typingKey}-fallback`, from: "bot" as const, text: next?.text ?? 'All steps look done — try "Check my work".' }
+                  : m,
+              ),
+            );
+          });
+      }
+    } else if (next && promptedTask.current === null) {
+      // Resumed session, no fresh progress: restate the open step as authored.
       promptedTask.current = next.id;
       push({ from: "bot", text: next.text });
     }
@@ -157,9 +197,9 @@ export function ChatGuide({
         };
         if (intervention) {
           nudgeArmed.current = false; // one open nudge at a time
-          // The hint TEXT arrives via the transcript (the server records the
-          // intervention there too) — the chat adds only the check-in chips,
-          // so the message never renders twice.
+          // ONE message: just the check-in. The hint text stays parked on
+          // the server and is delivered only if they accept — never a nudge
+          // immediately followed by unasked-for advice.
           push({ from: "bot", text: "Want a hand with this?", nudge: true });
         }
       } catch {
@@ -208,12 +248,27 @@ export function ChatGuide({
 
   const answerNudge = (accepted: boolean) => {
     setMsgs((cur) => cur.map((m) => (m.nudge ? { ...m, nudge: false } : m)));
-    nudgeArmed.current = true;
-    if (accepted) {
-      void send("Yes please — what should I try next?", true);
-    } else {
+    if (!accepted) {
       push({ from: "learner", text: "I've got it, thanks!" });
+      nudgeArmed.current = true;
+      void api.interventionAnswer(creds, false).catch(() => {});
+      return;
     }
+    // Accepted: deliver the hint that was parked when the nudge fired — no
+    // second model call, the help arrives instantly.
+    push({ from: "learner", text: "Yes, help me out" });
+    api
+      .interventionAnswer(creds, true)
+      .then(({ message }) => {
+        if (message) {
+          seenTranscript.current.add(message.id);
+          push({ from: "bot", text: message.text, hintLevel: message.level });
+        }
+      })
+      .catch(() => void send("Yes please — what should I try next?", true))
+      .finally(() => {
+        nudgeArmed.current = true;
+      });
   };
 
   const runCheck = async () => {
@@ -259,10 +314,23 @@ export function ChatGuide({
                   {botName} · hint {Math.min(m.hintLevel + 1, 5)} of 5
                 </div>
               )}
-              <p>{m.text}</p>
+              {m.typing ? (
+                <p className="chat-typing" aria-label={`${botName} is typing`}>
+                  <i />
+                  <i />
+                  <i />
+                </p>
+              ) : m.from === "bot" || m.from === "agent" ? (
+                // Guide/agent messages may carry light markdown (bold, code,
+                // the first-step checklist); learner text stays literal.
+                <ChatMarkdown text={m.text} />
+              ) : (
+                <p>{m.text}</p>
+              )}
               {m.nudge && (
+                // Both chips plain: a filled button reads as already-pressed.
                 <div className="chat-chips">
-                  <button className="chip chip-primary" onClick={() => answerNudge(true)}>
+                  <button className="chip" onClick={() => answerNudge(true)}>
                     Yes, help me out
                   </button>
                   <button className="chip" onClick={() => answerNudge(false)}>

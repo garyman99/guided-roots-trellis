@@ -43,22 +43,27 @@
   "tasks": [
     {
       "id": "orient",
-      "text": "Get your bearings first. Open Code Studio from the desktop (double-click its icon) and read README.md — it holds your manual check written down, the one idea this lesson teaches, and a \"words you'll need\" list so you never have to guess spelling. Want to see the page like a visitor first? Open Garden Site from the desktop too. Windows can overlap — a covered window's taskbar button at the bottom brings it back to the front.",
-      "auto": "any-command"
+      "title": "Get your bearings",
+      "text": "Open Code Studio and read README.md — your manual check is written down there, along with the exact words you'll need. Curious how a visitor sees the page? Open Garden Site too.",
+      "auto": "file-viewed",
+      "autoPath": "README.md"
     },
     {
       "id": "author",
-      "text": "Open tests/heading.spec.js in Code Studio. The navigation is already written; one empty test body is waiting. Turn your manual step into code: FIND the heading the way a visitor would notice it (by what it says, or that it's a heading), then STATE what you expect — that it should be visible. Two parts. Save with Ctrl+S.",
+      "title": "Write the two-part check",
+      "text": "Open tests/heading.spec.js — one empty test body is waiting. FIND the heading the way a visitor would notice it (by what it says, or that it's a heading), then STATE what you expect: that it's visible. Two parts. Save with Ctrl+S.",
       "auto": "file-edited"
     },
     {
       "id": "run",
-      "text": "Run `npm test` in the terminal. Read what it prints — it names your test and tells you what ran. If the terminal fights you, don't treat it as a wall: \"Check my work\" runs your test too. Careful: a test with no expectation in it can come up green while proving nothing, so green alone isn't the goal.",
+      "title": "Run the test",
+      "text": "Run `npm test` in the terminal and read what it prints — it names your test and what ran. Careful: a test with no expectation can come up green while proving nothing. If the terminal fights you, \"Check my work\" runs your test too.",
       "auto": "tests-run"
     },
     {
       "id": "verify",
-      "text": "When your check runs green AND you can point at the line that finds the heading and the line that states the expectation, you're done — use \"Check my work\" and I'll verify the check is real (it catches empty checks, don't worry).",
+      "title": "Check your work",
+      "text": "When your check runs green AND you can point at the line that finds the heading and the line that states the expectation, use \"Check my work\" — I'll verify the check is real (it catches empty checks, don't worry).",
       "auto": "tests-green"
     }
   ],
