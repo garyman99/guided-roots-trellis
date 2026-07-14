@@ -120,6 +120,20 @@ class LocalLabHandle implements LabHandle {
         this.terminal = null;
         this.exitCbs.forEach((cb) => cb(code));
       });
+      // A spawn failure (e.g. `script(1)` absent — Windows has no util-linux
+      // shell) emits 'error'; without a listener Node throws it as an
+      // UNHANDLED error and takes the whole API down. Surface it into the
+      // terminal stream instead and end the attachment cleanly.
+      this.terminal.on("error", (err: NodeJS.ErrnoException) => {
+        this.terminal = null;
+        const hint =
+          err.code === "ENOENT"
+            ? "the local driver needs a Unix shell with script(1); on Windows set LAB_DRIVER=docker"
+            : String(err.message);
+        const msg = `\r\n\x1b[31mTerminal unavailable: ${hint}\x1b[0m\r\n`;
+        this.dataCbs.forEach((cb) => cb(Buffer.from(msg)));
+        this.exitCbs.forEach((cb) => cb(1));
+      });
     }
     const term = this.terminal;
     return {
