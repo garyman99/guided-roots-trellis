@@ -25,8 +25,9 @@ export const textToSpeech: TextToSpeech = browserTextToSpeech;
 export function narratable(text: string): string {
   return (
     text
-      // fenced + inline code → keep the words, drop the ticks
-      .replace(/```[\s\S]*?```/g, (b) => b.replace(/```/g, " "))
+      // Fenced code blocks → don't read the syntax aloud; point to the chat.
+      .replace(/```[\s\S]*?```/g, " See the code in the chat window. ")
+      // inline code → keep the word (e.g. a filename), just drop the ticks
       .replace(/`([^`]+)`/g, "$1")
       // links [label](url) → label
       .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
@@ -41,6 +42,8 @@ export function narratable(text: string): string {
       .replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/gm, "")
       // pictographic emoji, arrows/dingbats, and variation selectors
       .replace(/[\p{Extended_Pictographic}←-➿️]/gu, " ")
+      // several snippets in one message → say the pointer once
+      .replace(/(?:See the code in the chat window\.\s*){2,}/g, "See the code in the chat window. ")
       .replace(/\s{2,}/g, " ")
       .trim()
   );
