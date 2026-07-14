@@ -31,7 +31,11 @@
     {
       "id": "fix",
       "text": "Fix the broken TEST (the app is fine — it hasn't changed). The move is always the same: find the exact wrong text in the test, retype it as what the app really shows. In Code Studio, click tests/garden.spec.js in the file list, fix the wrong text, and press Ctrl+S — the dot on the tab disappears when it's saved. (In a plain terminal, `nano tests/garden.spec.js` works too: Ctrl+O, Enter saves; Ctrl+X exits.) Keep the agent's new plot-size test. And one more reviewer's duty: the agent left a comment explaining its edit — after your fix, does that comment still tell the truth? A comment that contradicts the code is worse than no comment. Remove it.",
-      "auto": "file-edited"
+      "auto": "file-edited",
+      "validate": {
+        "reads": ["tests/garden.spec.js", "app/index.html"],
+        "criterion": "The broken test in tests/garden.spec.js was fixed so its expectation matches what the app in app/index.html actually shows — the app itself must NOT have been changed to match a wrong test. The fix is ONE of: a wrong asserted string corrected to the app's real copy, or an ambiguous locator like page.locator('button') replaced with one that uniquely identifies the element (e.g. getByRole('button', { name: ... })). ALSO REQUIRED: the agent's newly-added plot-size test is still present (not deleted or .skip-ed), and the agent's misleading comment (the one claiming it refreshed the copy / explaining an edit that no longer matches the code) has been removed. PASS only if the assertion/locator now agrees with app/index.html AND the plot-size test remains AND the misleading comment is gone. FAIL if the failing test was deleted or skipped, the app markup was edited, the plot-size test is missing, or the misleading comment is still there."
+      }
     },
     {
       "id": "verify",

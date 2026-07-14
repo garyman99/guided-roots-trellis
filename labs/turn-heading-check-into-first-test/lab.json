@@ -59,7 +59,11 @@
       "id": "author",
       "title": "Write the two-part check",
       "text": "Open tests/heading.spec.js and TYPE your check into the empty test body — you're writing two short lines of code: the first finds the heading (the way a visitor would spot it — by its text, or that it's a heading), the second says it should be visible. Not sure what to type? Ask me and I'll show you the pieces. Save with Ctrl+S.",
-      "auto": "file-edited"
+      "auto": "file-edited",
+      "validate": {
+        "reads": ["tests/heading.spec.js"],
+        "criterion": "Inside the last test's body (where the comment said 'your check goes here'), the learner has written BOTH parts of the check: (1) a locator that finds the 'Community Garden Signup' heading the way a visitor would perceive it — e.g. page.getByRole('heading', { name: ... }) or page.getByText(...) — AND (2) an assertion that the found element is visible — e.g. await expect(<the locator>).toBeVisible(). Both must be present and wired together (the assertion actually checks the locator). NOT complete if: the body is still empty or only the comment, there is a locator but no assertion (or vice versa), or the assertion doesn't reference the heading locator. The prepared lines above the empty test (imports, page.goto, beforeEach) don't count — only the learner's own check does."
+      }
     },
     {
       "id": "run",

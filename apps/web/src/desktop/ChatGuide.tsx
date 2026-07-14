@@ -66,6 +66,11 @@ export function ChatGuide({
   // id math alone raced the 2s state poll once the real model added ~1s of
   // latency, echoing the learner's own message back at them.
   const suppressLearnerEcho = useRef<string | null>(null);
+  // Correctness-gate results already shown, keyed by task+content, so a failing
+  // check surfaces its "not quite" note once per distinct attempt (a pass just
+  // lets the task complete → the normal progress beat handles it).
+  const shownValidations = useRef<Set<string>>(new Set());
+  const validationsPrimed = useRef(false);
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
@@ -225,6 +230,22 @@ export function ChatGuide({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.tasks, data.transcript, awaitingGoal]);
+
+  // ── Auto-gate feedback: a task's work was checked and came back short ─────
+  // A pass lets the task complete (the progress beat handles it); a FAIL keeps
+  // the task open and lands the guide's "here's what's missing" note. Seeded on
+  // the first pass so a resumed session doesn't replay old verdicts.
+  useEffect(() => {
+    for (const [taskId, v] of Object.entries(data.taskValidations)) {
+      const key = `${taskId}:${v.contentHash}`;
+      if (shownValidations.current.has(key)) continue;
+      shownValidations.current.add(key);
+      if (!validationsPrimed.current) continue; // adopt existing verdicts silently
+      if (!v.passed && v.reason) push({ from: "bot", text: `Not quite yet — ${v.reason}` });
+    }
+    validationsPrimed.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.taskValidations]);
 
   // ── Proactive check-ins: interventions → conversational nudges ───────────
   useEffect(() => {

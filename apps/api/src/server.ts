@@ -674,6 +674,9 @@ export const server = createServer(async (req, res) => {
           variantId: session.variant?.variantId ?? null,
           // Which guide provider is voicing this session right now (mock | model).
           guideProvider: session.guideProviderId,
+          // Auto-gating correctness results per task id (reason surfaced on a
+          // fail so the guide can say what's missing). Empty when nothing checked.
+          taskValidations: state.taskValidations,
           // The agent lane, straight from the event log — replayable truth.
           agentTimeline: session
             .events()

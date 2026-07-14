@@ -45,6 +45,8 @@ export interface StatePayload {
   variantId: string | null;
   /** Which guide provider is voicing this session (mock | live model). */
   guideProvider: GuideProviderId;
+  /** Per-task correctness-gate results (reason present on a fail). */
+  taskValidations: Record<string, { passed: boolean; reason: string; contentHash: string }>;
   state: {
     viewedGitDiff: boolean;
     testsRun: number;

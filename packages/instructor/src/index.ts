@@ -7,6 +7,7 @@ export { MockInstructorProvider } from "./mock.ts";
 export { OpenAICompatibleProvider } from "./openaiCompatible.ts";
 export { AnthropicInstructorProvider } from "./anthropic.ts";
 export { FakeInstructorProvider, type FakeHint } from "./fake.ts";
+export { buildTaskValidator, type TaskValidator, type TaskValidation } from "./validator.ts";
 
 import type { InstructorProvider } from "./types.ts";
 import { MockInstructorProvider } from "./mock.ts";

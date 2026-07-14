@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, createHash } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
 import { sanitizeUntrusted } from "../../../packages/shared/src/sanitize.ts";
 import { now, type SessionEvent } from "../../../packages/session-events/src/events.ts";
@@ -37,7 +37,9 @@ import {
   renderReflectionNarrative,
   guideProviderCatalog,
   buildGuideProvider,
+  buildTaskValidator,
   PROMPT_VERSION,
+  type TaskValidator,
   type AssembledProfile,
   type GuideProviderId,
   type GuideProviderInfo,
@@ -96,6 +98,18 @@ export interface LabTask {
     | "reply-submitted";
   /** For auto "file-viewed": the workspace path that counts (any file when omitted). */
   autoPath?: string;
+  /**
+   * Optional LLM correctness gate. When present, the task completes only after
+   * its coarse `auto` trigger fires AND a model judges the learner's work
+   * against `criterion` as correct — so a half-finished edit can't advance the
+   * lesson. Offline mock has no model, so the gate auto-passes (unchanged).
+   */
+  validate?: {
+    /** Workspace file paths whose contents the criterion is judged against. */
+    reads: string[];
+    /** Plain-language description of what "done correctly" means. */
+    criterion: string;
+  };
 }
 
 export interface LabManifest {
@@ -149,10 +163,11 @@ export interface InstructorMessage {
   at: string;
 }
 
-/** Pure + tested: which tasks does the measured state show as done? */
-export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
+/** Whether a task's COARSE instrumentation trigger has fired (pre-validation). */
+export function taskAutoDone(task: LabTask, state: LearningSessionState): boolean {
   const ws = state.workspace;
-  const done = ({ auto, autoPath }: LabTask): boolean => {
+  const { auto, autoPath } = task;
+  {
     switch (auto) {
       case "any-command":
         return state.recentCommands.length > 0;
@@ -179,8 +194,26 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
       default:
         return false;
     }
-  };
-  return tasks.map((t) => ({ ...t, done: done(t) }));
+  }
+}
+
+/**
+ * Which tasks show as done? The coarse instrumentation trigger must have fired
+ * AND — for a task that declares a `validate` criterion — the LLM correctness
+ * gate must have passed. Tasks without a criterion behave exactly as before.
+ */
+export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
+  return tasks.map((t) => ({
+    ...t,
+    done: taskAutoDone(t, state) && (!t.validate || state.taskValidations[t.id]?.passed === true),
+  }));
+}
+
+/** Stable fingerprint of the files a criterion reads — re-check only on change. */
+function hashValidationInputs(files: Array<{ path: string; content: string }>): string {
+  const h = createHash("sha1");
+  for (const f of files) h.update(f.path).update("\0").update(f.content).update("\0");
+  return h.digest("hex");
 }
 
 const SCROLLBACK_CAP = 64 * 1024;
@@ -204,6 +237,10 @@ export class Session {
   private instructor: InstructorProvider;
   /** Which switcher choice is live now ("mock" | "model") — surfaced to the UI. */
   guideProviderId: GuideProviderId = "mock";
+  /** LLM correctness gate (shared, from GUIDE_* config). Null → tasks auto-pass. */
+  private readonly validator: TaskValidator | null;
+  /** Tasks whose validation is in flight — stops the poll cadence double-firing. */
+  private readonly validating = new Set<string>();
 
   /** The lab environment. NULL for workspace labs (simulated apps only). */
   handle: LabHandle | null = null;
@@ -238,6 +275,7 @@ export class Session {
     learners: LearnerService,
     variant: LabVariant | null,
     lessonConcepts: string[],
+    validator: TaskValidator | null,
   ) {
     this.manifest = manifest;
     this.labDir = labDir;
@@ -248,6 +286,7 @@ export class Session {
     this.learners = learners;
     this.variant = variant;
     this.lessonConcepts = lessonConcepts;
+    this.validator = validator;
   }
 
   emit(event: SessionEvent): void {
@@ -410,6 +449,9 @@ export class Session {
     // event is truthful — GUI saves reach the reducer exactly like terminal
     // edits do (those are caught by the git snapshot after the next command).
     this.emit({ type: "file.changed", path, timestamp: now() });
+    // A save is the moment an authoring task's work is ready to judge — run the
+    // correctness gate now (non-blocking; the write result returns immediately).
+    void this.maybeValidate().catch(() => {});
   }
 
   // ── instructor ──────────────────────────────────────────────────────────
@@ -637,6 +679,58 @@ export class Session {
     const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text: hint.message, level: hint.level, at: now() };
     this.transcript.push(msg);
     return msg;
+  }
+
+  /**
+   * The auto-gating correctness check. For every task that declares a
+   * `validate` criterion and whose coarse trigger has fired but which hasn't
+   * passed yet, judge the learner's actual files against the criterion and
+   * record the result. A live guide runs the LLM check; the offline mock
+   * auto-passes (labs behave as before). Content-hashed so a given piece of
+   * work is judged once — a fail is re-checked only after the learner edits.
+   * Runs on the same cadence as interventions, plus right after a GUI save.
+   */
+  async maybeValidate(): Promise<void> {
+    if (this.destroyed || !this.handle) return; // file-based check needs a lab fs
+    const state = this.state();
+    for (const task of this.manifest.tasks) {
+      const v = task.validate;
+      if (!v) continue;
+      if (state.taskValidations[task.id]?.passed) continue; // already correct
+      if (!taskAutoDone(task, state)) continue; // coarse trigger hasn't fired yet
+      if (this.validating.has(task.id)) continue; // one check in flight per task
+
+      // No live model → auto-pass, so labs stay usable offline.
+      if (this.guideProviderId !== "model" || !this.validator) {
+        this.emit({ type: "task.validated", taskId: task.id, passed: true, reason: "", contentHash: "auto", timestamp: now() });
+        continue;
+      }
+
+      let files: Array<{ path: string; content: string }>;
+      try {
+        files = [];
+        for (const p of v.reads) {
+          const r = await this.readWorkspaceFile(p, { probe: true }); // probe: not a learner "view"
+          files.push({ path: p, content: r.content });
+        }
+      } catch {
+        continue; // a read file isn't there yet — try again next tick
+      }
+      const contentHash = hashValidationInputs(files);
+      if (state.taskValidations[task.id]?.contentHash === contentHash) continue; // this exact work already judged
+
+      this.validating.add(task.id);
+      try {
+        const { passed, reason } = await this.validator.validate(v.criterion, files);
+        this.emit({ type: "task.validated", taskId: task.id, passed, reason: reason.slice(0, 300), contentHash, timestamp: now() });
+      } catch (err) {
+        console.error(`[validate] task ${task.id} check failed for ${this.id}:`, err);
+        // Never strand a learner on a validator hiccup — let them through.
+        this.emit({ type: "task.validated", taskId: task.id, passed: true, reason: "", contentHash, timestamp: now() });
+      } finally {
+        this.validating.delete(task.id);
+      }
+    }
   }
 
   /** Deterministic rules; runs on the instrumentation cadence. */
@@ -903,6 +997,9 @@ export class SessionManager {
   // cached and shared across sessions — one mock, one live model.
   private readonly guideCatalog = guideProviderCatalog();
   private readonly guideProviders = new Map<GuideProviderId, InstructorProvider>();
+  // Task correctness gate, shared across sessions (from GUIDE_* config). Null
+  // when no live model is configured; each session uses it only while on "model".
+  private readonly taskValidator = buildTaskValidator();
   private readonly store: EventStore;
   private readonly labsRoot: string;
   readonly driverKind: "local" | "docker";
@@ -1010,7 +1107,7 @@ export class SessionManager {
     }
     const session = new Session(
       manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
-      learner, this.learners, variant, lessonConcepts,
+      learner, this.learners, variant, lessonConcepts, this.taskValidator,
     );
     session.guideProviderId = guideId;
     if (!manifest.workspace) {
@@ -1049,6 +1146,7 @@ export class SessionManager {
       const origDrain = instr.drain.bind(instr);
       instr.drain = async () => {
         await origDrain();
+        await session.maybeValidate().catch(() => {});
         await session.maybeIntervene().catch(() => {});
       };
     }

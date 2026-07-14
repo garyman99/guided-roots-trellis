@@ -36,6 +36,12 @@ export type SessionEvent =
   // emitting seam). Drives file-viewed task auto-completion + activity.
   | ({ type: "file.viewed"; path: string } & Base)
   | ({ type: "git.diff.viewed"; command: string } & Base)
+  // LLM correctness gate for a task that declares a success criterion: a
+  // measured decision (pass/fail + a short learner-facing reason) computed
+  // server-side from the learner's ACTUAL work. contentHash lets the session
+  // re-check only when the work changed. Tasks without a criterion complete on
+  // their coarse trigger as before; this never runs for them.
+  | ({ type: "task.validated"; taskId: string; passed: boolean; reason: string; contentHash: string } & Base)
   | ({ type: "tests.completed"; passed: number; failed: number } & Base)
   | ({ type: "checkpoint.evaluated"; checkpointId: string; passed: boolean; incomplete: string[] } & Base)
   | ({ type: "checkpoint.completed"; checkpointId: string } & Base)
