@@ -164,7 +164,11 @@ export function ChatGuide({
       if (data.tasks.some((t) => t.done)) {
         setAwaitingGoal(false);
         promptedTask.current = data.tasks.find((t) => !t.done)?.id ?? "all-done";
-        setMsgs(scenarioOpening().map((m) => ({ ...m, key: `open-${m.key}` })));
+        // APPEND the scenario context — never replace the thread. An earlier
+        // version reset msgs here, which wiped whatever the learner had
+        // already seen (the greeting, any exchange) the moment they opened a
+        // file. Add to what's there.
+        setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `open-${m.key}` }))]);
       }
       return; // awaitingGoal flip re-runs this effect; beats process then
     }

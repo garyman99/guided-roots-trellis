@@ -22,11 +22,16 @@ export function useDictation(onChange: (value: string) => void) {
   const [listening, setListening] = useState(false);
   const sessionRef = useRef<SpeechToTextSession | null>(null);
   const baseRef = useRef(""); // committed text: field value at start + settled finals
+  // false = stopped; ignore any (possibly trailing) result. The engine can
+  // emit a final result AFTER stop() — without this guard that late result
+  // re-filled the composer just after send() cleared it.
+  const activeRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
   const stop = useCallback(() => {
-    sessionRef.current?.stop();
+    activeRef.current = false; // freeze the field first
+    sessionRef.current?.abort(); // abort, not stop → no trailing final to re-fill the draft
     sessionRef.current = null;
     setListening(false);
   }, []);
@@ -34,9 +39,13 @@ export function useDictation(onChange: (value: string) => void) {
   const start = useCallback((base: string) => {
     if (!speechToText.supported || sessionRef.current) return;
     baseRef.current = base.trim() ? base.replace(/\s*$/, " ") : "";
+    activeRef.current = true;
     sessionRef.current = speechToText.start({
-      onInterim: (t) => onChangeRef.current(baseRef.current + t),
+      onInterim: (t) => {
+        if (activeRef.current) onChangeRef.current(baseRef.current + t);
+      },
       onFinal: (t) => {
+        if (!activeRef.current) return;
         baseRef.current = (baseRef.current + t).replace(/\s*$/, " ");
         onChangeRef.current(baseRef.current);
       },
