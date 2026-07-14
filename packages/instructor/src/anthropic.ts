@@ -54,7 +54,12 @@ export class AnthropicInstructorProvider implements InstructorProvider {
       model: this.opts.model,
       system: context.system,
       user: context.user,
-      maxTokens: this.opts.maxTokens ?? 300,
+      // 300 truncated replies that explain AND show a code piece — the model
+      // could hit the cap before emitting a usable text block, and the client
+      // then threw "no text content", failing the whole ask (a learner's
+      // message would go unanswered). Only tokens actually generated are
+      // billed, so a generous ceiling is a pure win; the prompt keeps replies brief.
+      maxTokens: this.opts.maxTokens ?? 2048,
       timeoutMs: this.opts.timeoutMs ?? 30_000,
       fetchImpl: this.opts.fetchImpl,
     });

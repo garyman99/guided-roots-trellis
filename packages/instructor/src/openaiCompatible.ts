@@ -61,7 +61,7 @@ export class OpenAICompatibleProvider implements InstructorProvider {
       system: context.system,
       user: context.user,
       temperature: 0.3,
-      maxTokens: this.opts.maxTokens ?? 300,
+      maxTokens: this.opts.maxTokens ?? 2048, // 300 truncated code+explanation replies (see anthropic.ts)
       timeoutMs: this.opts.timeoutMs ?? 30_000,
       fetchImpl: this.opts.fetchImpl,
     });
