@@ -20,6 +20,12 @@ function focusTask(req: HintRequest): string {
   return open?.text ?? req.lab.tasks.at(-1)?.text ?? "finishing the checkpoint";
 }
 
+/** Hard checklist format: `- [ ] **Title** — one short sentence` (see CHECKLIST_RULE). */
+function checklistItem(t: { title?: string; text: string }, checked: boolean): string {
+  const desc = t.text.split(/(?<=[.!?])\s+/)[0];
+  return `- [${checked ? "x" : " "}] ${t.title ? `**${t.title}** — ` : ""}${desc}`;
+}
+
 function terminalFocus(req: HintRequest): string {
   const { state, lab } = req;
   if (!state.viewedGitDiff) return "reviewing the agent's uncommitted change";
@@ -117,6 +123,57 @@ export class MockInstructorProvider implements InstructorProvider {
   private async pick(req: HintRequest, _context: BuiltContext): Promise<HintResponse> {
     const { state, reason, hintLevel } = req;
     const workspace = req.lab.surface === "workspace";
+
+    // Session opening: the guide speaks first. Lesson-aware by construction —
+    // built from the manifest's own scenario words, so clicking into a lesson
+    // lands IN that lesson even offline. No self-intro (the chat header shows
+    // who's talking), no "what do you want?" (clicking the lesson already
+    // answered that) — it confirms the lesson plan and hands over the first
+    // step as an unchecked markdown checklist item.
+    if (reason.kind === "greeting") {
+      // The scenario's first two sentences set the scene without dumping the whole brief.
+      const scene = (req.lab.scenario ?? "").split(/(?<=[.!?])\s+/).slice(0, 2).join(" ").slice(0, 280);
+      const first = req.lab.tasks.find((t) => t.done === false) ?? req.lab.tasks[0];
+      return {
+        message:
+          `Welcome in 🌿 You've stepped into **${req.lab.title}** — a hands-on lesson that walks you through it one step at a time.` +
+          (scene ? `\n\n${scene}` : "") +
+          `\n\nEverything in here is practice — nothing you do can break anything real. Here's your first step:` +
+          `\n\n${first ? checklistItem(first, false) : "- [ ] **Look around** — get your bearings on the desktop."}`,
+        level: 1,
+        strategy: "greeting",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+
+    // Measured progress: instrumentation marked task(s) done. Check them off
+    // in the same hard checklist format and hand over the next open step —
+    // the lesson path delivered as conversation, never invented praise.
+    if (reason.kind === "progress") {
+      const doneIds = new Set(reason.completedTaskIds);
+      const next = req.lab.tasks.find((t) => t.done === false);
+      // LESSON-PLAN ORDER, always: tasks can complete out of order (an edit
+      // before the read), but the plan must still scan top-to-bottom — a
+      // checked item above an earlier open one reads as a rendering bug
+      // (owner feedback, 2026-07-14).
+      const lines = req.lab.tasks
+        .filter((t) => doneIds.has(t.id) || t.id === next?.id)
+        .map((t) => checklistItem(t, doneIds.has(t.id)));
+      const nudge =
+        state.changedSinceLastTestRun && state.testsRun > 0
+          ? "\n\nOne thing worth knowing: you've changed code since the last test run, so the latest green belongs to an older version."
+          : "";
+      return {
+        message: next
+          ? `That step is measured done — here's where you stand:\n\n${lines.join("\n")}${nudge}`
+          : `That was the last step on the list:\n\n${lines.join("\n")}\n\nRun "Check my work" when you're ready and I'll verify it for real.`,
+        level: 1,
+        strategy: "progress",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
 
     // Goal-first onboarding: the learner just said what they're here to do.
     // Acknowledge THEIR words and hand them the first concrete step — never

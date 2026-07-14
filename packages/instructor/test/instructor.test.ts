@@ -104,6 +104,107 @@ test("mock provider is deterministic, cites evidence, and never reveals below ex
   }
 });
 
+/* ── Session-opening greeting: lesson-aware first message ── */
+
+const greetingLab = {
+  ...lab,
+  scenario: "You're a manual QA engineer. Today one routine step becomes an automated check.",
+  botName: "Sage",
+  tasks: [
+    { id: "t1", title: "Review the diff", text: "Review the diff. Read every hunk before touching anything.", done: false },
+    { id: "t2", title: "Fix it surgically", text: "Restore the original behavior. Keep the requested addition.", done: false },
+  ],
+};
+
+test("policy: greeting orients at level 1 and never joins the escalation ladder", () => {
+  const state = initialState(lab.id, "learner-1");
+  state.hintsAlreadyGiven.push({ level: 4, strategy: "explain-concept" });
+  const d = choosePolicy(state, { kind: "greeting" });
+  assert.deepEqual([d.level, d.strategy], [1, "orient"]);
+  assert.match(d.because, /session opening/);
+});
+
+test("context: greeting briefs the model with the scenario, no self-intro, and a first-step checklist", () => {
+  const r = req({ lab: greetingLab, reason: { kind: "greeting" } });
+  const ctx = buildInstructorContext(r);
+  assert.match(ctx.user, /# SESSION OPENING/);
+  assert.match(ctx.user, /Scenario: You're a manual QA engineer\./, "the lesson's scenario reaches the model");
+  assert.match(ctx.user, /Do NOT introduce yourself/);
+  assert.match(ctx.user, /never ask what they want out of the session/);
+  assert.match(ctx.user, /HARD format rule: `- \[ \] \*\*Title\*\* — one short plain sentence`/);
+  assert.match(ctx.user, /Keep blocks SHORT: 1–2 sentences per paragraph/);
+  assert.match(ctx.user, /# YOUR TASK\nWrite the session-opening message/);
+  assert.ok(!ctx.user.includes("Respond at hint level"), "greeting is not a laddered hint");
+});
+
+test("context: greeting includes learner-profile facets when assembled", () => {
+  const profile = assembleProfileFacets(fixtureProfile(), ["agents.reviewing-agent-changes"], curriculum);
+  const r = req({ lab: greetingLab, reason: { kind: "greeting" } });
+  const ctx = buildInstructorContext(r, profile);
+  assert.match(ctx.user, /# LEARNER PROFILE/);
+  assert.match(ctx.user, /Skill git\.diff-first-review: mastered/);
+});
+
+test("mock: greeting is deterministic, names the lesson, and ends with the first step unchecked", async () => {
+  const provider = new MockInstructorProvider();
+  const r = req({ lab: greetingLab, reason: { kind: "greeting" } });
+  const ctx = buildInstructorContext(r);
+  const a = await provider.generateHint(r, ctx);
+  const b = await provider.generateHint(r, ctx);
+  assert.deepEqual(a, b);
+  assert.match(a.message, new RegExp(greetingLab.title));
+  assert.match(a.message, /manual QA engineer/, "scenario scene-setting is present");
+  assert.match(a.message, /\n- \[ \] \*\*Review the diff\*\* — /, "first open task: titled, unchecked checklist item");
+  assert.ok(a.message.split("\n\n").length >= 3, "short paragraph blocks, not one wall of prose");
+  assert.ok(!/I'm Sage/.test(a.message), "no self-introduction — the chat header already says who's talking");
+  assert.ok(!/what do you want/i.test(a.message), "never asks what they want — clicking the lesson answered that");
+  assert.equal(a.strategy, "greeting");
+});
+
+test("context: progress section names the measured tasks and enforces the checklist rule", () => {
+  const doneLab = { ...greetingLab, tasks: greetingLab.tasks.map((t, i) => ({ ...t, done: i === 0 })) };
+  const r = req({ lab: doneLab, reason: { kind: "progress", completedTaskIds: ["t1"] } });
+  const ctx = buildInstructorContext(r);
+  assert.match(ctx.user, /# TASK PROGRESS/);
+  assert.match(ctx.user, /Task\(s\) just measured done: t1/);
+  assert.match(ctx.user, /\[Review the diff\].*\(measured done\)/, "LAB tasks carry titles and measured done-ness");
+  assert.match(ctx.user, /HARD format rule/);
+});
+
+test("mock: progress checks off the finished task and hands over the next, titled", async () => {
+  const provider = new MockInstructorProvider();
+  const doneLab = { ...greetingLab, tasks: greetingLab.tasks.map((t, i) => ({ ...t, done: i === 0 })) };
+  const r = req({ lab: doneLab, reason: { kind: "progress", completedTaskIds: ["t1"] } });
+  const a = await provider.generateHint(r, buildInstructorContext(r));
+  assert.match(a.message, /- \[x\] \*\*Review the diff\*\* — /);
+  assert.match(a.message, /- \[ \] \*\*Fix it surgically\*\* — /);
+  assert.equal(a.strategy, "progress");
+
+  // Out-of-order completion (edit before read): items still render in
+  // LESSON-PLAN order — open first task above the checked later one.
+  const outOfOrder = { ...greetingLab, tasks: greetingLab.tasks.map((t, i) => ({ ...t, done: i === 1 })) };
+  const r3 = req({ lab: outOfOrder, reason: { kind: "progress", completedTaskIds: ["t2"] } });
+  const c = await provider.generateHint(r3, buildInstructorContext(r3));
+  const openIdx = c.message.indexOf("- [ ] **Review the diff**");
+  const doneIdx = c.message.indexOf("- [x] **Fix it surgically**");
+  assert.ok(openIdx !== -1 && doneIdx !== -1 && openIdx < doneIdx, "plan order wins over completion order");
+
+  // Last task done → point at "Check my work" instead of a next step.
+  const allDone = { ...greetingLab, tasks: greetingLab.tasks.map((t) => ({ ...t, done: true })) };
+  const r2 = req({ lab: allDone, reason: { kind: "progress", completedTaskIds: ["t2"] } });
+  const b = await provider.generateHint(r2, buildInstructorContext(r2));
+  assert.match(b.message, /Check my work/);
+  assert.ok(!b.message.includes("- [ ]"), "nothing left unchecked");
+});
+
+test("policy: progress orients at level 1 and never joins the escalation ladder", () => {
+  const state = initialState(lab.id, "learner-1");
+  state.hintsAlreadyGiven.push({ level: 3, strategy: "point-to-location" });
+  const d = choosePolicy(state, { kind: "progress", completedTaskIds: ["t1"] });
+  assert.deepEqual([d.level, d.strategy], [1, "orient"]);
+  assert.match(d.because, /measured task completion/);
+});
+
 /* ── Context assembler (Phase 2): golden test + quarantine enforcement ── */
 
 function fixtureProfile(): LearnerProfile {

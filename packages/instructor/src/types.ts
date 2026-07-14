@@ -7,7 +7,11 @@ export interface HintRequest {
     id: string;
     title: string;
     objective: string;
-    tasks: Array<{ id: string; text: string; done?: boolean }>;
+    /** The lesson's narrative framing ("You're a manual QA engineer…"). */
+    scenario?: string;
+    /** The guide's display name (lab.json chat.botName) for first-person phrasing. */
+    botName?: string;
+    tasks: Array<{ id: string; title?: string; text: string; done?: boolean }>;
     /** Trusted curriculum guidance (from lab.json), incl. reveal policy. */
     instructorNotes?: string;
     /**
@@ -35,6 +39,12 @@ export interface HintRequest {
   reason:
     | { kind: "question"; text: string; stuck: boolean }
     | { kind: "goal"; text: string }
+    // The session-opening message: no learner input yet — the guide speaks
+    // first, welcoming the learner into THIS lesson (goal-first onboarding).
+    | { kind: "greeting" }
+    // Instrumentation measured task(s) complete: check them off and hand
+    // over the next step (ids validated against the manifest by the session).
+    | { kind: "progress"; completedTaskIds: string[] }
     | { kind: "intervention"; trigger: InterventionTrigger };
   /**
    * What the learner's client says is on screen right now (UNTRUSTED,

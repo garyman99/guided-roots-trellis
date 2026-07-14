@@ -31,6 +31,10 @@ export type SessionEvent =
       outputSummary: string;
     } & Base)
   | ({ type: "file.changed"; path: string } & Base)
+  // The platform served this workspace file to the learner's GUI editor —
+  // a measured "they opened/read it" fact (probe reads are excluded at the
+  // emitting seam). Drives file-viewed task auto-completion + activity.
+  | ({ type: "file.viewed"; path: string } & Base)
   | ({ type: "git.diff.viewed"; command: string } & Base)
   | ({ type: "tests.completed"; passed: number; failed: number } & Base)
   | ({ type: "checkpoint.evaluated"; checkpointId: string; passed: boolean; incomplete: string[] } & Base)
@@ -43,6 +47,14 @@ export type SessionEvent =
   // as a FACT about what was said, so a session replay can show the real
   // conversation. Never an input to profile truth. Empty on pre-v3 events.
   | ({ type: "instructor.hint"; level: number; strategy: string; text: string; contextManifest: ContextManifest | null } & Base)
+  // The generated session-opening message (lesson- and learner-aware).
+  // Deliberately NOT an instructor.hint: a greeting must never count toward
+  // the hint escalation ladder or the digest's hint stats.
+  | ({ type: "instructor.greeting"; text: string; contextManifest: ContextManifest | null } & Base)
+  // The generated progress beat: instrumentation measured task(s) done and
+  // the guide checked them off + handed over the next step. Same rationale
+  // as instructor.greeting for being its own type (progress ≠ a hint).
+  | ({ type: "instructor.progress"; completedTaskIds: string[]; text: string; contextManifest: ContextManifest | null } & Base)
   | ({ type: "intervention.proposed"; triggerType: string; suggestedHintLevel: number } & Base)
   // A proposed intervention's hint is parked until the UI polls it; this
   // marks the moment it actually reached the transcript, so event log and

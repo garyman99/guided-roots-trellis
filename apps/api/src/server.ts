@@ -5,9 +5,12 @@
  *   POST   /api/sessions                     { labId, consentAnalytics? } → session + token
  *   GET    /api/labs/:labId                  lesson content for the UI
  *   GET    /api/sessions/:id/state           reduced state + transcript + checkpoint spec
+ *   GET    /api/sessions/:id/greeting        generated session-opening message (cached per session)
+ *   POST   /api/sessions/:id/progress        { completedTaskIds } → generated next-step message
  *   GET    /api/sessions/:id/context-preview exactly what the instructor would see now
  *   POST   /api/sessions/:id/ask             { text, stuck? } → instructor message
  *   GET    /api/sessions/:id/intervention    non-blocking nudge poll (may be null)
+ *   POST   /api/sessions/:id/intervention/answer { accepted } → parked hint or null
  *   POST   /api/sessions/:id/checkpoint/evaluate
  *   POST   /api/sessions/:id/reset
  *   GET    /api/sessions/:id/export          full event log (data transparency)
@@ -676,6 +679,19 @@ export const server = createServer(async (req, res) => {
           },
         });
       }
+      if (req.method === "GET" && tail === "greeting") {
+        // Lesson- and learner-aware opening message; generated once, cached
+        // on the session, and 200s even when the provider fails (authored
+        // goalPrompt fallback) — onboarding must never block on a model.
+        return json(res, 200, { message: await session.greeting() });
+      }
+      if (req.method === "POST" && tail === "progress") {
+        // The client saw task(s) flip to done; the guide checks them off and
+        // hands over the next step. Never 500s on provider failure (authored
+        // task-text fallback inside the session).
+        const body = await readBody(req);
+        return json(res, 200, { message: await session.progressMessage(body.completedTaskIds) });
+      }
       if (req.method === "GET" && tail === "context-preview") {
         return json(res, 200, session.contextPreview());
       }
@@ -707,7 +723,8 @@ export const server = createServer(async (req, res) => {
       if (req.method === "GET" && tail === "file") {
         const path = url.searchParams.get("path") ?? "";
         try {
-          return json(res, 200, await session.readWorkspaceFile(path));
+          // probe=1: UI feature detection, not a learner action — no event.
+          return json(res, 200, await session.readWorkspaceFile(path, { probe: url.searchParams.get("probe") === "1" }));
         } catch (err) {
           const msg = String((err as Error).message);
           return json(res, msg.includes("invalid path") ? 400 : 404, { error: msg.slice(0, 300) });
@@ -742,6 +759,12 @@ export const server = createServer(async (req, res) => {
         // Workspace labs have no instrumentation loop; the poll drives rules.
         if (session.workspace) await session.maybeIntervene().catch(() => {});
         return json(res, 200, { intervention: session.takePendingIntervention() });
+      }
+      if (req.method === "POST" && tail === "intervention" && parts[4] === "answer") {
+        // The learner answered the check-in chips: accepted delivers the
+        // parked hint (returned + recorded); declined delivers nothing.
+        const body = await readBody(req);
+        return json(res, 200, { message: session.answerIntervention(body.accepted === true) });
       }
 
       // ── workspace labs: simulated application state + actions ───────────

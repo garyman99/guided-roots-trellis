@@ -232,12 +232,25 @@ export const api = {
     }
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
+  /** The generated session-opening message (cached server-side; falls back to authored text). */
+  greeting: (c: SessionCredentials) =>
+    req("GET", `/api/sessions/${c.sessionId}/greeting`, c) as Promise<{ message: { text: string; generated: boolean } }>,
+  /** Measured task(s) done → the guide's generated check-off + next-step message. */
+  progress: (c: SessionCredentials, completedTaskIds: string[]) =>
+    req("POST", `/api/sessions/${c.sessionId}/progress`, c, { completedTaskIds }) as Promise<{
+      message: { id: number; text: string };
+    }>,
   workspace: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/workspace`, c) as Promise<WorkspaceView>,
   workspaceAction: (c: SessionCredentials, action: WorkspaceAction) =>
     req("POST", `/api/sessions/${c.sessionId}/workspace/action`, c, action) as Promise<WorkspaceView>,
   ask: (c: SessionCredentials, text: string, stuck: boolean, screen?: ScreenReport, goal?: boolean) =>
     req("POST", `/api/sessions/${c.sessionId}/ask`, c, { text, stuck, screen, goal }),
   intervention: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/intervention`, c),
+  /** Answer a check-in: accepted returns the parked hint (now delivered); declined returns null. */
+  interventionAnswer: (c: SessionCredentials, accepted: boolean) =>
+    req("POST", `/api/sessions/${c.sessionId}/intervention/answer`, c, { accepted }) as Promise<{
+      message: { id: number; text: string; level?: number } | null;
+    }>,
   evaluate: (c: SessionCredentials) =>
     req("POST", `/api/sessions/${c.sessionId}/checkpoint/evaluate`, c) as Promise<{
       passed: boolean;
@@ -250,8 +263,8 @@ export const api = {
   // Workspace fs — powers the desktop experience's Code Studio editor.
   fsList: (c: SessionCredentials) =>
     req("GET", `/api/sessions/${c.sessionId}/fs`, c) as Promise<{ entries: Array<{ path: string; dir: boolean }> }>,
-  fsRead: (c: SessionCredentials, path: string) =>
-    req("GET", `/api/sessions/${c.sessionId}/file?path=${encodeURIComponent(path)}`, c) as Promise<{
+  fsRead: (c: SessionCredentials, path: string, opts?: { probe?: boolean }) =>
+    req("GET", `/api/sessions/${c.sessionId}/file?path=${encodeURIComponent(path)}${opts?.probe ? "&probe=1" : ""}`, c) as Promise<{
       path: string;
       content: string;
       truncated: boolean;

@@ -70,6 +70,24 @@ test("session routes reject missing/invalid tokens", async () => {
   assert.equal(badToken.status, 401);
 });
 
+test("greeting: lesson-aware opening message, generated once and cached", async () => {
+  const first = await api("GET", `/api/sessions/${sessionId}/greeting`);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.message.generated, true);
+  // Mock provider composes from the manifest: the lesson is named and the
+  // message ends with the first step as an unchecked checklist item.
+  assert.match(first.body.message.text, /Inspect AI-generated changes/i);
+  assert.match(first.body.message.text, /\n- \[ \] /);
+
+  const second = await api("GET", `/api/sessions/${sessionId}/greeting`);
+  assert.equal(second.body.message.text, first.body.message.text, "cached — one generation per session");
+
+  // Recorded as its own event type: never a hint (must not feed the ladder).
+  const events = (await api("GET", `/api/sessions/${sessionId}/export`)).body.events;
+  assert.equal(events.filter((e: { type: string }) => e.type === "instructor.greeting").length, 1);
+  assert.equal(events.filter((e: { type: string }) => e.type === "instructor.hint").length, 0);
+});
+
 test("websocket terminal rejects a bad token before handshake", async () => {
   const url = base.replace("http", "ws") + `/ws/terminal?session=${sessionId}&token=nope`;
   const failed = await new Promise<boolean>((resolve) => {

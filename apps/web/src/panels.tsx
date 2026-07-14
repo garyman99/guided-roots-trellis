@@ -390,7 +390,12 @@ export function InterventionToast({ creds }: { creds: SessionCredentials }) {
         const { intervention } = (await api.intervention(creds)) as {
           intervention: { hint: { message: string; level: number }; triggerType: string } | null;
         };
-        if (intervention) setToast(intervention);
+        if (intervention) {
+          setToast(intervention);
+          // This surface SHOWS the hint immediately (no ask-first chips), so
+          // record the delivery — the desktop chat defers it to acceptance.
+          void api.interventionAnswer(creds, true).catch(() => {});
+        }
       } catch {
         /* ignore */
       }

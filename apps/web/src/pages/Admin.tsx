@@ -1259,6 +1259,12 @@ function toBeats(events: ReplayEvent[]): Beat[] {
       case "instructor.hint":
         b("🌿", "instructor", str(e.text) || "(words not recorded — session predates replay capture)", `hint level ${Number(e.level)} · ${str(e.strategy)}`);
         break;
+      case "instructor.greeting":
+        b("🌿", "instructor", str(e.text), "session opening");
+        break;
+      case "instructor.progress":
+        b("🌿", "instructor", str(e.text), `progress: ${Array.isArray(e.completedTaskIds) ? (e.completedTaskIds as string[]).join(", ") : ""}`);
+        break;
       case "intervention.delivered":
         b("🔔", "instructor", str(e.text) || "(unprompted check-in — words not recorded)", `trigger: ${str(e.triggerType)}`);
         break;
