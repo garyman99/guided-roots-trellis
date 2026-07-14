@@ -48,7 +48,9 @@ export async function anthropicGenerateText(req: TextGenerationRequest): Promise
     body: {
       model: req.model,
       max_tokens: req.maxTokens ?? 300,
-      system: req.system,
+      system: req.cacheSystem
+        ? [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }]
+        : req.system,
       messages: [{ role: "user", content: req.user }],
     },
     timeoutMs: req.timeoutMs,
