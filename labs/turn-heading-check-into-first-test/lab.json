@@ -58,7 +58,7 @@
     {
       "id": "author",
       "title": "Write the two-part check",
-      "text": "Open tests/heading.spec.js — one empty test body is waiting. FIND the heading the way a visitor would notice it (by what it says, or that it's a heading), then STATE what you expect: that it's visible. Two parts. Save with Ctrl+S.",
+      "text": "Open tests/heading.spec.js and TYPE your check into the empty test body — you're writing two short lines of code: the first finds the heading (the way a visitor would spot it — by its text, or that it's a heading), the second says it should be visible. Not sure what to type? Ask me and I'll show you the pieces. Save with Ctrl+S.",
       "auto": "file-edited"
     },
     {

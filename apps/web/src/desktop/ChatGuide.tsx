@@ -162,13 +162,13 @@ export function ChatGuide({
     // (which injected the welcome mid-thread and echoed their message).
     if (awaitingGoal) {
       if (data.tasks.some((t) => t.done)) {
+        // The learner started working before answering the goal prompt. Just
+        // retire onboarding — do NOT re-inject the authored welcome. The
+        // generated greeting already framed the lesson, so echoing the
+        // scenario again is information overload (learner feedback). The
+        // progress beat below carries the next step.
         setAwaitingGoal(false);
         promptedTask.current = data.tasks.find((t) => !t.done)?.id ?? "all-done";
-        // APPEND the scenario context — never replace the thread. An earlier
-        // version reset msgs here, which wiped whatever the learner had
-        // already seen (the greeting, any exchange) the moment they opened a
-        // file. Add to what's there.
-        setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `open-${m.key}` }))]);
       }
       return; // awaitingGoal flip re-runs this effect; beats process then
     }
@@ -278,14 +278,14 @@ export function ChatGuide({
     const isGoal = awaitingGoal;
     try {
       if (isGoal) {
-        // Their goal unlocks the scenario. Thread order: their goal, the
-        // scenario context, then Sage's ack carrying the first step.
+        // Their goal unlocks the scenario. Thread order: their goal, then
+        // Sage's ack carrying the first step. No authored-welcome dump — the
+        // ack orients them (the re-injected scenario read as overload).
         setAwaitingGoal(false);
         const firstOpen = data.tasks.find((t) => !t.done);
         if (firstOpen) promptedTask.current = firstOpen.id; // the ack delivers it
         suppressLearnerEcho.current = text.trim(); // don't let the poll re-echo it
         push({ from: "learner", text: text.trim() });
-        setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `post-goal-${m.key}` }))]);
         const { message } = (await api.ask(creds, text.trim(), false, getScreen(), true)) as {
           message: { id: number; text: string; level?: number };
         };
