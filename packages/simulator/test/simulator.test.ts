@@ -248,6 +248,31 @@ test("loop: cost budget uses the pricing table and ends explicitly", async () =>
   assert.match(result.reason, /maxEstimatedCostUSD/);
 });
 
+test("loop: transient model failures are bounded retries; config failures are terminal", async () => {
+  const driver = new FakeDriver(screen("desktop", ["Mail"]));
+  // Transient: throws twice, then a clean give-up — run survives.
+  let calls = 0;
+  const flaky: SimulatorClient = {
+    provider: "fake",
+    model: "fake-sim",
+    generate: async () => {
+      calls += 1;
+      if (calls <= 2) throw new Error("anthropic returned no text content (stop_reason=max_tokens)");
+      return { text: JSON.stringify({ status: "gave-up", beat: beat("stop after the flaky patch"), actions: [] }), model: "fake-sim", usage: {}, requestId: "r" };
+    },
+  };
+  const survived = await runSimulationLoop({ driver, client: flaky, personaContext: persona });
+  assert.equal(survived.status, "gave_up");
+  assert.equal(survived.invalidActions, 2);
+
+  // Config-shaped: terminal simulator_failure immediately.
+  const authErr = Object.assign(new Error("HTTP 401 (auth)"), { category: "auth" });
+  const broken: SimulatorClient = { provider: "fake", model: "fake-sim", generate: async () => { throw authErr; } };
+  const dead = await runSimulationLoop({ driver, client: broken, personaContext: persona });
+  assert.equal(dead.status, "simulator_failure");
+  assert.match(dead.reason, /HTTP 401/);
+});
+
 test("loop: driver failure is environment_failure with the cause", async () => {
   const driver = new FakeDriver(screen("desktop", ["Mail"]));
   driver.snapshot = async () => { throw new Error("ECONNREFUSED"); };

@@ -76,8 +76,21 @@ async function snapshot() {
     const sel = 'button, a, input:not([type=hidden]), textarea, select, [role=button], [contenteditable=true], li[class*=icon], .desk-icon, .task-btn, .chip';
     const seen = new Set();
     const targets = [];
+    // Occlusion hit-test: a target is only clickable if IT (or its own
+    // content) is what a click at its center would actually hit. Without
+    // this, elements behind windows are listed with coordinates that click
+    // the covering window instead (found live: a simulated learner
+    // double-clicked a desktop icon behind the Mail window for 6 turns).
+    const hitTest = (el, cx, cy) => {
+      const hit = document.elementFromPoint(cx, cy);
+      return hit !== null && (el.contains(hit) || hit.contains(el));
+    };
     for (const el of document.querySelectorAll(sel)) {
       if (!vis(el)) continue;
+      {
+        const r = el.getBoundingClientRect();
+        if (!hitTest(el, r.left + r.width / 2, r.top + r.height / 2)) continue;
+      }
       const r = el.getBoundingClientRect();
       const name = (el.getAttribute("aria-label") || el.value || el.textContent || el.placeholder || "").replace(/\s+/g, " ").trim().slice(0, 60);
       const key = `${Math.round(r.x)},${Math.round(r.y)},${name}`;

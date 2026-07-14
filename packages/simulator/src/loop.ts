@@ -96,6 +96,12 @@ export interface SimulationOptions {
   budgets?: Partial<SimulationBudgets>;
   pricing?: PricingTable | null;
   timeoutMs?: number;
+  /**
+   * Per-decision output budget. Models with always/adaptive thinking spend
+   * output tokens thinking BEFORE the JSON — too small a cap yields an
+   * empty response (observed live on Sonnet 5 at 700). Default 2500.
+   */
+  maxTokensPerDecision?: number;
   onDecision?: (t: DecisionTelemetry) => void;
   log?: (line: string) => void;
 }
@@ -216,11 +222,23 @@ export async function runSimulationLoop(opts: SimulationOptions): Promise<Simula
         model: opts.client.model,
         system,
         user,
-        maxTokens: 700,
+        maxTokens: opts.maxTokensPerDecision ?? 2500,
         timeoutMs: opts.timeoutMs ?? 90_000,
       });
     } catch (err) {
-      return finish("simulator_failure", `model call failed on decision ${decisions}: ${(err as Error).message}`);
+      // Config-shaped failures are terminal (retrying cannot help); anything
+      // transient (empty output, 5xx, timeout) is a bounded retry: it counts
+      // against the invalid-action budget so a dead model still ends the run
+      // explicitly instead of looping forever.
+      const category = (err as { category?: string }).category;
+      if (category === "auth" || category === "bad_request" || category === "not_found") {
+        return finish("simulator_failure", `model call failed on decision ${decisions}: ${(err as Error).message}`);
+      }
+      invalidActions += 1;
+      feedback = `your last turn produced no usable reply (${(err as Error).message}) — reply with ONE JSON decision`;
+      log(`decision ${decisions}: MODEL ERROR (${(err as Error).message})`);
+      opts.onDecision?.({ decision: decisions, usage: {}, model: opts.client.model, valid: false, startedAt: decisionStartedAt, completedAt: new Date().toISOString() });
+      continue;
     }
     usage = addUsage(usage, result.usage);
 
