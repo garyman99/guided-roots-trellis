@@ -297,8 +297,37 @@ export function ChatGuide({
         onNewData(await api.state(creds));
         return;
       }
-      await api.ask(creds, text.trim(), stuck, getScreen());
-      onNewData(await api.state(creds));
+      // Show their message and a typing indicator IMMEDIATELY. The model can
+      // take several seconds; the old path awaited it while rendering nothing,
+      // so a slow (or failed) reply read as "my message was ignored".
+      suppressLearnerEcho.current = text.trim(); // poll won't re-echo it
+      push({ from: "learner", text: text.trim() });
+      const typingKey = `ask-typing-${Date.now()}`;
+      setMsgs((cur) => [...cur, { key: typingKey, from: "bot", text: "", typing: true }]);
+      try {
+        const { message } = (await api.ask(creds, text.trim(), stuck, getScreen())) as {
+          message: { id: number; text: string; level?: number };
+        };
+        seenTranscript.current.add(message.id); // don't let the poll replay the reply
+        setMsgs((cur) =>
+          cur.map((m) =>
+            m.key === typingKey
+              ? { key: `ask-${message.id}`, from: "bot" as const, text: message.text, hintLevel: message.level }
+              : m,
+          ),
+        );
+        onNewData(await api.state(creds));
+      } catch {
+        // A model hiccup must still acknowledge them — never leave the message
+        // hanging in silence.
+        setMsgs((cur) =>
+          cur.map((m) =>
+            m.key === typingKey
+              ? { key: `${typingKey}-err`, from: "bot" as const, text: "Sorry — I couldn't get to that just now. Mind trying again in a moment?" }
+              : m,
+          ),
+        );
+      }
     } finally {
       setSending(false);
     }

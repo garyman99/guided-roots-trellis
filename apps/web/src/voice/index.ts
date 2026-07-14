@@ -30,9 +30,14 @@ export function narratable(text: string): string {
       .replace(/`([^`]+)`/g, "$1")
       // links [label](url) → label
       .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      // emphasis + heading + list markers at line starts
+      // emphasis + heading markers at line starts
       .replace(/(\*\*|\*|__|_)/g, "")
       .replace(/^#{1,6}\s+/gm, "")
+      // Completed checklist items are struck through in the UI — don't read
+      // them back aloud. Drop the whole line; keep unchecked items (the
+      // current step) and the surrounding prose.
+      .replace(/^[ \t]*[-*][ \t]*\[[xX]\][^\n]*\n?/gm, "")
+      // remaining list/task markers on kept lines → drop the marker, keep text
       .replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/gm, "")
       // pictographic emoji, arrows/dingbats, and variation selectors
       .replace(/[\p{Extended_Pictographic}←-➿️]/gu, " ")
