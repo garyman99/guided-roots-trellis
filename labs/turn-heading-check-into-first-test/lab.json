@@ -42,11 +42,18 @@
   },
   "tasks": [
     {
-      "id": "orient",
-      "title": "Get your bearings",
-      "text": "Open Code Studio and read README.md — your manual check is written down there, along with the exact words you'll need. Curious how a visitor sees the page? Open Garden Site too.",
+      "id": "read-readme",
+      "title": "Read the README",
+      "text": "Open Code Studio (double-click its icon on the desktop), then click README.md in the file list on the left — it spells out the manual check you're automating and the exact Playwright words you'll need.",
       "auto": "file-viewed",
       "autoPath": "README.md"
+    },
+    {
+      "id": "see-page",
+      "title": "See the visitor's page",
+      "text": "Open Garden Site to look at the community-garden signup page the way a visitor does. Notice the heading at the top — that exact text is what your check will look for.",
+      "auto": "file-viewed",
+      "autoPath": "app/index.html"
     },
     {
       "id": "author",
