@@ -35,7 +35,7 @@ export function providerFromEnv(env = process.env): InstructorProvider {
   }
 }
 
-export const PROMPT_VERSION = "v2";
+export const PROMPT_VERSION = "v3";
 
 /**
  * Runtime guide-provider switching (a dev/operator affordance on top of the
