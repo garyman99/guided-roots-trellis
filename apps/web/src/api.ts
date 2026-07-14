@@ -156,8 +156,15 @@ export function savedLearner(): LearnerCredentials | null {
 }
 
 export function saveLearner(creds: LearnerCredentials | null): void {
-  if (creds) localStorage.setItem(learnerKey(), JSON.stringify(creds));
-  else localStorage.removeItem(learnerKey());
+  if (creds) {
+    localStorage.setItem(learnerKey(), JSON.stringify(creds));
+    return;
+  }
+  localStorage.removeItem(learnerKey());
+  // A dev|local clear must also drop the pre-scoping legacy slot — otherwise
+  // scopedRead re-adopts the same dead identity on the very next read (seen
+  // live: a purged learner kept resurrecting through the legacy key).
+  if (getUser()?.sub === "dev|local") localStorage.removeItem(LEARNER_KEY);
 }
 
 /** Saved sessions are user-scoped too — Eva must never resume the developer's session. */
@@ -200,13 +207,29 @@ export const api = {
   createSession: async (labId: string) => {
     // Every session binds to the persistent learner: this is what makes the
     // second visit different from the first.
-    const learner = await learnerApi.ensureLearner();
-    return req("POST", "/api/sessions", null, {
-      labId,
-      consentAnalytics: false,
-      learnerId: learner.learnerId,
-      learnerToken: learner.learnerToken,
-    }) as Promise<SessionCredentials & { labId: string }>;
+    const attempt = async () => {
+      const learner = await learnerApi.ensureLearner();
+      return req("POST", "/api/sessions", null, {
+        labId,
+        consentAnalytics: false,
+        learnerId: learner.learnerId,
+        learnerToken: learner.learnerToken,
+      }) as Promise<SessionCredentials & { labId: string }>;
+    };
+    try {
+      return await attempt();
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      // Self-heal a stale identity: 401 = the saved learner no longer exists
+      // on the server (e.g. its data store was purged/replaced), 410 = this
+      // learner erased themselves. Either way the saved credentials are dead
+      // weight — drop them, enroll fresh, and retry once.
+      if (status === 401 || status === 410) {
+        saveLearner(null);
+        return await attempt();
+      }
+      throw err;
+    }
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
   workspace: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/workspace`, c) as Promise<WorkspaceView>,
