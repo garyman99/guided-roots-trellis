@@ -48,12 +48,26 @@ interface ModelUsage {
   calls: number;
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
+  estimatedCostUSD: number;
+  unpricedCalls: number;
+}
+
+interface UsageTotals {
+  calls: number;
+  totalTokens: number;
+  estimatedCostUSD: number;
+  unpricedCalls: number;
 }
 
 interface AdminUser {
   learnerId: string;
   createdAt: string;
+  name: string | null;
+  email: string | null;
+  totals: UsageTotals;
   consents: { selfAnalytics: boolean; cohortAggregate: boolean; research: boolean };
   activity: {
     sessionsOnRecord: number;
@@ -151,6 +165,14 @@ function fmtWhen(iso: string): string {
 
 function fmtRate(r: number): string {
   return `${Math.round(r * 100)}%`;
+}
+
+/** Small LLM costs need sub-cent precision; bigger ones read like money. */
+function fmtUSD(v: number): string {
+  if (v === 0) return "$0.00";
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  if (v < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
 }
 
 /** Fixed categorical order — color follows the model, never its rank. */
@@ -296,7 +318,7 @@ export function Admin() {
           {!needsToken && !error && (
             <>
               {tab === "agents" && <AgentsView agents={agents} />}
-              {tab === "users" && <UsersView users={users} />}
+              {tab === "users" && <UsersView users={users} sessions={sessions} />}
               {tab === "usage" && <UsageView usage={usage} />}
               {tab === "courses" && <CoursesView courses={courses} onChanged={reload} />}
               {tab === "sessions" && <SessionsView sessions={sessions} />}
@@ -385,99 +407,233 @@ function AgentsView({ agents }: { agents: AdminAgent[] | null }) {
 
 /* ================= users ================= */
 
-function UsersView({ users }: { users: AdminUser[] | null }) {
+/**
+ * Users: a roster you can price from. The list ranks learners by estimated
+ * cost; drilling in gives ONE view per user — totals, per-model cost, and
+ * every session with its replay (the deterministic recording).
+ */
+function UsersView({ users, sessions }: { users: AdminUser[] | null; sessions: AdminSessionSummary[] | null }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   if (!users) return <p className="admin-loading">Loading users…</p>;
   if (users.length === 0)
     return (
       <p className="admin-loading">
-        No learners yet — profiles appear here after someone launches the desktop for the first time.
+        No learners yet — users appear here after someone launches the desktop for the first time.
       </p>
     );
+
+  const open = openId ? users.find((u) => u.learnerId === openId) : null;
+  if (open) {
+    return (
+      <UserDetail
+        user={open}
+        sessions={(sessions ?? []).filter((s) => s.learnerId === open.learnerId)}
+        onBack={() => setOpenId(null)}
+      />
+    );
+  }
+
+  const ranked = [...users].sort((a, b) => b.totals.estimatedCostUSD - a.totals.estimatedCostUSD || b.totals.totalTokens - a.totals.totalTokens);
   return (
     <div className="admin-stack">
-      {users.map((u) => (
-        <article key={u.learnerId} className="gr-card admin-user">
-          <div className="admin-agent-head">
-            <h3 className="admin-mono-title">{u.learnerId}</h3>
-            <span className="gr-mono-note">last active {fmtWhen(u.activity.lastActiveAt)}</span>
+      <p className="admin-lede-note">
+        Every user of the application, ranked by what their model usage is estimated to cost. Click a
+        user for the single-view breakdown: totals, cost by model, and each session with its recording.
+      </p>
+      <table className="admin-table admin-clickable">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Sessions</th>
+            <th>Guide exchanges</th>
+            <th>Tokens</th>
+            <th>Est. cost</th>
+            <th>Last active</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map((u) => (
+            <tr key={u.learnerId} onClick={() => setOpenId(u.learnerId)} title="Open this user's usage view">
+              <td>
+                <strong>{u.name ?? "(unnamed)"}</strong>{" "}
+                <code className="gr-mono-note">{u.learnerId.slice(0, 14)}…</code>
+              </td>
+              <td>{u.activity.sessionsOnRecord}</td>
+              <td>{u.activity.hintCalls}</td>
+              <td>{fmtTokens(u.totals.totalTokens)}</td>
+              <td>
+                {fmtUSD(u.totals.estimatedCostUSD)}
+                {u.totals.unpricedCalls > 0 && <span className="gr-mono-note"> +{u.totals.unpricedCalls} unpriced</span>}
+              </td>
+              <td>{fmtWhen(u.activity.lastActiveAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The single per-user view: identity, cost, usage, sessions + replays. */
+function UserDetail({
+  user: u,
+  sessions,
+  onBack,
+}: {
+  user: AdminUser;
+  sessions: AdminSessionSummary[];
+  onBack: () => void;
+}) {
+  const [replayId, setReplayId] = useState<string | null>(null);
+  if (replayId) return <ReplayView sessionId={replayId} onBack={() => setReplayId(null)} />;
+
+  return (
+    <div className="admin-stack">
+      <div className="admin-replay-head">
+        <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={onBack}>
+          ← All users
+        </button>
+        <div>
+          <h3>{u.name ?? "(unnamed user)"}</h3>
+          <p className="gr-mono-note">
+            {u.email ? `${u.email} · ` : ""}
+            {u.learnerId} · joined {fmtWhen(u.createdAt)}
+          </p>
+        </div>
+      </div>
+
+      <div className="admin-stats big">
+        <Stat label="Est. cost" value={fmtUSD(u.totals.estimatedCostUSD)} />
+        <Stat label="Tokens" value={fmtTokens(u.totals.totalTokens)} />
+        <Stat label="Model calls" value={String(u.totals.calls)} />
+        <Stat label="Sessions" value={String(u.activity.sessionsOnRecord)} />
+        <Stat label="Labs completed" value={String(u.activity.labsCompleted)} />
+        <Stat label="Last active" value={fmtWhen(u.activity.lastActiveAt)} />
+      </div>
+      {u.totals.unpricedCalls > 0 && (
+        <p className="admin-empty">
+          ⚠ {u.totals.unpricedCalls} call(s) had no pricing entry when recorded — the estimate above
+          understates this user's true cost.
+        </p>
+      )}
+
+      <div className="gr-card">
+        <h3>Cost & tokens by model</h3>
+        {u.usageByModel.length === 0 ? (
+          <p className="admin-empty">No model calls recorded yet.</p>
+        ) : (
+          <UsageTable rows={u.usageByModel} order={u.usageByModel.map((m) => m.model)} withCost />
+        )}
+      </div>
+
+      <div className="gr-card">
+        <h3>Sessions — watch any recording</h3>
+        {sessions.length === 0 ? (
+          <p className="admin-empty">No sessions on record for this user.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Scenario</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Activity</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => (
+                <tr key={s.sessionId}>
+                  <td>{fmtWhen(s.createdAt)}</td>
+                  <td>{scenarioByLabId.get(s.labId)?.title ?? s.labId}</td>
+                  <td>
+                    <span className={`admin-chip ${s.completed ? "status-mastered" : ""}`}>
+                      {s.completed ? "finished" : s.live ? "live now" : "not finished"}
+                    </span>
+                  </td>
+                  <td>{fmtDuration(s.durationMs)}</td>
+                  <td>
+                    {s.counts.commands} cmds · {s.counts.questions} asks · {s.counts.hints} hints · {s.counts.testRuns} test runs
+                  </td>
+                  <td>
+                    <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={() => setReplayId(s.sessionId)}>
+                      ▶ Watch
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <details className="admin-prompt">
+        <summary>
+          Derived profile — what the guide is told about this learner{" "}
+          <span className="gr-mono-note">
+            diff-first {fmtRate(u.activity.summary.diffFirstRate)} · tests {fmtRate(u.activity.summary.testUsageRate)} ·{" "}
+            {u.activity.reflections} reflections
+          </span>
+        </summary>
+        {u.profile.skills.length === 0 && u.profile.habits.length === 0 && u.profile.preferences.length === 0 ? (
+          <p className="admin-empty">Nothing derived yet — the profile grows as labs are completed.</p>
+        ) : (
+          <div className="admin-profile">
+            {u.profile.skills.length > 0 && (
+              <div>
+                <p className="gr-mono-note">SKILLS</p>
+                <ul className="admin-claims">
+                  {u.profile.skills.map((s) => (
+                    <li key={s.conceptId} title={s.explanation}>
+                      <span className={`admin-chip status-${s.status}`}>{s.status}</span>
+                      <code>{s.conceptId}</code>
+                      <span className="conf">{Math.round(s.confidence * 100)}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {u.profile.habits.length > 0 && (
+              <div>
+                <p className="gr-mono-note">HABITS</p>
+                <ul className="admin-claims">
+                  {u.profile.habits.map((h) => (
+                    <li key={h.habitId}>
+                      <code>{h.habitId}</code>
+                      <span className="conf">
+                        {fmtRate(h.value)}
+                        {h.baseline !== null && ` (was ${fmtRate(h.baseline)})`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {u.profile.preferences.length > 0 && (
+              <div>
+                <p className="gr-mono-note">PREFERENCES (learner-asserted)</p>
+                <ul className="admin-claims">
+                  {u.profile.preferences.map((p) => (
+                    <li key={p.key}>
+                      <code>{p.key}</code>
+                      <span className="conf">{p.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {u.profile.calibration && (
+              <div>
+                <p className="gr-mono-note">CALIBRATION</p>
+                <p className="admin-empty">
+                  {u.profile.calibration.tendency} ({u.profile.calibration.samples} self-assessments)
+                </p>
+              </div>
+            )}
           </div>
-
-          <div className="admin-stats">
-            <Stat label="Sessions" value={String(u.activity.sessionsOnRecord)} />
-            <Stat label="Labs completed" value={String(u.activity.labsCompleted)} />
-            <Stat label="Guide exchanges" value={String(u.activity.hintCalls)} />
-            <Stat label="Reflections" value={String(u.activity.reflections)} />
-            <Stat label="Diff-first" value={fmtRate(u.activity.summary.diffFirstRate)} />
-            <Stat label="Tests used" value={fmtRate(u.activity.summary.testUsageRate)} />
-          </div>
-
-          <h4 className="admin-subhead">Token usage by model</h4>
-          {u.usageByModel.length === 0 ? (
-            <p className="admin-empty">No model calls recorded yet.</p>
-          ) : (
-            <UsageTable rows={u.usageByModel} order={u.usageByModel.map((m) => m.model)} />
-          )}
-
-          <h4 className="admin-subhead">Derived profile — what the guide is told about this learner</h4>
-          {u.profile.skills.length === 0 && u.profile.habits.length === 0 && u.profile.preferences.length === 0 ? (
-            <p className="admin-empty">Nothing derived yet — the profile grows as labs are completed.</p>
-          ) : (
-            <div className="admin-profile">
-              {u.profile.skills.length > 0 && (
-                <div>
-                  <p className="gr-mono-note">SKILLS</p>
-                  <ul className="admin-claims">
-                    {u.profile.skills.map((s) => (
-                      <li key={s.conceptId} title={s.explanation}>
-                        <span className={`admin-chip status-${s.status}`}>{s.status}</span>
-                        <code>{s.conceptId}</code>
-                        <span className="conf">{Math.round(s.confidence * 100)}%</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {u.profile.habits.length > 0 && (
-                <div>
-                  <p className="gr-mono-note">HABITS</p>
-                  <ul className="admin-claims">
-                    {u.profile.habits.map((h) => (
-                      <li key={h.habitId}>
-                        <code>{h.habitId}</code>
-                        <span className="conf">
-                          {fmtRate(h.value)}
-                          {h.baseline !== null && ` (was ${fmtRate(h.baseline)})`}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {u.profile.preferences.length > 0 && (
-                <div>
-                  <p className="gr-mono-note">PREFERENCES (learner-asserted)</p>
-                  <ul className="admin-claims">
-                    {u.profile.preferences.map((p) => (
-                      <li key={p.key}>
-                        <code>{p.key}</code>
-                        <span className="conf">{p.value}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {u.profile.calibration && (
-                <div>
-                  <p className="gr-mono-note">CALIBRATION</p>
-                  <p className="admin-empty">
-                    {u.profile.calibration.tendency} ({u.profile.calibration.samples} self-assessments)
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </article>
-      ))}
+        )}
+      </details>
     </div>
   );
 }
@@ -497,10 +653,12 @@ function UsageView({ usage }: { usage: UsagePayload | null }) {
   if (!usage) return <p className="admin-loading">Loading usage…</p>;
   const order = usage.byModel.map((m) => m.model); // fixed identity order
   const total = usage.byModel.reduce((s, m) => s + m.totalTokens, 0);
+  const totalCost = usage.byModel.reduce((s, m) => s + m.estimatedCostUSD, 0);
   return (
     <div className="admin-stack">
       <div className="admin-stats big">
         <Stat label="Total tokens" value={fmtTokens(total)} />
+        <Stat label="Est. cost" value={fmtUSD(totalCost)} />
         <Stat label="Model calls" value={String(usage.calls)} />
         <Stat label="Models" value={String(usage.byModel.length)} />
       </div>
@@ -519,14 +677,15 @@ function UsageView({ usage }: { usage: UsagePayload | null }) {
       {usage.byModel.length > 0 && (
         <div className="gr-card">
           <h3>Totals by model</h3>
-          <UsageTable rows={usage.byModel} order={order} />
+          <UsageTable rows={usage.byModel} order={order} withCost />
         </div>
       )}
     </div>
   );
 }
 
-function UsageTable({ rows, order }: { rows: ModelUsage[]; order: string[] }) {
+function UsageTable({ rows, order, withCost = false }: { rows: ModelUsage[]; order: string[]; withCost?: boolean }) {
+  const anyCache = rows.some((m) => m.cacheReadTokens > 0 || m.cacheWriteTokens > 0);
   return (
     <table className="admin-table">
       <thead>
@@ -535,7 +694,9 @@ function UsageTable({ rows, order }: { rows: ModelUsage[]; order: string[] }) {
           <th>Calls</th>
           <th>Prompt</th>
           <th>Completion</th>
+          {anyCache && <th>Cache r/w</th>}
           <th>Total</th>
+          {withCost && <th>Est. cost</th>}
         </tr>
       </thead>
       <tbody>
@@ -548,7 +709,18 @@ function UsageTable({ rows, order }: { rows: ModelUsage[]; order: string[] }) {
             <td>{m.calls}</td>
             <td>{fmtTokens(m.promptTokens)}</td>
             <td>{fmtTokens(m.completionTokens)}</td>
+            {anyCache && (
+              <td>
+                {fmtTokens(m.cacheReadTokens)} / {fmtTokens(m.cacheWriteTokens)}
+              </td>
+            )}
             <td>{fmtTokens(m.totalTokens)}</td>
+            {withCost && (
+              <td>
+                {fmtUSD(m.estimatedCostUSD)}
+                {m.unpricedCalls > 0 && <span className="gr-mono-note"> +{m.unpricedCalls} unpriced</span>}
+              </td>
+            )}
           </tr>
         ))}
       </tbody>

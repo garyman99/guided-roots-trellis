@@ -252,10 +252,13 @@ export const learnerApi = {
   async ensureLearner(): Promise<LearnerCredentials> {
     const existing = savedLearner();
     if (existing) return existing;
+    // Carry the signed-in identity so the operator surface can show a human
+    // name (e.g. "Eva") instead of a bare learner id.
+    const user = getUser();
     const res = await fetch("/api/learners", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ name: user?.name, email: user?.email }),
     });
     const body = await res.json();
     const creds = { learnerId: body.learnerId, learnerToken: body.learnerToken };
