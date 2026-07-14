@@ -428,6 +428,26 @@
   background: #10161d; border: 1px solid #2b3642; border-radius: 4px;
   padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
 }
+/* Fenced code block — a snippet the learner can read (and copy). */
+.chat-code {
+  margin: 8px 0; border: 1px solid #2b3642; border-radius: 8px; overflow: hidden;
+  background: #0c1116;
+}
+.chat-code-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px 4px 10px; background: #10161d; border-bottom: 1px solid #2b3642;
+}
+.chat-code-lang { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #7f8f99; }
+.chat-code-copy {
+  border: 1px solid var(--chrome-edge); background: #1b232c; color: #cfe3d3;
+  border-radius: 6px; padding: 2px 9px; font: inherit; font-size: 11px; cursor: pointer;
+}
+.chat-code-copy:hover { border-color: var(--accent); }
+.chat-code pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+.chat-code pre code {
+  background: none; border: none; border-radius: 0; padding: 0;
+  color: #dbe4ec; font-size: 12.5px; line-height: 1.55; white-space: pre;
+}
 .chat-md .md-list { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .chat-md .md-list li.md-task { list-style: none; margin-left: -18px; }
 .md-task { display: flex; gap: 9px; align-items: flex-start; }

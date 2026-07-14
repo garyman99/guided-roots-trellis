@@ -60,6 +60,12 @@ export function ChatGuide({
   const seenTranscript = useRef(new Set<number>());
   const seenTasks = useRef(new Set<string>());
   const promptedTask = useRef<string | null>(null);
+  // A learner message we've already shown optimistically (the goal ack path):
+  // its later transcript copy must not render a second time. Text-matched so
+  // it works regardless of whether the poll or onNewData reconciles first —
+  // id math alone raced the 2s state poll once the real model added ~1s of
+  // latency, echoing the learner's own message back at them.
+  const suppressLearnerEcho = useRef<string | null>(null);
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
@@ -147,6 +153,21 @@ export function ChatGuide({
   // offers the NEXT step — the lesson path delivered as conversation, not as
   // a checklist document.
   useEffect(() => {
+    // Goal-first onboarding holds every measured beat until the learner
+    // states a goal — "everything else waits for them". But instrumentation
+    // runs regardless: if they start DOING the lesson (a task goes done)
+    // before ever typing a goal, onboarding is moot. Retire it, drop in the
+    // scenario context now, and let the normal beat flow take over — so their
+    // next message is treated as a question, not mistaken for "their goal"
+    // (which injected the welcome mid-thread and echoed their message).
+    if (awaitingGoal) {
+      if (data.tasks.some((t) => t.done)) {
+        setAwaitingGoal(false);
+        promptedTask.current = data.tasks.find((t) => !t.done)?.id ?? "all-done";
+        setMsgs(scenarioOpening().map((m) => ({ ...m, key: `open-${m.key}` })));
+      }
+      return; // awaitingGoal flip re-runs this effect; beats process then
+    }
     const newlyDone: string[] = [];
     for (const t of data.tasks) {
       if (t.done && !seenTasks.current.has(t.id)) {
@@ -189,18 +210,22 @@ export function ChatGuide({
       push({ from: "bot", text: next.text });
     }
     for (const m of data.transcript) {
-      if (!seenTranscript.current.has(m.id)) {
-        seenTranscript.current.add(m.id);
-        push({ from: m.role === "instructor" ? "bot" : "learner", text: m.text, hintLevel: m.level });
+      if (seenTranscript.current.has(m.id)) continue;
+      seenTranscript.current.add(m.id);
+      // Already shown optimistically (goal ack) → swallow the echo once.
+      if (m.role === "learner" && suppressLearnerEcho.current === m.text) {
+        suppressLearnerEcho.current = null;
+        continue;
       }
+      push({ from: m.role === "instructor" ? "bot" : "learner", text: m.text, hintLevel: m.level });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.tasks, data.transcript]);
+  }, [data.tasks, data.transcript, awaitingGoal]);
 
   // ── Proactive check-ins: interventions → conversational nudges ───────────
   useEffect(() => {
     const t = setInterval(async () => {
-      if (!nudgeArmed.current || completed) return;
+      if (!nudgeArmed.current || completed || awaitingGoal) return;
       try {
         const { intervention } = (await api.intervention(creds)) as {
           intervention: { hint: { message: string; level: number }; triggerType: string } | null;
@@ -218,7 +243,7 @@ export function ChatGuide({
     }, 3000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creds, completed]);
+  }, [creds, completed, awaitingGoal]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -254,6 +279,7 @@ export function ChatGuide({
         setAwaitingGoal(false);
         const firstOpen = data.tasks.find((t) => !t.done);
         if (firstOpen) promptedTask.current = firstOpen.id; // the ack delivers it
+        suppressLearnerEcho.current = text.trim(); // don't let the poll re-echo it
         push({ from: "learner", text: text.trim() });
         setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `post-goal-${m.key}` }))]);
         const { message } = (await api.ask(creds, text.trim(), false, getScreen(), true)) as {
