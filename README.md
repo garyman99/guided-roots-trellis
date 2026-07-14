@@ -27,6 +27,15 @@ cd apps/web && npm install && npm run dev
 # → http://localhost:5173  (proxies /api and /ws to :8787)
 ```
 
+Or start both together from the repo root (loads `.env`, keeps the UI's
+proxy pointed at whatever port the API uses, Ctrl+C stops both):
+
+```bash
+npm run dev
+# → [api] listening on http://127.0.0.1:8787 · [web] http://localhost:5173
+# PORT=8788 npm run dev  → api on 8788, proxy follows automatically
+```
+
 ## Long-term learning (phases 0–5)
 
 Trellis now remembers. Sessions bind to a persistent learner; completing a
