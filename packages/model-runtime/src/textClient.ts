@@ -12,6 +12,13 @@ export interface TextGenerationRequest {
   maxTokens?: number;
   /** OpenAI-compatible only; Anthropic 4.6+ models reject sampling params. */
   temperature?: number;
+  /**
+   * Anthropic only: mark the system prompt as a cacheable prefix
+   * (cache_control ephemeral). Worth it when the same system text repeats
+   * across calls in one run (e.g. the simulator loop). Below the model's
+   * minimum cacheable prefix it is silently a no-op.
+   */
+  cacheSystem?: boolean;
   timeoutMs?: number;
   requestId?: string;
   log?: (entry: TransportLogEntry) => void;

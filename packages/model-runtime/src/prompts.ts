@@ -40,6 +40,12 @@ export const KNOWN_PROMPTS: PromptRegistration[] = [
     description: "Repo-native evaluator system prompt (evidence-cited JSON report)",
   },
   {
+    id: "simulator.native",
+    version: "v1",
+    file: "packages/simulator/prompts/simulator.v1.md",
+    description: "Repo-native simulated-learner contract (JSON decisions, bounded action groups)",
+  },
+  {
     id: "simulator.contract",
     version: "v1",
     file: ".claude/skills/process-scenarios/simulator-contract.md",
