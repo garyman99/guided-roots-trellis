@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type RequirementResult, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
 import { ContextDrawer, ReflectionCard } from "../panels.tsx";
+import { useDictation, useNarration } from "../voice/useVoice.ts";
 import { ChatMarkdown } from "./ChatMarkdown.tsx";
 
 interface ChatMsg {
@@ -62,6 +63,15 @@ export function ChatGuide({
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
+
+  // ── Voice: dictate into the composer, narrate the guide's replies ─────────
+  const narration = useNarration();
+  const dictation = useDictation(setDraft);
+  // Messages already read aloud (by key), so nothing is voiced twice. Seeded
+  // with the initial thread on first pass so resuming a session doesn't
+  // recite its whole history — only messages that ARRIVE get spoken.
+  const spokenKeys = useRef<Set<string>>(new Set());
+  const narrationPrimed = useRef(false);
 
   const push = (m: Omit<ChatMsg, "key">) =>
     setMsgs((cur) => [...cur, { ...m, key: `${Date.now()}-${cur.length}-${Math.random().toString(36).slice(2, 7)}` }]);
@@ -214,8 +224,26 @@ export function ChatGuide({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [msgs.length]);
 
+  // Narrate newly arrived guide messages. Every message is marked "seen" on
+  // the first pass it appears, whether or not it's voiced — so toggling
+  // narration on mid-session speaks only what comes NEXT, never a backlog.
+  // Typing placeholders are skipped (their key changes once real text lands).
+  useEffect(() => {
+    for (const m of msgs) {
+      if (spokenKeys.current.has(m.key) || m.typing) continue;
+      spokenKeys.current.add(m.key);
+      if (!narrationPrimed.current) continue; // initial thread → seen, not spoken
+      if (m.from === "bot" || m.from === "agent" || m.from === "system") {
+        narration.speak(m.text); // no-op when narration is off/unsupported
+      }
+    }
+    narrationPrimed.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msgs]);
+
   const send = async (text: string, stuck: boolean) => {
     if (!text.trim() || sending) return;
+    if (dictation.listening) dictation.stop(); // sending ends the dictation turn
     setSending(true);
     setDraft("");
     const isGoal = awaitingGoal;
@@ -295,9 +323,27 @@ export function ChatGuide({
     <div className="chat-guide">
       <div className="chat-head">
         <span className="chat-head-name">🌿 {botName}</span>
-        <button className="link" onClick={() => setShowContext(true)}>
-          What does {botName} see?
-        </button>
+        <div className="chat-head-actions">
+          {narration.supported && (
+            <button
+              className={`voice-toggle ${narration.enabled ? "on" : "off"}`}
+              onClick={() => narration.setEnabled(!narration.enabled)}
+              aria-pressed={narration.enabled}
+              aria-label={narration.enabled ? `Turn off ${botName}'s voice` : `Turn on ${botName}'s voice`}
+              title={
+                narration.enabled
+                  ? `${botName} reads replies aloud — click to mute`
+                  : `${botName}'s voice is off — click to have replies read aloud`
+              }
+            >
+              <span aria-hidden="true">{narration.enabled ? (narration.speaking ? "🔊" : "🔈") : "🔇"}</span>
+              <span className="voice-toggle-label">{narration.enabled ? "Voice on" : "Voice off"}</span>
+            </button>
+          )}
+          <button className="link" onClick={() => setShowContext(true)}>
+            What does {botName} see?
+          </button>
+        </div>
       </div>
       <div className="chat-thread" ref={scrollRef}>
         {msgs.map((m) => (
@@ -391,9 +437,33 @@ export function ChatGuide({
             Reset
           </button>
         )}
+        {dictation.supported && (
+          <button
+            className={`mic-btn ${dictation.listening ? "recording" : ""}`}
+            onClick={() => {
+              if (dictation.listening) {
+                dictation.stop();
+              } else {
+                narration.cancel(); // don't talk over the learner
+                dictation.start(draft);
+              }
+            }}
+            aria-pressed={dictation.listening}
+            aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
+            title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
+          >
+            <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+          </button>
+        )}
         <textarea
           value={draft}
-          placeholder={awaitingGoal ? `Tell ${botName} what you're here to do…` : `Message ${botName}…`}
+          placeholder={
+            dictation.listening
+              ? "Listening…"
+              : awaitingGoal
+                ? `Tell ${botName} what you're here to do…`
+                : `Message ${botName}…`
+          }
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

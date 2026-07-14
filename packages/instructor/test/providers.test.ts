@@ -13,7 +13,7 @@ import { AnthropicInstructorProvider } from "../src/anthropic.ts";
 import { OpenAICompatibleProvider } from "../src/openaiCompatible.ts";
 import { FakeInstructorProvider } from "../src/fake.ts";
 import { MockInstructorProvider } from "../src/mock.ts";
-import { providerFromEnv } from "../src/index.ts";
+import { providerFromEnv, guideProviderCatalog, buildGuideProvider } from "../src/index.ts";
 import { initialState } from "../../session-events/src/reducer.ts";
 import type { BuiltContext, HintRequest } from "../src/types.ts";
 
@@ -136,6 +136,42 @@ test("providerFromEnv: mock default, legacy fallback, role-scoped anthropic, fak
   );
   assert.ok(providerFromEnv({ GUIDE_PROVIDER: "fake" }) instanceof FakeInstructorProvider);
   assert.throws(() => providerFromEnv({ GUIDE_PROVIDER: "anthropic" }), /GUIDE_MODEL/);
+});
+
+// ── runtime guide-provider switching (the header control's backend) ─────────
+
+test("guideProviderCatalog: mock always available; model gated on env, with a how-to when off", () => {
+  const off = guideProviderCatalog({});
+  assert.deepEqual(off.map((o) => o.id), ["mock", "model"]);
+  assert.equal(off[0].available, true);
+  assert.equal(off[1].available, false, "no env → model disabled");
+  assert.match(off[1].detail ?? "", /GUIDE_PROVIDER/, "disabled model names the vars to set");
+
+  const on = guideProviderCatalog({ GUIDE_PROVIDER: "openai-compatible", GUIDE_MODEL: "m", OPENAI_API_KEY: "k" });
+  assert.equal(on[1].available, true, "configured env → model available");
+  assert.match(on[1].label, /openai-compatible/);
+  assert.match(on[1].label, /\bm\b/, "label surfaces the configured model id");
+
+  // Misconfigured (provider set, model missing) is reported as unavailable —
+  // never thrown, so the switcher can render the reason instead of crashing.
+  const bad = guideProviderCatalog({ GUIDE_PROVIDER: "anthropic" });
+  assert.equal(bad[1].available, false);
+  assert.match(bad[1].detail ?? "", /GUIDE_MODEL/);
+});
+
+test("buildGuideProvider: 'mock' is offline; 'model' resolves env or throws the exact missing var", () => {
+  assert.ok(buildGuideProvider("mock", {}) instanceof MockInstructorProvider);
+  assert.ok(
+    buildGuideProvider("model", { GUIDE_PROVIDER: "openai-compatible", GUIDE_MODEL: "m", OPENAI_API_KEY: "k" }) instanceof
+      OpenAICompatibleProvider,
+  );
+  assert.ok(
+    buildGuideProvider("model", { GUIDE_PROVIDER: "anthropic", GUIDE_MODEL: "m", ANTHROPIC_API_KEY: "k" }) instanceof
+      AnthropicInstructorProvider,
+  );
+  // 'model' with no live provider configured must fail loudly, never quietly mock.
+  assert.throws(() => buildGuideProvider("model", {}), /live model|GUIDE_/);
+  assert.throws(() => buildGuideProvider("model", { GUIDE_PROVIDER: "anthropic" }), /GUIDE_MODEL/);
 });
 
 // ── live integration (credential-gated; skips loudly) ─────────────────────

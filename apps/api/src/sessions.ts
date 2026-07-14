@@ -35,9 +35,12 @@ import {
   choosePolicy,
   assembleProfileFacets,
   renderReflectionNarrative,
-  providerFromEnv,
+  guideProviderCatalog,
+  buildGuideProvider,
   PROMPT_VERSION,
   type AssembledProfile,
+  type GuideProviderId,
+  type GuideProviderInfo,
   type HintRequest,
   type HintResponse,
   type InstructorProvider,
@@ -197,7 +200,10 @@ export class Session {
   readonly labDir: string;
   readonly driverKind: "local" | "docker";
   private readonly store: EventStore;
-  private readonly instructor: InstructorProvider;
+  /** The guide's words-provider. Swappable at runtime (see setGuide). */
+  private instructor: InstructorProvider;
+  /** Which switcher choice is live now ("mock" | "model") — surfaced to the UI. */
+  guideProviderId: GuideProviderId = "mock";
 
   /** The lab environment. NULL for workspace labs (simulated apps only). */
   handle: LabHandle | null = null;
@@ -407,6 +413,21 @@ export class Session {
   }
 
   // ── instructor ──────────────────────────────────────────────────────────
+
+  /**
+   * Swap the guide's provider mid-session. Lab state, transcript, and the
+   * already-generated greeting are untouched — only the NEXT ask/progress/
+   * nudge is voiced by the new provider. The id is display truth for the UI.
+   */
+  setGuide(id: GuideProviderId, provider: InstructorProvider): void {
+    this.guideProviderId = id;
+    this.instructor = provider;
+  }
+
+  /** The live provider's engine name (for telemetry/UI). */
+  guideProviderName(): string {
+    return this.instructor.name;
+  }
 
   hintRequest(reason: HintRequest["reason"], state = this.state(), screen?: HintRequest["screen"]): HintRequest {
     return {
@@ -877,7 +898,11 @@ export class LearnerService {
 export class SessionManager {
   private sessions = new Map<string, Session>();
   private driver: LabDriver;
-  private instructor = providerFromEnv();
+  // Guide provider selection is per-session and swappable at runtime. The
+  // catalog (what env makes available) is resolved once; built providers are
+  // cached and shared across sessions — one mock, one live model.
+  private readonly guideCatalog = guideProviderCatalog();
+  private readonly guideProviders = new Map<GuideProviderId, InstructorProvider>();
   private readonly store: EventStore;
   private readonly labsRoot: string;
   readonly driverKind: "local" | "docker";
@@ -905,7 +930,55 @@ export class SessionManager {
     return JSON.parse(raw) as LabManifest;
   }
 
-  async createSession(labId: string, consentAnalytics: boolean, learnerId?: string): Promise<Session> {
+  // ── guide provider selection ──────────────────────────────────────────────
+
+  /** Build-once, share-across-sessions cache. Throws only for an unavailable id. */
+  private guideProvider(id: GuideProviderId): InstructorProvider {
+    let provider = this.guideProviders.get(id);
+    if (!provider) {
+      provider = buildGuideProvider(id);
+      this.guideProviders.set(id, provider);
+    }
+    return provider;
+  }
+
+  /**
+   * Default choice when the client names none: the live model if env made it
+   * available (preserves the old "GUIDE_PROVIDER=anthropic just works"
+   * behavior), otherwise the offline mock (plain `npm run dev`).
+   */
+  get defaultGuideId(): GuideProviderId {
+    return this.guideCatalog.some((o) => o.id === "model" && o.available) ? "model" : "mock";
+  }
+
+  /** The switcher payload: what's offered, and what a new session defaults to. */
+  guideOptions(): { options: GuideProviderInfo[]; defaultId: GuideProviderId } {
+    return { options: this.guideCatalog, defaultId: this.defaultGuideId };
+  }
+
+  /** Coerce a requested id to a valid, AVAILABLE one — throws with the reason if not. */
+  private requireGuideId(id: string): GuideProviderId {
+    const opt = this.guideCatalog.find((o) => o.id === id);
+    if (!opt) throw new Error(`unknown guide provider "${id}" (valid: mock | model)`);
+    if (!opt.available) throw new Error(opt.detail ?? `guide provider "${id}" is not available`);
+    return opt.id;
+  }
+
+  /** Live-swap a running session's guide. Returns the applied choice. */
+  setSessionGuide(sessionId: string, id: string): { id: GuideProviderId; provider: string } {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error("session not found");
+    const chosen = this.requireGuideId(id);
+    session.setGuide(chosen, this.guideProvider(chosen));
+    return { id: chosen, provider: session.guideProviderName() };
+  }
+
+  async createSession(
+    labId: string,
+    consentAnalytics: boolean,
+    learnerId?: string,
+    guideProviderId?: string,
+  ): Promise<Session> {
     const manifest = this.loadManifest(labId);
     const labDir = join(this.labsRoot, labId);
     const learner = learnerId ?? newLearnerId();
@@ -924,10 +997,22 @@ export class SessionManager {
       variant = resolveVariant(blueprint, tier);
     }
 
+    // Pick the guide provider: the client's choice if valid+available, else
+    // the env default. Falling back (not erroring) keeps session creation
+    // robust — a stale/unavailable choice never blocks starting a lab.
+    let guideId = this.defaultGuideId;
+    if (guideProviderId) {
+      try {
+        guideId = this.requireGuideId(guideProviderId);
+      } catch {
+        guideId = this.defaultGuideId;
+      }
+    }
     const session = new Session(
-      manifest, labDir, this.driverKind, this.store, this.instructor,
+      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
       learner, this.learners, variant, lessonConcepts,
     );
+    session.guideProviderId = guideId;
     if (!manifest.workspace) {
       session.handle = await this.driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
     }
