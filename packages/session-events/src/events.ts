@@ -23,6 +23,10 @@ export interface ContextManifest {
 export type SessionEvent =
   | ({ type: "session.started"; lessonId: string; learnerId: string; variantId: string | null } & Base)
   | ({ type: "session.reset" } & Base)
+  // A live Session was rebuilt from the store after a restart.
+  | ({ type: "session.resumed" } & Base)
+  // Learner chose "Start over": the attempt ended, history kept for replay/analytics.
+  | ({ type: "session.abandoned" } & Base)
   | ({ type: "terminal.command.started"; command: string } & Base)
   | ({
       type: "terminal.command.completed";

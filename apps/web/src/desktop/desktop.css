@@ -415,12 +415,15 @@
 .chat-composer {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: flex-end;
   padding: 10px;
   border-top: 1px solid var(--chrome-edge);
   background: #12171d;
 }
+/* The start-over confirmation sentence: always its own row above the chips. */
+.chat-confirm-text { flex: 1 1 100%; font-size: 12.5px; color: #aeb8b1; }
 .chat-composer textarea {
   flex: 1;
   resize: none;

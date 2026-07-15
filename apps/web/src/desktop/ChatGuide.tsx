@@ -43,18 +43,20 @@ export function ChatGuide({
   data,
   onNewData,
   getScreen,
+  startOver,
 }: {
   creds: SessionCredentials;
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
   getScreen: () => ScreenReport;
+  startOver: () => Promise<void>;
 }) {
   const botName = data.lab.chat?.botName ?? FALLBACK_BOT;
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const seenTranscript = useRef(new Set<number>());
   const seenTasks = useRef(new Set<string>());
@@ -364,31 +366,31 @@ export function ChatGuide({
         {/* In-UI confirmation (never window.confirm: a native modal blocks the
             main thread and cannot be seen or dismissed in embedded/driven
             browsers — live-sim finding, froze the whole workspace). */}
-        {confirmingReset ? (
+        {confirmingStartOver ? (
           <>
+            <span className="chat-confirm-text">
+              Start this lesson over? Your previous attempt is archived and you'll get a fresh workspace.
+            </span>
             <button
               className="chip chip-primary"
               onClick={() => {
-                setConfirmingReset(false);
-                void api.reset(creds).then(async () => {
-                  push({ from: "system", text: "Workspace reset — everything is back to the starting state. ✓" });
-                  onNewData(await api.state(creds));
-                });
+                setConfirmingStartOver(false);
+                void startOver();
               }}
             >
-              Yes, reset everything
+              Yes, start over
             </button>
-            <button className="chip" onClick={() => setConfirmingReset(false)}>
+            <button className="chip" onClick={() => setConfirmingStartOver(false)}>
               Keep working
             </button>
           </>
         ) : (
           <button
             className="chip"
-            title="Put the workspace back exactly how it started (your edits are removed)"
-            onClick={() => setConfirmingReset(true)}
+            title="End this attempt (archived, not lost) and get a fresh session for this lab"
+            onClick={() => setConfirmingStartOver(true)}
           >
-            Reset
+            Start over
           </button>
         )}
         <textarea

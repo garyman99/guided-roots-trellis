@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
 import { sanitizeUntrusted } from "../../../packages/shared/src/sanitize.ts";
-import { now, type SessionEvent } from "../../../packages/session-events/src/events.ts";
+import { now, type SessionEvent, type SessionEventType } from "../../../packages/session-events/src/events.ts";
 import { reduce, type LearningSessionState } from "../../../packages/session-events/src/reducer.ts";
 import {
   defaultInterventionConfig,
@@ -49,13 +49,13 @@ import {
   estimateCostUSD,
   type PricingTable,
 } from "../../../packages/model-runtime/src/index.ts";
-import { loadBlueprint, resolveVariant, chooseTier, type LabVariant } from "../../../packages/lab-runtime/src/variants.ts";
+import { loadBlueprint, resolveVariant, chooseTier, findVariant, type LabVariant } from "../../../packages/lab-runtime/src/variants.ts";
 import { loadCurriculum, type Curriculum } from "../../../packages/learner-model/src/curriculum.ts";
 import { extractDigest, digestToEvidence } from "../../../packages/learner-model/src/evidence.ts";
 import { reduceProfile, type LearnerProfile } from "../../../packages/learner-model/src/profileReducer.ts";
 import { corroborateHypotheses } from "../../../packages/learner-model/src/hypotheses.ts";
 import { buildReflection } from "../../../packages/learner-model/src/reflection.ts";
-import type { EventStore, StoredReflection } from "./store.ts";
+import type { EventStore, SessionSnapshot, StoredReflection } from "./store.ts";
 import { WorkspaceRuntime, type WorkspaceSpec } from "./workspace.ts";
 
 // ── model telemetry (ADR-0006) ──────────────────────────────────────────────
@@ -180,15 +180,48 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
   return tasks.map((t) => ({ ...t, done: done(t) }));
 }
 
+/**
+ * Pure + tested: rebuild the InstructorMessage transcript from the stored
+ * event log alone (resume-after-restart). Mirrors exactly what live sessions
+ * push in ask()/progressMessage()/answerIntervention() — same event types,
+ * same shapes, ids sequential from 1 in event order. instructor.greeting is
+ * deliberately excluded: live sessions never put it in the transcript either
+ * (the client fetches it separately via /greeting).
+ */
+export function rebuildTranscript(events: SessionEvent[]): InstructorMessage[] {
+  const transcript: InstructorMessage[] = [];
+  let seq = 0;
+  for (const event of events) {
+    switch (event.type) {
+      case "learner.question":
+      case "learner.goal.stated":
+        transcript.push({ id: ++seq, role: "learner", text: event.text, at: event.timestamp });
+        break;
+      case "instructor.hint":
+        transcript.push({ id: ++seq, role: "instructor", text: event.text, level: event.level, at: event.timestamp });
+        break;
+      case "instructor.progress":
+        transcript.push({ id: ++seq, role: "instructor", text: event.text, at: event.timestamp });
+        break;
+      case "intervention.delivered":
+        transcript.push({ id: ++seq, role: "instructor", text: event.text, level: event.level, at: event.timestamp });
+        break;
+      default:
+        break;
+    }
+  }
+  return transcript;
+}
+
 const SCROLLBACK_CAP = 64 * 1024;
 const RESPAWN_MIN_INTERVAL_MS = 2_000;
 const INTERVENTION_COOLDOWN_MS = 90_000;
 
 export class Session {
-  readonly id = newSessionId();
+  readonly id: string;
   readonly token = newSessionToken();
   readonly learnerId: string;
-  readonly createdAt = now();
+  readonly createdAt: string;
   readonly variant: LabVariant | null;
   readonly lessonConcepts: string[];
   private readonly learners: LearnerService;
@@ -222,6 +255,15 @@ export class Session {
   private lastFiredByType = new Map<string, number>();
   private msgSeq = 0;
 
+  // ── snapshot scheduler (resume-after-restart) ──
+  /** Fires 5s after the most recent dirtying event (debounce). */
+  private snapshotDebounce: ReturnType<typeof setTimeout> | null = null;
+  /** Fires 30s after the FIRST unflushed dirty mark (max-interval, in case
+   *  the debounce keeps getting pushed out by a chatty session). */
+  private snapshotMaxWait: ReturnType<typeof setTimeout> | null = null;
+  /** Once-per-session warn when a files snapshot exceeds the size cap. */
+  private snapshotOversizeWarned = false;
+
   constructor(
     manifest: LabManifest,
     labDir: string,
@@ -232,7 +274,12 @@ export class Session {
     learners: LearnerService,
     variant: LabVariant | null,
     lessonConcepts: string[],
+    /** Resume path: reuse the original id/createdAt so the learner keeps their
+     *  URL and history. The token is ALWAYS freshly minted (never restored). */
+    restore?: { id: string; createdAt: string },
   ) {
+    this.id = restore?.id ?? newSessionId();
+    this.createdAt = restore?.createdAt ?? now();
     this.manifest = manifest;
     this.labDir = labDir;
     this.driverKind = driverKind;
@@ -246,6 +293,36 @@ export class Session {
 
   emit(event: SessionEvent): void {
     this.store.appendEvent(this.id, event);
+    this.markSnapshotDirty(event.type);
+  }
+
+  /** Schedule a debounced snapshot flush for content-bearing events; see the
+   *  class-level fields above for the debounce/max-interval shape. */
+  private markSnapshotDirty(eventType: SessionEventType): void {
+    if (this.destroyed) return;
+    const dirty = eventType === "file.changed" || eventType.startsWith("workspace.") || eventType.startsWith("aichat.");
+    if (!dirty) return;
+
+    if (this.snapshotDebounce) clearTimeout(this.snapshotDebounce);
+    this.snapshotDebounce = setTimeout(() => {
+      this.snapshotDebounce = null;
+      if (this.snapshotMaxWait) {
+        clearTimeout(this.snapshotMaxWait);
+        this.snapshotMaxWait = null;
+      }
+      void this.flushSnapshot();
+    }, 5_000);
+
+    if (!this.snapshotMaxWait) {
+      this.snapshotMaxWait = setTimeout(() => {
+        this.snapshotMaxWait = null;
+        if (this.snapshotDebounce) {
+          clearTimeout(this.snapshotDebounce);
+          this.snapshotDebounce = null;
+        }
+        void this.flushSnapshot();
+      }, 30_000);
+    }
   }
 
   state(): LearningSessionState {
@@ -406,6 +483,111 @@ export class Session {
     this.emit({ type: "file.changed", path, timestamp: now() });
   }
 
+  // ── resume-after-restart: snapshot capture/restore ──────────────────────
+  //
+  // Latest-wins per session: workspace labs snapshot the WorkspaceRuntime's
+  // in-memory state; terminal labs snapshot the working tree via the same
+  // exec mechanism (and skip-set) as the fs helpers above. Never let a
+  // snapshot failure break the caller — emit() and reset() both fire these
+  // fire-and-forget.
+
+  private static readonly FS_SKIP = ["\".git\"", "\"node_modules\"", "\"test-results\"", "\"playwright-report\""].join(",");
+  private static readonly FILES_SNAPSHOT_CAP_BYTES = 4 * 1024 * 1024;
+  private static readonly FILES_SNAPSHOT_MAX_FILES = 500;
+  private static readonly RESTORE_BATCH_BYTES = 200_000;
+
+  /** Public: SessionManager calls this on release/abandon so nothing recent is lost. */
+  async flushSnapshot(): Promise<void> {
+    try {
+      if (this.workspace) {
+        const snapshot: SessionSnapshot = {
+          sessionId: this.id,
+          kind: "workspace",
+          payload: this.workspace.serialize(),
+          updatedAt: now(),
+        };
+        this.store.saveSnapshot(snapshot);
+        return;
+      }
+      if (this.handle) {
+        const payload = await this.captureFilesSnapshot();
+        if (payload === null) return; // over the size cap — keep the last good snapshot
+        const snapshot: SessionSnapshot = { sessionId: this.id, kind: "files", payload, updatedAt: now() };
+        this.store.saveSnapshot(snapshot);
+      }
+    } catch (err) {
+      console.error(`[snapshot] flush failed for ${this.id}:`, err);
+    }
+  }
+
+  /** Walks the workspace (same skip-set as listWorkspaceFiles), capped at 500
+   *  files. Returns null (never saved) when the serialized payload would
+   *  exceed the 4 MB cap — logged once per session by the caller. */
+  private async captureFilesSnapshot(): Promise<string | null> {
+    const program =
+      `const fs=require("fs"),p=require("path");const skip=new Set([${Session.FS_SKIP}]);` +
+      `const cap=${Session.FILES_SNAPSHOT_MAX_FILES};const out=[];` +
+      "function walk(d,rel){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(skip.has(e.name))continue;" +
+      'const r=rel?rel+"/"+e.name:e.name;const abs=p.join(d,e.name);' +
+      "if(e.isDirectory()){if(out.length<cap)walk(abs,r)}" +
+      'else{if(out.length<cap)out.push({path:r,contentB64:fs.readFileSync(abs).toString("base64")})}}}' +
+      'walk(process.cwd(),"");console.log(JSON.stringify({v:1,files:out}));';
+    const raw = await this.fsExec(program, {});
+    if (Buffer.byteLength(raw, "utf8") > Session.FILES_SNAPSHOT_CAP_BYTES) {
+      if (!this.snapshotOversizeWarned) {
+        console.warn(`[snapshot] files snapshot for ${this.id} exceeds the 4MB cap — keeping the last good snapshot`);
+        this.snapshotOversizeWarned = true;
+      }
+      return null;
+    }
+    return raw;
+  }
+
+  /**
+   * Resume support: rebuild the working tree from a stored files snapshot.
+   * Deletes anything under the workspace root that isn't in the manifest
+   * (skip-set excluded), then writes every manifest file, batching ~200KB of
+   * base64 per exec so no single call blows past arg/env size limits.
+   */
+  async restoreFilesSnapshot(payload: string): Promise<void> {
+    const parsed = JSON.parse(payload) as { v?: unknown; files?: unknown };
+    if (parsed.v !== 1 || !Array.isArray(parsed.files)) throw new Error("malformed files snapshot");
+    const manifest = (parsed.files as Array<{ path: unknown; contentB64: unknown }>).filter(
+      (f): f is { path: string; contentB64: string } =>
+        typeof f.path === "string" && typeof f.contentB64 === "string" && Session.validFsPath(f.path),
+    );
+    const keep = manifest.map((f) => f.path);
+
+    const deleteProgram =
+      `const fs=require("fs"),p=require("path");const skip=new Set([${Session.FS_SKIP}]);` +
+      'const keep=new Set(JSON.parse(Buffer.from(process.env.TRELLIS_FS_KEEP,"base64").toString()));' +
+      "function walk(d,rel){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(skip.has(e.name))continue;" +
+      'const r=rel?rel+"/"+e.name:e.name;const abs=p.join(d,e.name);' +
+      "if(e.isDirectory())walk(abs,r);else if(!keep.has(r))fs.unlinkSync(abs);}}" +
+      'walk(process.cwd(),"");console.log("ok");';
+    await this.fsExec(deleteProgram, { TRELLIS_FS_KEEP: Buffer.from(JSON.stringify(keep)).toString("base64") });
+
+    const writeProgram =
+      'const fs=require("fs"),p=require("path");const items=JSON.parse(Buffer.from(process.env.TRELLIS_FS_BATCH,"base64").toString());' +
+      "for(const it of items){const abs=p.resolve(process.cwd(),it.path);if(!abs.startsWith(process.cwd()+p.sep))continue;" +
+      'fs.mkdirSync(p.dirname(abs),{recursive:true});fs.writeFileSync(abs,Buffer.from(it.contentB64,"base64"));}' +
+      'console.log("ok");';
+    let batch: Array<{ path: string; contentB64: string }> = [];
+    let batchBytes = 0;
+    const flush = async () => {
+      if (batch.length === 0) return;
+      await this.fsExec(writeProgram, { TRELLIS_FS_BATCH: Buffer.from(JSON.stringify(batch)).toString("base64") });
+      batch = [];
+      batchBytes = 0;
+    };
+    for (const f of manifest) {
+      batch.push(f);
+      batchBytes += f.contentB64.length;
+      if (batchBytes >= Session.RESTORE_BATCH_BYTES) await flush();
+    }
+    await flush();
+  }
+
   // ── instructor ──────────────────────────────────────────────────────────
 
   hintRequest(reason: HintRequest["reason"], state = this.state(), screen?: HintRequest["screen"]): HintRequest {
@@ -537,6 +719,12 @@ export class Session {
     return this.greetingPromise;
   }
 
+  /** Resume support: a stored instructor.greeting event already paid for the
+   *  generation — pre-populate so /greeting replays it instead of re-billing. */
+  seedGreeting(text: string): void {
+    this.greetingPromise = Promise.resolve({ text, generated: true });
+  }
+
   private authoredGreeting(): string {
     return (
       this.manifest.chat?.goalPrompt ??
@@ -582,6 +770,14 @@ export class Session {
     const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text, at: now() };
     this.transcript.push(msg);
     return msg;
+  }
+
+  /** Resume support: replace the transcript from stored events and continue
+   *  the msgSeq id sequence past the restored messages (ids are 1..N in
+   *  event order, so the highest id already used is the transcript length). */
+  seedTranscript(transcript: InstructorMessage[]): void {
+    this.transcript = transcript;
+    this.msgSeq = transcript.reduce((max, m) => Math.max(max, m.id), 0);
   }
 
   async ask(text: string, stuck: boolean, rawScreen?: unknown, opts?: { goal?: boolean }): Promise<InstructorMessage> {
@@ -756,6 +952,9 @@ export class Session {
       this.firedInterventions.clear();
       this.pendingIntervention = null;
       this.emit({ type: "session.reset", timestamp: now() });
+      // Fresh baseline: make sure the stored snapshot reflects it immediately
+      // rather than waiting on the debounce.
+      await this.flushSnapshot();
       return;
     }
     this.resetting = true;
@@ -774,10 +973,21 @@ export class Session {
     }
     this.ensureTerminal();
     this.applySize();
+    // Fresh baseline: make sure the stored snapshot reflects it immediately
+    // rather than waiting on the debounce.
+    await this.flushSnapshot();
   }
 
   async destroy(): Promise<void> {
     this.destroyed = true;
+    if (this.snapshotDebounce) {
+      clearTimeout(this.snapshotDebounce);
+      this.snapshotDebounce = null;
+    }
+    if (this.snapshotMaxWait) {
+      clearTimeout(this.snapshotMaxWait);
+      this.snapshotMaxWait = null;
+    }
     this.instrumentation?.stop();
     this.subscribers.clear();
     await this.handle?.destroy();
@@ -874,8 +1084,21 @@ export class LearnerService {
   }
 }
 
+/** Thrown by SessionManager.resume() when a stored session can't be rebuilt live. */
+export class ResumeError extends Error {
+  readonly reason: "not-found" | "lab-changed";
+
+  constructor(reason: "not-found" | "lab-changed", message?: string) {
+    super(message ?? `cannot resume session: ${reason}`);
+    this.name = "ResumeError";
+    this.reason = reason;
+  }
+}
+
 export class SessionManager {
   private sessions = new Map<string, Session>();
+  /** Concurrent resume() calls for the same session share one in-flight promise. */
+  private resuming = new Map<string, Promise<Session>>();
   private driver: LabDriver;
   private instructor = providerFromEnv();
   private readonly store: EventStore;
@@ -937,6 +1160,8 @@ export class SessionManager {
       labId,
       createdAt: session.createdAt,
       consentAnalytics,
+      status: "open",
+      endedAt: null,
     });
     session.emit({ type: "session.started", lessonId: labId, learnerId: session.learnerId, variantId: variant?.variantId ?? null, timestamp: now() });
 
@@ -952,10 +1177,26 @@ export class SessionManager {
       });
     }
 
+    await this.attachRuntime(session, manifest);
+
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
+  /**
+   * Wire the session's runtime: simulated apps (workspace labs) or shell
+   * instrumentation + the intervention rule engine piggybacking on its drain
+   * cadence (terminal labs). Shared by createSession() and resume(). On
+   * resume the workspace runtime may already be constructed (and restored
+   * from a snapshot) before this runs — never reconstruct over that state.
+   */
+  private async attachRuntime(session: Session, manifest: LabManifest): Promise<void> {
     if (manifest.workspace) {
       // Workspace lab: simulated apps, no shell to instrument. Interventions
       // are evaluated after each workspace action and on the nudge poll.
-      session.workspace = new WorkspaceRuntime(manifest.workspace, (e) => session.emit(e));
+      if (!session.workspace) {
+        session.workspace = new WorkspaceRuntime(manifest.workspace, (e) => session.emit(e));
+      }
     } else {
       const instr = new SessionInstrumentation(session.handle!, (e) => session.emit(e));
       session.instrumentation = instr;
@@ -967,13 +1208,107 @@ export class SessionManager {
         await session.maybeIntervene().catch(() => {});
       };
     }
-
-    this.sessions.set(session.id, session);
-    return session;
   }
 
   get(sessionId: string): Session | null {
     return this.sessions.get(sessionId) ?? null;
+  }
+
+  /**
+   * Rebuild a live Session from the store — after a server restart, or when
+   * the learner's live session was released but their row is still "open".
+   * Concurrent calls for the same id share one in-flight rebuild.
+   */
+  async resume(sessionId: string): Promise<Session> {
+    const live = this.sessions.get(sessionId);
+    if (live) return live;
+
+    const pending = this.resuming.get(sessionId);
+    if (pending) return pending;
+
+    const task = this.doResume(sessionId).finally(() => {
+      this.resuming.delete(sessionId);
+    });
+    this.resuming.set(sessionId, task);
+    return task;
+  }
+
+  private async doResume(sessionId: string): Promise<Session> {
+    const meta = this.store.sessionMeta(sessionId);
+    if (!meta || meta.status !== "open") throw new ResumeError("not-found");
+
+    let manifest: LabManifest;
+    try {
+      manifest = this.loadManifest(meta.labId);
+    } catch (err) {
+      throw new ResumeError("lab-changed", err instanceof Error ? err.message : String(err));
+    }
+    const labDir = join(this.labsRoot, meta.labId);
+
+    const events = this.store.eventsFor(sessionId);
+    const startedEvent = events.find(
+      (e): e is Extract<SessionEvent, { type: "session.started" }> => e.type === "session.started",
+    );
+    const variantId = startedEvent?.variantId ?? null;
+
+    // ── Adaptive labs: re-resolve the recorded variant against the CURRENT
+    // blueprint — if the tier/defect no longer matches, the blueprint
+    // invariant (same blueprint + tier → same lab) is broken for this
+    // session, so resume must fail rather than silently swap the lab.
+    const blueprint = loadBlueprint(labDir);
+    let variant: LabVariant | null = null;
+    let lessonConcepts: string[] = manifest.concepts ?? [];
+    if (blueprint) {
+      lessonConcepts = [...new Set([...blueprint.teaches, ...blueprint.exercises])];
+      if (!variantId) throw new ResumeError("lab-changed", "session predates adaptive variants for this lab");
+      variant = findVariant(blueprint, variantId);
+      if (!variant) throw new ResumeError("lab-changed");
+    }
+
+    const session = new Session(
+      manifest, labDir, this.driverKind, this.store, this.instructor,
+      meta.learnerId, this.learners, variant, lessonConcepts,
+      { id: meta.sessionId, createdAt: meta.createdAt },
+    );
+
+    if (!manifest.workspace) {
+      session.handle = await this.driver.create(
+        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined },
+        session.id,
+      );
+      const filesSnapshot = this.store.snapshotFor(session.id, "files");
+      if (filesSnapshot) {
+        try {
+          await session.restoreFilesSnapshot(filesSnapshot.payload);
+        } catch (err) {
+          // Never a failed resume: fall back to the fresh lab baseline.
+          console.error(`[resume] files snapshot restore failed for ${session.id}:`, err);
+        }
+      }
+    } else {
+      session.workspace = new WorkspaceRuntime(manifest.workspace, (e) => session.emit(e));
+      const workspaceSnapshot = this.store.snapshotFor(session.id, "workspace");
+      if (workspaceSnapshot) {
+        try {
+          session.workspace.restore(workspaceSnapshot.payload);
+        } catch (err) {
+          console.error(`[resume] workspace snapshot restore failed for ${session.id}:`, err);
+        }
+      }
+    }
+
+    session.seedTranscript(rebuildTranscript(events));
+
+    const greetingEvent = events.find(
+      (e): e is Extract<SessionEvent, { type: "instructor.greeting" }> => e.type === "instructor.greeting",
+    );
+    if (greetingEvent) session.seedGreeting(greetingEvent.text);
+
+    await this.attachRuntime(session, manifest);
+
+    this.sessions.set(session.id, session);
+    session.emit({ type: "session.resumed", timestamp: now() });
+    return session;
   }
 
   async destroy(sessionId: string): Promise<void> {
@@ -989,16 +1324,37 @@ export class SessionManager {
   }
 
   /**
-   * Shutdown path: tear down live resources (ptys, containers) but KEEP the
+   * Release path: tear down live resources (ptys, containers) but KEEP the
    * stored session rows and event logs. Session history is learner truth the
    * admin surface replays later; only an explicit learner DELETE (destroy) or
-   * erasure may remove it from the store.
+   * erasure may remove it from the store. Flushes a final snapshot first so
+   * a later resume() picks up from the most recent content.
    */
+  async release(sessionId: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (!s) return;
+    await s.flushSnapshot();
+    await s.destroy();
+    this.sessions.delete(sessionId);
+  }
+
+  /** Shutdown path: release() every live session. */
   async releaseAll(): Promise<void> {
-    for (const [id, s] of [...this.sessions.entries()]) {
-      await s.destroy();
-      this.sessions.delete(id);
+    for (const id of [...this.sessions.keys()]) await this.release(id);
+  }
+
+  /**
+   * Learner chose "start over" / the session is being discarded for good:
+   * mark the row abandoned so resume() and latestOpenSession() stop offering
+   * it. Works whether or not the session is currently live.
+   */
+  async abandon(sessionId: string): Promise<void> {
+    const s = this.sessions.get(sessionId);
+    if (s) {
+      s.emit({ type: "session.abandoned", timestamp: now() });
+      await this.release(sessionId); // flushes a final snapshot, then tears down
     }
+    this.store.setSessionStatus(sessionId, "abandoned", now());
   }
 
   /** Erasure support: tear down any live sessions belonging to a learner. */

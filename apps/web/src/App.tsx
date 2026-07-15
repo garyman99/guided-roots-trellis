@@ -22,7 +22,7 @@ import type { OsStyle } from "./desktop/WindowFrame.tsx";
 const params = new URLSearchParams(window.location.search);
 const LAB_ID = params.get("lab") ?? "inspect-generated-changes";
 /** One session creation per page load, even across StrictMode remounts. */
-let bootInFlight: ReturnType<typeof api.createSession> | null = null;
+let bootInFlight: ReturnType<typeof api.ensureSession> | null = null;
 const UI = params.get("ui") ?? "desktop";
 const OS: OsStyle = params.get("os") === "mac" ? "mac" : "windows";
 const POLL_MS = 2000;
@@ -42,7 +42,9 @@ export function App() {
       // Module-level in-flight guard: React StrictMode double-mounts effects
       // in dev, which used to create TWO learners + TWO sessions per fresh
       // visit (one leaked, and localStorage could keep mismatched halves).
-      bootInFlight ??= api.createSession(LAB_ID);
+      // ensureSession is resume-or-create — the SERVER decides which; the
+      // client just asks for "my session for this lab".
+      bootInFlight ??= api.ensureSession(LAB_ID);
       const fresh = await bootInFlight;
       saveCredentials(fresh);
       setCreds(fresh);
@@ -65,6 +67,27 @@ export function App() {
       }
     });
   }, [creds, boot]);
+
+  // "Start over": end the current attempt (history kept, no learner data
+  // lost) and open a fresh one for the same lab. Unlike boot()'s resume-or-
+  // create, this always lands on a brand-new session — abandon first, then
+  // ensureSession has nothing open left to resume.
+  const startOver = useCallback(async () => {
+    if (!creds) return;
+    try {
+      try {
+        await api.abandonSession(creds);
+      } catch (err) {
+        if ((err as { status?: number }).status !== 404) throw err; // already gone is fine
+      }
+      const fresh = await api.ensureSession(LAB_ID);
+      saveCredentials(fresh);
+      setCreds(fresh);
+      setData(null); // stale poll data must not flash before the fresh session's first tick
+    } catch (err) {
+      setBootError(`Couldn't start over. Is the API running? (${String(err)})`);
+    }
+  }, [creds]);
 
   // State poll: powers the live checklist, readiness cue, and transcript.
   useEffect(() => {
@@ -96,8 +119,8 @@ export function App() {
   }
   if (!creds || !data) return <div className="boot">Starting your lab…</div>;
 
-  if (UI === "classic") return <ClassicLayout creds={creds} data={data} onNewData={setData} />;
-  return <Desktop os={OS} creds={creds} data={data} onNewData={setData} />;
+  if (UI === "classic") return <ClassicLayout creds={creds} data={data} onNewData={setData} startOver={startOver} />;
+  return <Desktop os={OS} creds={creds} data={data} onNewData={setData} startOver={startOver} />;
 }
 
 /** The original three-panel layout, kept for comparison and small screens. */
@@ -105,10 +128,12 @@ function ClassicLayout({
   creds,
   data,
   onNewData,
+  startOver,
 }: {
   creds: SessionCredentials;
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
+  startOver: () => Promise<void>;
 }) {
   return (
     <div className="layout">
@@ -119,7 +144,7 @@ function ClassicLayout({
         <span className="lab-title">{data.lab.title}</span>
       </header>
       <main className="panels">
-        <LessonPanel creds={creds} data={data} />
+        <LessonPanel creds={creds} data={data} startOver={startOver} />
         <section className="panel panel-terminal">
           <Terminal creds={creds} />
         </section>

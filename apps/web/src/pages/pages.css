@@ -227,6 +227,8 @@
 .admin-chip.status-mastered { border-color: var(--green-deep); color: var(--green); }
 .admin-chip.status-emerging { border-color: var(--copper-dim); color: var(--copper-bright); }
 .admin-chip.status-decayed, .admin-chip.status-unknown { color: var(--ink-faint); }
+.admin-chip.status-open { border-color: var(--copper-dim); color: var(--copper-bright); }
+.admin-chip.status-abandoned { color: var(--ink-faint); margin-left: 6px; }
 
 .admin-kv {
   display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 4px 0 0;

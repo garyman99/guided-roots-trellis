@@ -231,6 +231,29 @@ export const api = {
       throw err;
     }
   },
+  /**
+   * The client's single boot call: resume-or-create bound to the persistent
+   * learner. The server decides — 200 (resumed) vs 201 (created fresh) — the
+   * client never chooses. Same stale-learner self-heal as createSession.
+   */
+  ensureSession: async (labId: string) => {
+    const attempt = async () => {
+      const learner = await learnerApi.ensureLearner();
+      return learnerReq("POST", `/api/learners/${learner.learnerId}/lessons/${labId}/session`, learner, {
+        consentAnalytics: false,
+      }) as Promise<SessionCredentials & { labId: string; resumed: boolean }>;
+    };
+    try {
+      return await attempt();
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401 || status === 410) {
+        saveLearner(null);
+        return await attempt();
+      }
+      throw err;
+    }
+  },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
   /** The generated session-opening message (cached server-side; falls back to authored text). */
   greeting: (c: SessionCredentials) =>
@@ -257,6 +280,8 @@ export const api = {
       requirements: RequirementResult[];
     }>,
   reset: (c: SessionCredentials) => req("POST", `/api/sessions/${c.sessionId}/reset`, c),
+  /** "Start over": ends the current attempt (history kept), doesn't create a new one — pair with ensureSession. */
+  abandonSession: (c: SessionCredentials) => req("POST", `/api/sessions/${c.sessionId}/abandon`, c) as Promise<{ ok: true }>,
   contextPreview: (c: SessionCredentials) =>
     req("GET", `/api/sessions/${c.sessionId}/context-preview`, c) as Promise<{ system: string; user: string }>,
   destroy: (c: SessionCredentials) => req("DELETE", `/api/sessions/${c.sessionId}`, c),
@@ -279,7 +304,7 @@ async function learnerReq(method: string, path: string, learner: LearnerCredenti
     headers: { "content-type": "application/json", authorization: `Bearer ${learner.learnerToken}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`${method} ${path} → ${res.status}`), { status: res.status });
   return res.json();
 }
 

@@ -136,11 +136,13 @@ export function Desktop({
   creds,
   data,
   onNewData,
+  startOver,
 }: {
   os: OsStyle;
   creds: SessionCredentials;
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
+  startOver: () => Promise<void>;
 }) {
   // App set is lab-driven: workspace labs declare their simulated apps.
   const APPS = useMemo<AppSpec[]>(
@@ -301,7 +303,9 @@ export function Desktop({
           onClose={() => update(a.id, { open: false })}
         >
           {a.id === "code" && <CodeStudio creds={creds} onEditorState={(s) => (editorState.current = s)} />}
-          {a.id === "guide" && <ChatGuide creds={creds} data={data} onNewData={onNewData} getScreen={getScreen} />}
+          {a.id === "guide" && (
+            <ChatGuide creds={creds} data={data} onNewData={onNewData} getScreen={getScreen} startOver={startOver} />
+          )}
           {a.id === "preview" && <PreviewApp creds={creds} />}
           {a.id === "email" &&
             (wsView ? (

@@ -13,6 +13,7 @@
  *   POST   /api/sessions/:id/intervention/answer { accepted } → parked hint or null
  *   POST   /api/sessions/:id/checkpoint/evaluate
  *   POST   /api/sessions/:id/reset
+ *   POST   /api/sessions/:id/abandon         mark abandoned (start over); works live or not
  *   GET    /api/sessions/:id/export          full event log (data transparency)
  *   DELETE /api/sessions/:id
  *   WS     /ws/terminal?session=ID&token=T   the learner terminal
@@ -28,6 +29,7 @@
  *   PUT    /api/learners/:id/consents            { selfAnalytics, cohortAggregate, research }
  *   POST   /api/learners/:id/assertions          contestation: preference | suppression | fresh-start
  *   DELETE /api/learners/:id                     erasure (ADR-0002: delete + tombstone)
+ *   POST   /api/learners/:id/lessons/:labId/session  resume-or-create — the client's single boot call
  *   POST   /api/sessions/:id/self-assessment     { confidence: 1..5 } calibration signal
  *   GET    /api/sessions/:id/reflection          after checkpoint pass
  *   GET    /api/analytics/cohort                 k-suppressed aggregate (consented learners only)
@@ -61,7 +63,7 @@ import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
-import { SessionManager, taskStatuses, type Session } from "./sessions.ts";
+import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -382,6 +384,49 @@ export const server = createServer(async (req, res) => {
         store.eraseLearner(learnerId);
         return json(res, 200, { erased: true });
       }
+      // POST /api/learners/:id/lessons/:labId/session — resume-or-create: the
+      // client's single boot call. An open session for this learner+lab is
+      // resumed in place; otherwise (or if resume can't be honored) a fresh
+      // session is created, bound to this already-authenticated learner.
+      if (req.method === "POST" && tail === "lessons" && parts.length === 6 && parts[5] === "session") {
+        const labId = parts[4];
+        try {
+          manager.loadManifest(labId); // validates the id shape AND that the lab exists
+        } catch {
+          return json(res, 404, { error: `unknown lab: ${labId}` });
+        }
+        const body = await readBody(req);
+        const consentAnalytics = body.consentAnalytics === true;
+
+        const sessionPayload = (session: Session, resumed: boolean) => ({
+          sessionId: session.id,
+          token: session.token,
+          learnerId: session.learnerId,
+          variantId: session.variant?.variantId ?? null,
+          labId,
+          driver: manager.driverKind,
+          terminalUrl: `/ws/terminal?session=${session.id}`,
+          resumed,
+        });
+
+        const open = store.latestOpenSession(learnerId, labId);
+        if (open) {
+          try {
+            const session = await manager.resume(open.sessionId);
+            return json(res, 200, sessionPayload(session, true));
+          } catch (err) {
+            if (err instanceof ResumeError) {
+              if (err.reason === "lab-changed") await manager.abandon(open.sessionId);
+              // "not-found": stale row — fall through to create.
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        const session = await manager.createSession(labId, consentAnalytics, learnerId);
+        return json(res, 201, sessionPayload(session, false));
+      }
       return json(res, 404, { error: "unknown learner route" });
     }
 
@@ -579,6 +624,9 @@ export const server = createServer(async (req, res) => {
             eventCount: events.length,
             counts: { commands, questions, hints, testRuns },
             completed,
+            // Lifecycle: "open" until the learner finishes or starts over.
+            status: m.status,
+            endedAt: m.endedAt,
             // Still attached to a live lab environment in this process?
             live: manager.get(m.sessionId) !== null,
           };
@@ -814,6 +862,12 @@ export const server = createServer(async (req, res) => {
       if (req.method === "POST" && tail === "reset") {
         await session.reset();
         return json(res, 200, { ok: true, note: "workspace re-created; reconnect the terminal" });
+      }
+      if (req.method === "POST" && tail === "abandon") {
+        // Start over: mark the row abandoned so resume()/latestOpenSession()
+        // stop offering it. session is live here (authed() above required it).
+        await manager.abandon(id);
+        return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && tail === "export") {
         return json(res, 200, {

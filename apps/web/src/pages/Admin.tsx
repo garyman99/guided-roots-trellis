@@ -113,6 +113,8 @@ interface AdminSessionSummary {
   counts: { commands: number; questions: number; hints: number; testRuns: number };
   completed: boolean;
   live: boolean;
+  /** Lifecycle: "open" until the learner finishes or starts over. Optional — older sessions predate this field. */
+  status?: "open" | "abandoned";
 }
 
 /** Replay events are the raw session event log; rendered defensively. */
@@ -551,6 +553,7 @@ function UserDetail({
                     <span className={`admin-chip ${s.completed ? "status-mastered" : ""}`}>
                       {s.completed ? "finished" : s.live ? "live now" : "not finished"}
                     </span>
+                    {s.status === "abandoned" && <span className="admin-chip status-abandoned">abandoned</span>}
                   </td>
                   <td>{fmtDuration(s.durationMs)}</td>
                   <td>
@@ -1178,6 +1181,7 @@ function SessionsView({ sessions }: { sessions: AdminSessionSummary[] | null }) 
                 <span className={`admin-chip ${s.completed ? "status-mastered" : ""}`}>
                   {s.completed ? "finished" : s.live ? "live now" : "not finished"}
                 </span>
+                {s.status === "abandoned" && <span className="admin-chip status-abandoned">abandoned</span>}
               </td>
               <td>{fmtDuration(s.durationMs)}</td>
               <td>
@@ -1221,6 +1225,12 @@ function toBeats(events: ReplayEvent[]): Beat[] {
         break;
       case "session.reset":
         b("↺", "milestone", "Workspace reset");
+        break;
+      case "session.resumed":
+        b("▶", "milestone", "Resumed after a break");
+        break;
+      case "session.abandoned":
+        b("⏹", "milestone", "Started over — attempt archived");
         break;
       case "agent.action":
         b("🤖", "agent", `Agent: ${str(e.action)}`, str(e.detail));

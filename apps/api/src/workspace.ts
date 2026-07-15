@@ -298,6 +298,61 @@ export class WorkspaceRuntime {
     this.submittedFlag = false;
   }
 
+  // ── resume-after-restart (persistent lesson progress) ───────────────────
+
+  /** Snapshot ALL mutable state so restore() reproduces view() exactly. */
+  serialize(): string {
+    const payload = {
+      v: 1 as const,
+      readEmails: [...this.readEmails],
+      thread: this.thread,
+      drafts: [...this.drafts.entries()],
+      reply: this.reply,
+      submittedFlag: this.submittedFlag,
+      seq: this.seq,
+    };
+    return JSON.stringify(payload);
+  }
+
+  /** Malformed payload THROWS — the caller (Session.resume) decides how to degrade. */
+  restore(payload: string): void {
+    const parsed: unknown = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object" || (parsed as { v?: unknown }).v !== 1) {
+      throw new Error("unsupported workspace snapshot version");
+    }
+    const p = parsed as {
+      v: 1;
+      readEmails: unknown;
+      thread: unknown;
+      drafts: unknown;
+      reply: unknown;
+      submittedFlag: unknown;
+      seq: unknown;
+    };
+    if (
+      !Array.isArray(p.readEmails) ||
+      !Array.isArray(p.thread) ||
+      !Array.isArray(p.drafts) ||
+      typeof p.submittedFlag !== "boolean" ||
+      typeof p.seq !== "number" ||
+      !p.reply ||
+      typeof p.reply !== "object"
+    ) {
+      throw new Error("malformed workspace snapshot shape");
+    }
+    const reply = p.reply as { text?: unknown; revision?: unknown; baselineDraftId?: unknown };
+    this.readEmails = new Set(p.readEmails as string[]);
+    this.thread = p.thread as ChatEntry[];
+    this.drafts = new Map(p.drafts as Array<[string, string]>);
+    this.reply = {
+      text: typeof reply.text === "string" ? reply.text : "",
+      revision: typeof reply.revision === "number" ? reply.revision : 0,
+      baselineDraftId: typeof reply.baselineDraftId === "string" ? reply.baselineDraftId : null,
+    };
+    this.submittedFlag = p.submittedFlag;
+    this.seq = p.seq;
+  }
+
   /** Everything the learner-facing apps render. */
   view() {
     return {

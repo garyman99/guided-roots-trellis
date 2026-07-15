@@ -115,3 +115,42 @@ test("checkpoint completion is idempotent", () => {
   events.push({ type: "checkpoint.completed", checkpointId: "c1", timestamp: at(2) });
   assert.deepEqual(reduce(events).completedCheckpoints, ["c1"]);
 });
+
+test("session.resumed and session.abandoned are lifecycle markers: no reduced-state effect", () => {
+  // Every event (this pair included) legitimately bumps lastEventAt — that's
+  // generic bookkeeping ("when did the last thing happen"), not a fact these
+  // two event types add. Strip it before comparing so the assertion targets
+  // exactly what the reducer's case blocks claim: no-op beyond that.
+  const withoutLastEventAt = (s: ReturnType<typeof reduce>) => {
+    const { lastEventAt: _drop, ...rest } = s;
+    return rest;
+  };
+
+  const events = baseEvents();
+  events.push({ type: "terminal.command.started", command: "git status", timestamp: at(1) });
+  events.push({ type: "learner.question", text: "what now?", stuck: false, timestamp: at(2) });
+  const before = reduce(events, { nowMs: t0 + 10_000 });
+
+  const withResumed = [...events, { type: "session.resumed", timestamp: at(3) } as SessionEvent];
+  const resumedState = reduce(withResumed, { nowMs: t0 + 10_000 });
+  assert.deepEqual(withoutLastEventAt(resumedState), withoutLastEventAt(before), "session.resumed leaves every other fact unchanged");
+  assert.equal(resumedState.lastEventAt, at(3), "lastEventAt still advances, like any other event");
+
+  const withAbandoned = [...events, { type: "session.abandoned", timestamp: at(3) } as SessionEvent];
+  assert.deepEqual(
+    withoutLastEventAt(reduce(withAbandoned, { nowMs: t0 + 10_000 })),
+    withoutLastEventAt(before),
+    "session.abandoned leaves every other fact unchanged",
+  );
+
+  const withBoth = [
+    ...events,
+    { type: "session.resumed", timestamp: at(3) } as SessionEvent,
+    { type: "session.abandoned", timestamp: at(4) } as SessionEvent,
+  ];
+  assert.deepEqual(
+    withoutLastEventAt(reduce(withBoth, { nowMs: t0 + 10_000 })),
+    withoutLastEventAt(before),
+    "combined, still no effect beyond lastEventAt",
+  );
+});
