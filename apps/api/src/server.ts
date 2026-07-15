@@ -883,6 +883,9 @@ export const server = createServer(async (req, res) => {
 
     json(res, 404, { error: "not found" });
   } catch (err) {
+    // Always surface an unhandled 500 server-side — a silent catch here once
+    // hid a container-name collision on resume behind a bare browser 500.
+    console.error(`[trellis-api] 500 ${req.method} ${req.url}:`, err);
     json(res, 500, { error: String((err as Error).message ?? err).slice(0, 300) });
   }
 });

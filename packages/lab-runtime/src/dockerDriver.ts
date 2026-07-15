@@ -173,6 +173,14 @@ export class DockerDriver implements LabDriver {
   async create(def: LabDefinition, sessionId: string): Promise<LabHandle> {
     const container = `trellis-lab-${sessionId}`;
     const image = IMAGE_PREFIX + def.labId;
+    // Idempotent create: on resume-after-restart the sessionId (and therefore
+    // the container name) is REUSED, and a hard process kill skips the graceful
+    // teardown — so a container by this name may already exist and would make
+    // `docker run --name` fail with a name collision. Remove any leftover first.
+    // For a fresh createSession the id is unique, so this is a harmless no-op.
+    // The fresh container is correct either way: resume overlays the file
+    // snapshot back on top via restoreFilesSnapshot().
+    await docker(["rm", "-f", container]);
     const res = await docker([
       "run", "-d",
       "--name", container,
