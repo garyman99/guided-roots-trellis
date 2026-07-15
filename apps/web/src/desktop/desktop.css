@@ -167,6 +167,24 @@
 }
 .task-btn.focused::after { background: var(--accent); }
 .task-spacer { flex: 1; }
+/* Guide-model switcher — global chrome, always visible in the taskbar. */
+.guide-switch { display: flex; align-items: center; gap: 6px; margin-right: 14px; }
+.guide-switch-label { color: #9fb3a6; font-size: 12px; white-space: nowrap; }
+.guide-switch-select {
+  background: #10151b;
+  color: #dbe4ec;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  max-width: 220px;
+  cursor: pointer;
+}
+.guide-switch-select:hover:not(:disabled) { border-color: var(--accent); }
+.guide-switch-select:disabled { opacity: 0.6; cursor: default; }
+.guide-switch-info { color: #c9a15f; font-size: 13px; cursor: help; }
+.guide-switch-err { color: #e05a72; font-size: 13px; cursor: help; }
 .task-brand { color: #6f7f74; font-size: 13px; margin-right: 12px; }
 .task-clock { color: #cfd8d1; font-size: 12px; text-align: right; line-height: 1.25; }
 
@@ -333,7 +351,70 @@
   background: #12171d;
 }
 .chat-head-name { font-size: 13px; color: #cfe3d3; font-weight: 600; }
+.chat-head-actions { display: flex; align-items: center; gap: 10px; }
 .chat-head .link { background: none; border: none; color: #8ea296; font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+/* Narration toggle — always visible in the head, clearly on/off. */
+.voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 14px;
+  padding: 3px 9px 3px 7px;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.voice-toggle.on { background: rgba(127, 176, 105, 0.16); border-color: var(--accent); color: #cfe3d3; }
+.voice-toggle.off { background: #1b232c; color: #8ea296; }
+.voice-toggle:hover { border-color: var(--accent); }
+.voice-toggle-label { font-weight: 600; letter-spacing: 0.01em; }
+/* Narration engine picker (browser vs local Voice Tools) — sits by the toggle. */
+.voice-engine {
+  background: #1b232c;
+  color: #cfe3d3;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 150px;
+}
+.voice-engine:hover { border-color: var(--accent); }
+
+/* Mic dictation button in the composer. */
+.mic-btn {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--chrome-edge);
+  background: #1b232c;
+  color: #dbe4ec;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mic-btn:hover { background: #232e39; }
+.mic-btn.recording {
+  background: #6b2130;
+  border-color: #e05a72;
+  color: #ffd9df;
+  animation: mic-pulse 1.3s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 90, 114, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(224, 90, 114, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-btn.recording { animation: none; }
+}
 .chat-thread { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; }
 .chat-row { display: flex; gap: 8px; align-items: flex-end; }
 .chat-row.learner { justify-content: flex-end; }
@@ -359,6 +440,26 @@
 .chat-md code {
   background: #10161d; border: 1px solid #2b3642; border-radius: 4px;
   padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
+}
+/* Fenced code block — a snippet the learner can read (and copy). */
+.chat-code {
+  margin: 8px 0; border: 1px solid #2b3642; border-radius: 8px; overflow: hidden;
+  background: #0c1116;
+}
+.chat-code-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px 4px 10px; background: #10161d; border-bottom: 1px solid #2b3642;
+}
+.chat-code-lang { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #7f8f99; }
+.chat-code-copy {
+  border: 1px solid var(--chrome-edge); background: #1b232c; color: #cfe3d3;
+  border-radius: 6px; padding: 2px 9px; font: inherit; font-size: 11px; cursor: pointer;
+}
+.chat-code-copy:hover { border-color: var(--accent); }
+.chat-code pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+.chat-code pre code {
+  background: none; border: none; border-radius: 0; padding: 0;
+  color: #dbe4ec; font-size: 12.5px; line-height: 1.55; white-space: pre;
 }
 .chat-md .md-list { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .chat-md .md-list li.md-task { list-style: none; margin-left: -18px; }

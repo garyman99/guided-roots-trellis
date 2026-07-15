@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, createHash } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
 import { sanitizeUntrusted } from "../../../packages/shared/src/sanitize.ts";
 import { now, type SessionEvent } from "../../../packages/session-events/src/events.ts";
@@ -35,9 +35,14 @@ import {
   choosePolicy,
   assembleProfileFacets,
   renderReflectionNarrative,
-  providerFromEnv,
+  guideProviderCatalog,
+  buildGuideProvider,
+  buildTaskValidator,
   PROMPT_VERSION,
+  type TaskValidator,
   type AssembledProfile,
+  type GuideProviderId,
+  type GuideProviderInfo,
   type HintRequest,
   type HintResponse,
   type InstructorProvider,
@@ -93,6 +98,18 @@ export interface LabTask {
     | "reply-submitted";
   /** For auto "file-viewed": the workspace path that counts (any file when omitted). */
   autoPath?: string;
+  /**
+   * Optional LLM correctness gate. When present, the task completes only after
+   * its coarse `auto` trigger fires AND a model judges the learner's work
+   * against `criterion` as correct — so a half-finished edit can't advance the
+   * lesson. Offline mock has no model, so the gate auto-passes (unchanged).
+   */
+  validate?: {
+    /** Workspace file paths whose contents the criterion is judged against. */
+    reads: string[];
+    /** Plain-language description of what "done correctly" means. */
+    criterion: string;
+  };
 }
 
 export interface LabManifest {
@@ -146,10 +163,11 @@ export interface InstructorMessage {
   at: string;
 }
 
-/** Pure + tested: which tasks does the measured state show as done? */
-export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
+/** Whether a task's COARSE instrumentation trigger has fired (pre-validation). */
+export function taskAutoDone(task: LabTask, state: LearningSessionState): boolean {
   const ws = state.workspace;
-  const done = ({ auto, autoPath }: LabTask): boolean => {
+  const { auto, autoPath } = task;
+  {
     switch (auto) {
       case "any-command":
         return state.recentCommands.length > 0;
@@ -176,8 +194,26 @@ export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Arr
       default:
         return false;
     }
-  };
-  return tasks.map((t) => ({ ...t, done: done(t) }));
+  }
+}
+
+/**
+ * Which tasks show as done? The coarse instrumentation trigger must have fired
+ * AND — for a task that declares a `validate` criterion — the LLM correctness
+ * gate must have passed. Tasks without a criterion behave exactly as before.
+ */
+export function taskStatuses(tasks: LabTask[], state: LearningSessionState): Array<LabTask & { done: boolean }> {
+  return tasks.map((t) => ({
+    ...t,
+    done: taskAutoDone(t, state) && (!t.validate || state.taskValidations[t.id]?.passed === true),
+  }));
+}
+
+/** Stable fingerprint of the files a criterion reads — re-check only on change. */
+function hashValidationInputs(files: Array<{ path: string; content: string }>): string {
+  const h = createHash("sha1");
+  for (const f of files) h.update(f.path).update("\0").update(f.content).update("\0");
+  return h.digest("hex");
 }
 
 const SCROLLBACK_CAP = 64 * 1024;
@@ -197,7 +233,14 @@ export class Session {
   readonly labDir: string;
   readonly driverKind: "local" | "docker";
   private readonly store: EventStore;
-  private readonly instructor: InstructorProvider;
+  /** The guide's words-provider. Swappable at runtime (see setGuide). */
+  private instructor: InstructorProvider;
+  /** Which switcher choice is live now ("mock" | "model") — surfaced to the UI. */
+  guideProviderId: GuideProviderId = "mock";
+  /** LLM correctness gate (shared, from GUIDE_* config). Null → tasks auto-pass. */
+  private readonly validator: TaskValidator | null;
+  /** Tasks whose validation is in flight — stops the poll cadence double-firing. */
+  private readonly validating = new Set<string>();
 
   /** The lab environment. NULL for workspace labs (simulated apps only). */
   handle: LabHandle | null = null;
@@ -232,6 +275,7 @@ export class Session {
     learners: LearnerService,
     variant: LabVariant | null,
     lessonConcepts: string[],
+    validator: TaskValidator | null,
   ) {
     this.manifest = manifest;
     this.labDir = labDir;
@@ -242,6 +286,7 @@ export class Session {
     this.learners = learners;
     this.variant = variant;
     this.lessonConcepts = lessonConcepts;
+    this.validator = validator;
   }
 
   emit(event: SessionEvent): void {
@@ -404,9 +449,27 @@ export class Session {
     // event is truthful — GUI saves reach the reducer exactly like terminal
     // edits do (those are caught by the git snapshot after the next command).
     this.emit({ type: "file.changed", path, timestamp: now() });
+    // A save is the moment an authoring task's work is ready to judge — run the
+    // correctness gate now (non-blocking; the write result returns immediately).
+    void this.maybeValidate().catch(() => {});
   }
 
   // ── instructor ──────────────────────────────────────────────────────────
+
+  /**
+   * Swap the guide's provider mid-session. Lab state, transcript, and the
+   * already-generated greeting are untouched — only the NEXT ask/progress/
+   * nudge is voiced by the new provider. The id is display truth for the UI.
+   */
+  setGuide(id: GuideProviderId, provider: InstructorProvider): void {
+    this.guideProviderId = id;
+    this.instructor = provider;
+  }
+
+  /** The live provider's engine name (for telemetry/UI). */
+  guideProviderName(): string {
+    return this.instructor.name;
+  }
 
   hintRequest(reason: HintRequest["reason"], state = this.state(), screen?: HintRequest["screen"]): HintRequest {
     return {
@@ -616,6 +679,58 @@ export class Session {
     const msg: InstructorMessage = { id: ++this.msgSeq, role: "instructor", text: hint.message, level: hint.level, at: now() };
     this.transcript.push(msg);
     return msg;
+  }
+
+  /**
+   * The auto-gating correctness check. For every task that declares a
+   * `validate` criterion and whose coarse trigger has fired but which hasn't
+   * passed yet, judge the learner's actual files against the criterion and
+   * record the result. A live guide runs the LLM check; the offline mock
+   * auto-passes (labs behave as before). Content-hashed so a given piece of
+   * work is judged once — a fail is re-checked only after the learner edits.
+   * Runs on the same cadence as interventions, plus right after a GUI save.
+   */
+  async maybeValidate(): Promise<void> {
+    if (this.destroyed || !this.handle) return; // file-based check needs a lab fs
+    const state = this.state();
+    for (const task of this.manifest.tasks) {
+      const v = task.validate;
+      if (!v) continue;
+      if (state.taskValidations[task.id]?.passed) continue; // already correct
+      if (!taskAutoDone(task, state)) continue; // coarse trigger hasn't fired yet
+      if (this.validating.has(task.id)) continue; // one check in flight per task
+
+      // No live model → auto-pass, so labs stay usable offline.
+      if (this.guideProviderId !== "model" || !this.validator) {
+        this.emit({ type: "task.validated", taskId: task.id, passed: true, reason: "", contentHash: "auto", timestamp: now() });
+        continue;
+      }
+
+      let files: Array<{ path: string; content: string }>;
+      try {
+        files = [];
+        for (const p of v.reads) {
+          const r = await this.readWorkspaceFile(p, { probe: true }); // probe: not a learner "view"
+          files.push({ path: p, content: r.content });
+        }
+      } catch {
+        continue; // a read file isn't there yet — try again next tick
+      }
+      const contentHash = hashValidationInputs(files);
+      if (state.taskValidations[task.id]?.contentHash === contentHash) continue; // this exact work already judged
+
+      this.validating.add(task.id);
+      try {
+        const { passed, reason } = await this.validator.validate(v.criterion, files);
+        this.emit({ type: "task.validated", taskId: task.id, passed, reason: reason.slice(0, 300), contentHash, timestamp: now() });
+      } catch (err) {
+        console.error(`[validate] task ${task.id} check failed for ${this.id}:`, err);
+        // Never strand a learner on a validator hiccup — let them through.
+        this.emit({ type: "task.validated", taskId: task.id, passed: true, reason: "", contentHash, timestamp: now() });
+      } finally {
+        this.validating.delete(task.id);
+      }
+    }
   }
 
   /** Deterministic rules; runs on the instrumentation cadence. */
@@ -877,7 +992,14 @@ export class LearnerService {
 export class SessionManager {
   private sessions = new Map<string, Session>();
   private driver: LabDriver;
-  private instructor = providerFromEnv();
+  // Guide provider selection is per-session and swappable at runtime. The
+  // catalog (what env makes available) is resolved once; built providers are
+  // cached and shared across sessions — one mock, one live model.
+  private readonly guideCatalog = guideProviderCatalog();
+  private readonly guideProviders = new Map<GuideProviderId, InstructorProvider>();
+  // Task correctness gate, shared across sessions (from GUIDE_* config). Null
+  // when no live model is configured; each session uses it only while on "model".
+  private readonly taskValidator = buildTaskValidator();
   private readonly store: EventStore;
   private readonly labsRoot: string;
   readonly driverKind: "local" | "docker";
@@ -905,7 +1027,55 @@ export class SessionManager {
     return JSON.parse(raw) as LabManifest;
   }
 
-  async createSession(labId: string, consentAnalytics: boolean, learnerId?: string): Promise<Session> {
+  // ── guide provider selection ──────────────────────────────────────────────
+
+  /** Build-once, share-across-sessions cache. Throws only for an unavailable id. */
+  private guideProvider(id: GuideProviderId): InstructorProvider {
+    let provider = this.guideProviders.get(id);
+    if (!provider) {
+      provider = buildGuideProvider(id);
+      this.guideProviders.set(id, provider);
+    }
+    return provider;
+  }
+
+  /**
+   * Default choice when the client names none: the live model if env made it
+   * available (preserves the old "GUIDE_PROVIDER=anthropic just works"
+   * behavior), otherwise the offline mock (plain `npm run dev`).
+   */
+  get defaultGuideId(): GuideProviderId {
+    return this.guideCatalog.some((o) => o.id === "model" && o.available) ? "model" : "mock";
+  }
+
+  /** The switcher payload: what's offered, and what a new session defaults to. */
+  guideOptions(): { options: GuideProviderInfo[]; defaultId: GuideProviderId } {
+    return { options: this.guideCatalog, defaultId: this.defaultGuideId };
+  }
+
+  /** Coerce a requested id to a valid, AVAILABLE one — throws with the reason if not. */
+  private requireGuideId(id: string): GuideProviderId {
+    const opt = this.guideCatalog.find((o) => o.id === id);
+    if (!opt) throw new Error(`unknown guide provider "${id}" (valid: mock | model)`);
+    if (!opt.available) throw new Error(opt.detail ?? `guide provider "${id}" is not available`);
+    return opt.id;
+  }
+
+  /** Live-swap a running session's guide. Returns the applied choice. */
+  setSessionGuide(sessionId: string, id: string): { id: GuideProviderId; provider: string } {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error("session not found");
+    const chosen = this.requireGuideId(id);
+    session.setGuide(chosen, this.guideProvider(chosen));
+    return { id: chosen, provider: session.guideProviderName() };
+  }
+
+  async createSession(
+    labId: string,
+    consentAnalytics: boolean,
+    learnerId?: string,
+    guideProviderId?: string,
+  ): Promise<Session> {
     const manifest = this.loadManifest(labId);
     const labDir = join(this.labsRoot, labId);
     const learner = learnerId ?? newLearnerId();
@@ -924,10 +1094,22 @@ export class SessionManager {
       variant = resolveVariant(blueprint, tier);
     }
 
+    // Pick the guide provider: the client's choice if valid+available, else
+    // the env default. Falling back (not erroring) keeps session creation
+    // robust — a stale/unavailable choice never blocks starting a lab.
+    let guideId = this.defaultGuideId;
+    if (guideProviderId) {
+      try {
+        guideId = this.requireGuideId(guideProviderId);
+      } catch {
+        guideId = this.defaultGuideId;
+      }
+    }
     const session = new Session(
-      manifest, labDir, this.driverKind, this.store, this.instructor,
-      learner, this.learners, variant, lessonConcepts,
+      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
+      learner, this.learners, variant, lessonConcepts, this.taskValidator,
     );
+    session.guideProviderId = guideId;
     if (!manifest.workspace) {
       session.handle = await this.driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
     }
@@ -964,6 +1146,7 @@ export class SessionManager {
       const origDrain = instr.drain.bind(instr);
       instr.drain = async () => {
         await origDrain();
+        await session.maybeValidate().catch(() => {});
         await session.maybeIntervene().catch(() => {});
       };
     }

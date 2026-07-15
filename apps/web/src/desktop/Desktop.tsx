@@ -17,6 +17,7 @@ import { api, type ScreenReport, type SessionCredentials, type StatePayload, typ
 import { isAuthenticated } from "../auth.ts";
 import { CodeStudio } from "./CodeStudio.tsx";
 import { ChatGuide } from "./ChatGuide.tsx";
+import { GuideSwitcher } from "./GuideSwitcher.tsx";
 import { EmailApp } from "./EmailApp.tsx";
 import { AiChatApp } from "./AiChatApp.tsx";
 import { WindowFrame, type OsStyle, type WindowState } from "./WindowFrame.tsx";
@@ -358,6 +359,7 @@ export function Desktop({
           );
         })}
         <div className="task-spacer" />
+        <GuideSwitcher creds={creds} current={data.guideProvider} onNewData={onNewData} />
         <button
           className="task-btn task-leave"
           onClick={leaveDesktop}

@@ -128,7 +128,7 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
         `- One short sentence acknowledging what the measured facts show — cite evidence from SESSION STATE, never invented praise.\n` +
         `- Then a checklist: the just-completed task(s) as checked items (\`- [x]\`) plus the FIRST still-open task as ONE unchecked item (\`- [ ]\`). Render items in the LESSON-PLAN ORDER of the Tasks list, even when steps completed out of order. If nothing is open, say the list is done and point at "Check my work" instead.\n` +
         `${CHECKLIST_RULE}\n` +
-        `- If SESSION STATE shows something worth attention (a failing run, an edit since the last test run), add ONE pointing sentence after the checklist — a nudge toward the goal, never a lecture.\n` +
+        `- End with the checklist — put NOTHING after it. The unchecked task's own text is the instruction; do NOT add a "next up…" or "go do X" sentence, and never restate the task in prose (it reads as noise and overloads the learner).\n` +
         `- Keep blocks short: 1–2 sentences per paragraph, blank line between. No headings.`,
     );
   } else {

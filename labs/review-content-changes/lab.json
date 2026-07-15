@@ -56,7 +56,11 @@
     {
       "id": "fix",
       "text": "Fix the behavior the agent broke \u2014 surgically. Keep readingTimeMinutes.",
-      "auto": "file-edited"
+      "auto": "file-edited",
+      "validate": {
+        "reads": ["src/text.ts"],
+        "criterion": "The agent hid a defect behind a 'tidying' comment \u2014 ONE of: (a) slugify's regex had its '+' quantifier dropped so runs of non-alphanumeric characters no longer collapse into a single '-' (correct is .replace(/[^a-z0-9]+/g, \"-\")), or (b) the excerpt uses words.slice(0, maxWords - 1) instead of words.slice(0, maxWords). The learner must restore the correct behavior AND delete the misleading 'tidying'/'simplified'/'reserve room' comment that dressed the change up as intentional. The requested readingTimeMinutes function the agent added must remain intact. PASS only if: the broken behavior is corrected, the misleading comment is gone, AND readingTimeMinutes is still present. FAIL if the defect remains, the misleading comment is still there, or readingTimeMinutes was removed (e.g. a blanket revert)."
+      }
     },
     {
       "id": "verify",

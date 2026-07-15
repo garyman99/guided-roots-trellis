@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type RequirementResult, type ScreenReport, type SessionCredentials, type StatePayload } from "../api.ts";
 import { ContextDrawer, ReflectionCard } from "../panels.tsx";
+import { useDictation, useNarration } from "../voice/useVoice.ts";
 import { ChatMarkdown } from "./ChatMarkdown.tsx";
 
 interface ChatMsg {
@@ -59,9 +60,29 @@ export function ChatGuide({
   const seenTranscript = useRef(new Set<number>());
   const seenTasks = useRef(new Set<string>());
   const promptedTask = useRef<string | null>(null);
+  // A learner message we've already shown optimistically (the goal ack path):
+  // its later transcript copy must not render a second time. Text-matched so
+  // it works regardless of whether the poll or onNewData reconciles first —
+  // id math alone raced the 2s state poll once the real model added ~1s of
+  // latency, echoing the learner's own message back at them.
+  const suppressLearnerEcho = useRef<string | null>(null);
+  // Correctness-gate results already shown, keyed by task+content, so a failing
+  // check surfaces its "not quite" note once per distinct attempt (a pass just
+  // lets the task complete → the normal progress beat handles it).
+  const shownValidations = useRef<Set<string>>(new Set());
+  const validationsPrimed = useRef(false);
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
+
+  // ── Voice: dictate into the composer, narrate the guide's replies ─────────
+  const narration = useNarration();
+  const dictation = useDictation(setDraft);
+  // Messages already read aloud (by key), so nothing is voiced twice. Seeded
+  // with the initial thread on first pass so resuming a session doesn't
+  // recite its whole history — only messages that ARRIVE get spoken.
+  const spokenKeys = useRef<Set<string>>(new Set());
+  const narrationPrimed = useRef(false);
 
   const push = (m: Omit<ChatMsg, "key">) =>
     setMsgs((cur) => [...cur, { ...m, key: `${Date.now()}-${cur.length}-${Math.random().toString(36).slice(2, 7)}` }]);
@@ -137,6 +158,25 @@ export function ChatGuide({
   // offers the NEXT step — the lesson path delivered as conversation, not as
   // a checklist document.
   useEffect(() => {
+    // Goal-first onboarding holds every measured beat until the learner
+    // states a goal — "everything else waits for them". But instrumentation
+    // runs regardless: if they start DOING the lesson (a task goes done)
+    // before ever typing a goal, onboarding is moot. Retire it, drop in the
+    // scenario context now, and let the normal beat flow take over — so their
+    // next message is treated as a question, not mistaken for "their goal"
+    // (which injected the welcome mid-thread and echoed their message).
+    if (awaitingGoal) {
+      if (data.tasks.some((t) => t.done)) {
+        // The learner started working before answering the goal prompt. Just
+        // retire onboarding — do NOT re-inject the authored welcome. The
+        // generated greeting already framed the lesson, so echoing the
+        // scenario again is information overload (learner feedback). The
+        // progress beat below carries the next step.
+        setAwaitingGoal(false);
+        promptedTask.current = data.tasks.find((t) => !t.done)?.id ?? "all-done";
+      }
+      return; // awaitingGoal flip re-runs this effect; beats process then
+    }
     const newlyDone: string[] = [];
     for (const t of data.tasks) {
       if (t.done && !seenTasks.current.has(t.id)) {
@@ -179,18 +219,38 @@ export function ChatGuide({
       push({ from: "bot", text: next.text });
     }
     for (const m of data.transcript) {
-      if (!seenTranscript.current.has(m.id)) {
-        seenTranscript.current.add(m.id);
-        push({ from: m.role === "instructor" ? "bot" : "learner", text: m.text, hintLevel: m.level });
+      if (seenTranscript.current.has(m.id)) continue;
+      seenTranscript.current.add(m.id);
+      // Already shown optimistically (goal ack) → swallow the echo once.
+      if (m.role === "learner" && suppressLearnerEcho.current === m.text) {
+        suppressLearnerEcho.current = null;
+        continue;
       }
+      push({ from: m.role === "instructor" ? "bot" : "learner", text: m.text, hintLevel: m.level });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.tasks, data.transcript]);
+  }, [data.tasks, data.transcript, awaitingGoal]);
+
+  // ── Auto-gate feedback: a task's work was checked and came back short ─────
+  // A pass lets the task complete (the progress beat handles it); a FAIL keeps
+  // the task open and lands the guide's "here's what's missing" note. Seeded on
+  // the first pass so a resumed session doesn't replay old verdicts.
+  useEffect(() => {
+    for (const [taskId, v] of Object.entries(data.taskValidations)) {
+      const key = `${taskId}:${v.contentHash}`;
+      if (shownValidations.current.has(key)) continue;
+      shownValidations.current.add(key);
+      if (!validationsPrimed.current) continue; // adopt existing verdicts silently
+      if (!v.passed && v.reason) push({ from: "bot", text: `Not quite yet — ${v.reason}` });
+    }
+    validationsPrimed.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.taskValidations]);
 
   // ── Proactive check-ins: interventions → conversational nudges ───────────
   useEffect(() => {
     const t = setInterval(async () => {
-      if (!nudgeArmed.current || completed) return;
+      if (!nudgeArmed.current || completed || awaitingGoal) return;
       try {
         const { intervention } = (await api.intervention(creds)) as {
           intervention: { hint: { message: string; level: number }; triggerType: string } | null;
@@ -208,26 +268,45 @@ export function ChatGuide({
     }, 3000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creds, completed]);
+  }, [creds, completed, awaitingGoal]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [msgs.length]);
 
+  // Narrate newly arrived guide messages. Every message is marked "seen" on
+  // the first pass it appears, whether or not it's voiced — so toggling
+  // narration on mid-session speaks only what comes NEXT, never a backlog.
+  // Typing placeholders are skipped (their key changes once real text lands).
+  useEffect(() => {
+    for (const m of msgs) {
+      if (spokenKeys.current.has(m.key) || m.typing) continue;
+      spokenKeys.current.add(m.key);
+      if (!narrationPrimed.current) continue; // initial thread → seen, not spoken
+      if (m.from === "bot" || m.from === "agent" || m.from === "system") {
+        narration.speak(m.text); // no-op when narration is off/unsupported
+      }
+    }
+    narrationPrimed.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msgs]);
+
   const send = async (text: string, stuck: boolean) => {
     if (!text.trim() || sending) return;
+    if (dictation.listening) dictation.stop(); // sending ends the dictation turn
     setSending(true);
     setDraft("");
     const isGoal = awaitingGoal;
     try {
       if (isGoal) {
-        // Their goal unlocks the scenario. Thread order: their goal, the
-        // scenario context, then Sage's ack carrying the first step.
+        // Their goal unlocks the scenario. Thread order: their goal, then
+        // Sage's ack carrying the first step. No authored-welcome dump — the
+        // ack orients them (the re-injected scenario read as overload).
         setAwaitingGoal(false);
         const firstOpen = data.tasks.find((t) => !t.done);
         if (firstOpen) promptedTask.current = firstOpen.id; // the ack delivers it
+        suppressLearnerEcho.current = text.trim(); // don't let the poll re-echo it
         push({ from: "learner", text: text.trim() });
-        setMsgs((cur) => [...cur, ...scenarioOpening().map((m) => ({ ...m, key: `post-goal-${m.key}` }))]);
         const { message } = (await api.ask(creds, text.trim(), false, getScreen(), true)) as {
           message: { id: number; text: string; level?: number };
         };
@@ -239,8 +318,37 @@ export function ChatGuide({
         onNewData(await api.state(creds));
         return;
       }
-      await api.ask(creds, text.trim(), stuck, getScreen());
-      onNewData(await api.state(creds));
+      // Show their message and a typing indicator IMMEDIATELY. The model can
+      // take several seconds; the old path awaited it while rendering nothing,
+      // so a slow (or failed) reply read as "my message was ignored".
+      suppressLearnerEcho.current = text.trim(); // poll won't re-echo it
+      push({ from: "learner", text: text.trim() });
+      const typingKey = `ask-typing-${Date.now()}`;
+      setMsgs((cur) => [...cur, { key: typingKey, from: "bot", text: "", typing: true }]);
+      try {
+        const { message } = (await api.ask(creds, text.trim(), stuck, getScreen())) as {
+          message: { id: number; text: string; level?: number };
+        };
+        seenTranscript.current.add(message.id); // don't let the poll replay the reply
+        setMsgs((cur) =>
+          cur.map((m) =>
+            m.key === typingKey
+              ? { key: `ask-${message.id}`, from: "bot" as const, text: message.text, hintLevel: message.level }
+              : m,
+          ),
+        );
+        onNewData(await api.state(creds));
+      } catch {
+        // A model hiccup must still acknowledge them — never leave the message
+        // hanging in silence.
+        setMsgs((cur) =>
+          cur.map((m) =>
+            m.key === typingKey
+              ? { key: `${typingKey}-err`, from: "bot" as const, text: "Sorry — I couldn't get to that just now. Mind trying again in a moment?" }
+              : m,
+          ),
+        );
+      }
     } finally {
       setSending(false);
     }
@@ -295,9 +403,44 @@ export function ChatGuide({
     <div className="chat-guide">
       <div className="chat-head">
         <span className="chat-head-name">🌿 {botName}</span>
-        <button className="link" onClick={() => setShowContext(true)}>
-          What does {botName} see?
-        </button>
+        <div className="chat-head-actions">
+          {narration.supported && (
+            <button
+              className={`voice-toggle ${narration.enabled ? "on" : "off"}`}
+              onClick={() => narration.setEnabled(!narration.enabled)}
+              aria-pressed={narration.enabled}
+              aria-label={narration.enabled ? `Turn off ${botName}'s voice` : `Turn on ${botName}'s voice`}
+              title={
+                narration.enabled
+                  ? `${botName} reads replies aloud — click to mute`
+                  : `${botName}'s voice is off — click to have replies read aloud`
+              }
+            >
+              <span aria-hidden="true">{narration.enabled ? (narration.speaking ? "🔊" : "🔈") : "🔇"}</span>
+              <span className="voice-toggle-label">{narration.enabled ? "Voice on" : "Voice off"}</span>
+            </button>
+          )}
+          {narration.enabled && narration.engines.filter((e) => e.supported).length > 1 && (
+            <select
+              className="voice-engine"
+              value={narration.engine}
+              onChange={(e) => narration.setEngine(e.target.value as typeof narration.engine)}
+              aria-label={`${botName}'s voice source`}
+              title="Which engine narrates — the browser's built-in voice, or the local Voice Tools service"
+            >
+              {narration.engines
+                .filter((e) => e.supported)
+                .map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+            </select>
+          )}
+          <button className="link" onClick={() => setShowContext(true)}>
+            What does {botName} see?
+          </button>
+        </div>
       </div>
       <div className="chat-thread" ref={scrollRef}>
         {msgs.map((m) => (
@@ -391,9 +534,33 @@ export function ChatGuide({
             Reset
           </button>
         )}
+        {dictation.supported && (
+          <button
+            className={`mic-btn ${dictation.listening ? "recording" : ""}`}
+            onClick={() => {
+              if (dictation.listening) {
+                dictation.stop();
+              } else {
+                narration.cancel(); // don't talk over the learner
+                dictation.start(draft);
+              }
+            }}
+            aria-pressed={dictation.listening}
+            aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
+            title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
+          >
+            <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+          </button>
+        )}
         <textarea
           value={draft}
-          placeholder={awaitingGoal ? `Tell ${botName} what you're here to do…` : `Message ${botName}…`}
+          placeholder={
+            dictation.listening
+              ? "Listening…"
+              : awaitingGoal
+                ? `Tell ${botName} what you're here to do…`
+                : `Message ${botName}…`
+          }
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

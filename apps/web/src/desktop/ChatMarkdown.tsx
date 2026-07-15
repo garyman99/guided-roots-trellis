@@ -7,7 +7,34 @@
  * *italic*, `code`, bullet lists, and task-list items (`- [ ]` / `- [x]`).
  * Unchecked task items render as the highlighted "your next step" card.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+
+/**
+ * A fenced code block: monospace, its own scroll, and a copy button. Content
+ * is set as a text child (never innerHTML), so model output stays inert.
+ */
+function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    });
+  };
+  return (
+    <div className="chat-code">
+      <div className="chat-code-bar">
+        <span className="chat-code-lang">{lang || "code"}</span>
+        <button className="chat-code-copy" onClick={copy} type="button">
+          {copied ? "Copied ✓" : "Copy"}
+        </button>
+      </div>
+      <pre>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
 
 function inline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -60,6 +87,15 @@ export function ChatMarkdown({ text }: { text: string }) {
     key++;
     para = [];
   };
+  let code: string[] | null = null; // non-null while inside a ``` fence
+  let codeLang = "";
+  const flushCode = () => {
+    if (code === null) return;
+    blocks.push(<CodeBlock key={`k${key}`} code={code.join("\n")} lang={codeLang} />);
+    key++;
+    code = null;
+    codeLang = "";
+  };
   const flushList = () => {
     if (!list.length) return;
     const items = list;
@@ -84,6 +120,23 @@ export function ChatMarkdown({ text }: { text: string }) {
   };
 
   for (const raw of text.split(/\r?\n/)) {
+    const fence = /^```(\w*)\s*$/.exec(raw.trim());
+    if (fence) {
+      // Toggle: open a block (flushing any pending para/list first) or close it.
+      if (code === null) {
+        flushPara();
+        flushList();
+        code = [];
+        codeLang = fence[1];
+      } else {
+        flushCode();
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(raw); // preserve indentation inside the fence
+      continue;
+    }
     const line = raw.trim();
     const task = /^[-*] \[([ xX])\] (.*)$/.exec(line);
     const bullet = /^[-*] (.+)$/.exec(line);
@@ -103,5 +156,6 @@ export function ChatMarkdown({ text }: { text: string }) {
   }
   flushPara();
   flushList();
+  flushCode(); // an unterminated fence still renders as a code block
   return <div className="chat-md">{blocks}</div>;
 }
