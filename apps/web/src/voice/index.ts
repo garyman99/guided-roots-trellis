@@ -9,11 +9,19 @@
  */
 import { browserSpeechToText, browserTextToSpeech } from "./browserSpeech.ts";
 import type { SpeechToText, TextToSpeech } from "./types.ts";
+import { VoiceToolsTextToSpeech } from "./voiceToolsSpeech.ts";
 
 export type * from "./types.ts";
 
 export const speechToText: SpeechToText = browserSpeechToText;
-export const textToSpeech: TextToSpeech = browserTextToSpeech;
+export const textToSpeech: TextToSpeech =
+  import.meta.env.VITE_TTS_PROVIDER === "voice-tools"
+    ? new VoiceToolsTextToSpeech({
+        baseUrl: import.meta.env.VITE_TTS_BASE_URL ?? "http://127.0.0.1:48720",
+        voice: import.meta.env.VITE_TTS_VOICE ?? "tara",
+        lmStudioTarget: import.meta.env.VITE_TTS_LM_STUDIO_TARGET === "workstation" ? "workstation" : "headless",
+      })
+    : browserTextToSpeech;
 
 /**
  * Flatten the guide's light markdown into words worth hearing: drop code
