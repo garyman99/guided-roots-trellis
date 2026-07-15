@@ -23,7 +23,11 @@
     {
       "id": "fix",
       "text": "Fix the defect the agent introduced \u2014 surgically. Keep the bulk-discount feature.",
-      "auto": "file-edited"
+      "auto": "file-edited",
+      "validate": {
+        "reads": ["src/pricing.ts"],
+        "criterion": "In applyDiscount, the rounding must use Math.round (round half-up) \u2014 the agent's planted defect changed it to Math.floor, and that must be corrected back to Math.round. The bulk-discount feature the agent was asked to add (the bulkDiscountCents amount / bulk-discount code path) must still be present and intact. PASS only if BOTH hold: the rounding is Math.round AND the bulk-discount code remains. FAIL if Math.floor is still there, or if the bulk-discount feature was removed (e.g. by reverting the whole file, or editing the test instead of the code)."
+      }
     },
     {
       "id": "verify",

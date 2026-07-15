@@ -26,9 +26,27 @@ export interface AgentBeat {
   detail: string;
 }
 
+export type GuideProviderId = "mock" | "model";
+
+export interface GuideProviderInfo {
+  id: GuideProviderId;
+  label: string;
+  available: boolean;
+  detail?: string;
+}
+
+export interface GuideOptions {
+  options: GuideProviderInfo[];
+  defaultId: GuideProviderId;
+}
+
 export interface StatePayload {
   agentTimeline: AgentBeat[];
   variantId: string | null;
+  /** Which guide provider is voicing this session (mock | live model). */
+  guideProvider: GuideProviderId;
+  /** Per-task correctness-gate results (reason present on a fail). */
+  taskValidations: Record<string, { passed: boolean; reason: string; contentHash: string }>;
   state: {
     viewedGitDiff: boolean;
     testsRun: number;
@@ -187,6 +205,23 @@ export function saveCredentials(creds: SessionCredentials | null): void {
   else localStorage.removeItem(sessionKey());
 }
 
+/**
+ * The learner's chosen guide provider, persisted so it survives reloads and
+ * applies to the NEXT session created (a fresh boot / new lab). Null = "use
+ * the server default" (mock unless GUIDE_* configures a live model).
+ */
+const GUIDE_PREF_KEY = "trellis.guide.provider";
+
+export function savedGuidePref(): GuideProviderId | null {
+  const v = localStorage.getItem(GUIDE_PREF_KEY);
+  return v === "mock" || v === "model" ? v : null;
+}
+
+export function saveGuidePref(id: GuideProviderId | null): void {
+  if (id) localStorage.setItem(GUIDE_PREF_KEY, id);
+  else localStorage.removeItem(GUIDE_PREF_KEY);
+}
+
 async function req(method: string, path: string, creds: SessionCredentials | null, body?: unknown) {
   const res = await fetch(path, {
     method,
@@ -214,7 +249,10 @@ export const api = {
         consentAnalytics: false,
         learnerId: learner.learnerId,
         learnerToken: learner.learnerToken,
-      }) as Promise<SessionCredentials & { labId: string }>;
+        // Start the session on the learner's saved guide choice (falls back to
+        // the server default when null or unavailable).
+        guideProviderId: savedGuidePref() ?? undefined,
+      }) as Promise<SessionCredentials & { labId: string; guideProvider: GuideProviderId }>;
     };
     try {
       return await attempt();
@@ -241,7 +279,10 @@ export const api = {
       const learner = await learnerApi.ensureLearner();
       return learnerReq("POST", `/api/learners/${learner.learnerId}/lessons/${labId}/session`, learner, {
         consentAnalytics: false,
-      }) as Promise<SessionCredentials & { labId: string; resumed: boolean }>;
+        // Apply the learner's saved guide choice (on both create and resume);
+        // falls back to the server default when null or unavailable.
+        guideProviderId: savedGuidePref() ?? undefined,
+      }) as Promise<SessionCredentials & { labId: string; resumed: boolean; guideProvider: GuideProviderId }>;
     };
     try {
       return await attempt();
@@ -255,6 +296,11 @@ export const api = {
     }
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
+  /** Guide-model switcher options (mock | live model) + the server default. No auth. */
+  guideProviders: () => req("GET", "/api/guide-providers", null) as Promise<GuideOptions>,
+  /** Live-swap this session's guide provider. Rejects (400) if the choice isn't available. */
+  setGuideProvider: (c: SessionCredentials, id: GuideProviderId) =>
+    req("POST", `/api/sessions/${c.sessionId}/guide-provider`, c, { id }) as Promise<{ id: GuideProviderId; provider: string }>,
   /** The generated session-opening message (cached server-side; falls back to authored text). */
   greeting: (c: SessionCredentials) =>
     req("GET", `/api/sessions/${c.sessionId}/greeting`, c) as Promise<{ message: { text: string; generated: boolean } }>,

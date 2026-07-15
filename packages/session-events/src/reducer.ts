@@ -39,6 +39,12 @@ export interface LearningSessionState {
   msSinceLastFileChange?: number;
   /** True if any file changed after the most recent test run. */
   changedSinceLastTestRun: boolean;
+  /**
+   * LLM correctness-gate results per task id (latest wins). A task that
+   * declares a success criterion is "done" only when its coarse trigger fired
+   * AND its entry here has passed === true. Empty = nothing checked yet.
+   */
+  taskValidations: Record<string, { passed: boolean; reason: string; contentHash: string }>;
   lastCheckpointEvaluation?: { checkpointId: string; passed: boolean; incomplete: string[] };
   /** Simulated-application facts (workspace labs). Absent fields = never happened. */
   workspace: WorkspaceState;
@@ -126,6 +132,7 @@ export function initialState(lessonId = "", learnerId = ""): LearningSessionStat
     learnerQuestions: [],
     hintsAlreadyGiven: [],
     changedSinceLastTestRun: false,
+    taskValidations: {},
     workspace: initialWorkspace(),
   };
 }
@@ -211,6 +218,12 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
 
       case "git.diff.viewed":
         state.viewedGitDiff = true;
+        break;
+
+      case "task.validated":
+        // Latest result wins — a re-check after the learner fixes their work
+        // overwrites the prior fail.
+        state.taskValidations[ev.taskId] = { passed: ev.passed, reason: ev.reason, contentHash: ev.contentHash };
         break;
 
       case "tests.completed":

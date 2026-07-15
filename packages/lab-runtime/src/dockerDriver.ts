@@ -121,6 +121,16 @@ class DockerLabHandle implements LabHandle {
         this.terminal = null;
         this.exitCbs.forEach((cb) => cb(code));
       });
+      // A spawn failure (e.g. the `docker` CLI not on PATH) emits 'error';
+      // without a listener Node throws it as an UNHANDLED error and crashes
+      // the API. Surface it into the terminal stream and end cleanly instead.
+      this.terminal.on("error", (err: NodeJS.ErrnoException) => {
+        this.terminal = null;
+        const hint = err.code === "ENOENT" ? "the `docker` CLI was not found on PATH" : String(err.message);
+        const msg = `\r\n\x1b[31mTerminal unavailable: ${hint}\x1b[0m\r\n`;
+        this.dataCbs.forEach((cb) => cb(Buffer.from(msg)));
+        this.exitCbs.forEach((cb) => cb(1));
+      });
     }
     const term = this.terminal;
     return {

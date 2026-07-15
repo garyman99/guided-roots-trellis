@@ -2,7 +2,9 @@
  * Trellis API server — Node http + miniWs, zero dependencies.
  *
  * Routes:
- *   POST   /api/sessions                     { labId, consentAnalytics? } → session + token
+ *   POST   /api/sessions                     { labId, consentAnalytics?, guideProviderId? } → session + token
+ *   GET    /api/guide-providers              guide-model switcher options (mock | live model) + default
+ *   POST   /api/sessions/:id/guide-provider  { id: "mock" | "model" } → live-swap this session's guide
  *   GET    /api/labs/:labId                  lesson content for the UI
  *   GET    /api/sessions/:id/state           reduced state + transcript + checkpoint spec
  *   GET    /api/sessions/:id/greeting        generated session-opening message (cached per session)
@@ -397,6 +399,7 @@ export const server = createServer(async (req, res) => {
         }
         const body = await readBody(req);
         const consentAnalytics = body.consentAnalytics === true;
+        const guideProviderId = typeof body.guideProviderId === "string" ? body.guideProviderId : undefined;
 
         const sessionPayload = (session: Session, resumed: boolean) => ({
           sessionId: session.id,
@@ -406,6 +409,7 @@ export const server = createServer(async (req, res) => {
           labId,
           driver: manager.driverKind,
           terminalUrl: `/ws/terminal?session=${session.id}`,
+          guideProvider: session.guideProviderId,
           resumed,
         });
 
@@ -413,6 +417,16 @@ export const server = createServer(async (req, res) => {
         if (open) {
           try {
             const session = await manager.resume(open.sessionId);
+            // Re-apply the learner's saved guide choice (not part of the
+            // replayable event log, so resume rebuilds with the default).
+            // An invalid/unavailable choice must not fail the resume.
+            if (guideProviderId) {
+              try {
+                manager.setSessionGuide(session.id, guideProviderId);
+              } catch {
+                /* keep the default guide */
+              }
+            }
             return json(res, 200, sessionPayload(session, true));
           } catch (err) {
             if (err instanceof ResumeError) {
@@ -424,7 +438,7 @@ export const server = createServer(async (req, res) => {
           }
         }
 
-        const session = await manager.createSession(labId, consentAnalytics, learnerId);
+        const session = await manager.createSession(labId, consentAnalytics, learnerId, guideProviderId);
         return json(res, 201, sessionPayload(session, false));
       }
       return json(res, 404, { error: "unknown learner route" });
@@ -673,7 +687,8 @@ export const server = createServer(async (req, res) => {
         learnerId = body.learnerId;
       }
 
-      const session = await manager.createSession(labId, body.consentAnalytics === true, learnerId);
+      const guideProviderId = typeof body.guideProviderId === "string" ? body.guideProviderId : undefined;
+      const session = await manager.createSession(labId, body.consentAnalytics === true, learnerId, guideProviderId);
       return json(res, 201, {
         sessionId: session.id,
         token: session.token,
@@ -681,8 +696,15 @@ export const server = createServer(async (req, res) => {
         variantId: session.variant?.variantId ?? null,
         labId,
         driver: manager.driverKind,
+        guideProvider: session.guideProviderId,
         terminalUrl: `/ws/terminal?session=${session.id}`,
       });
+    }
+
+    // GET /api/guide-providers — what the guide-model switcher can offer.
+    // Unauthenticated: returns labels + availability only, never secrets.
+    if (req.method === "GET" && url.pathname === "/api/guide-providers") {
+      return json(res, 200, manager.guideOptions());
     }
 
     // GET /api/labs/:labId
@@ -710,6 +732,11 @@ export const server = createServer(async (req, res) => {
           transcript: session.transcript,
           checkpoint: session.manifest.checkpoint,
           variantId: session.variant?.variantId ?? null,
+          // Which guide provider is voicing this session right now (mock | model).
+          guideProvider: session.guideProviderId,
+          // Auto-gating correctness results per task id (reason surfaced on a
+          // fail so the guide can say what's missing). Empty when nothing checked.
+          taskValidations: state.taskValidations,
           // The agent lane, straight from the event log — replayable truth.
           agentTimeline: session
             .events()
@@ -792,6 +819,18 @@ export const server = createServer(async (req, res) => {
         }
       }
 
+      if (req.method === "POST" && tail === "guide-provider") {
+        // Live-swap the guide's provider for THIS session (mock ↔ live model).
+        // 400 with the exact reason if the choice isn't available (e.g. no
+        // model configured) — the UI shows it as a disabled option's tooltip.
+        const body = await readBody(req);
+        const id = typeof body.id === "string" ? body.id : "";
+        try {
+          return json(res, 200, manager.setSessionGuide(session.id, id));
+        } catch (err) {
+          return json(res, 400, { error: String((err as Error).message).slice(0, 300) });
+        }
+      }
       if (req.method === "POST" && tail === "ask") {
         const body = await readBody(req);
         const text = typeof body.text === "string" ? body.text.trim() : "";

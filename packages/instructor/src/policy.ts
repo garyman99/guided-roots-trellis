@@ -28,6 +28,23 @@ export type HintReason =
   | { kind: "progress"; completedTaskIds: string[] }
   | { kind: "intervention"; trigger: InterventionTrigger };
 
+/**
+ * A typed question can itself carry a plain "I'm stuck / show me" signal — the
+ * learner needn't press the stuck button. Beginners especially ask straight
+ * out ("I don't know what to write", "what does the code look like", "where do
+ * I put this"); meeting that with a Socratic question loses them. Deterministic
+ * keyword match (not the model) so the policy stays the one that decides.
+ */
+function wordsSignalStuck(text: string): boolean {
+  return (
+    /\b(stuck|lost|confused|unclear|no idea|not sure|help)\b/i.test(text) ||
+    /\bdo(n'?t| not)\s+(know|understand|get)\b/i.test(text) ||
+    /\bshow me\b/i.test(text) ||
+    /\bwhat\b.{0,30}\b(look like|to (type|write|put|do)|goes? (in|here))\b/i.test(text) ||
+    /\bwhere\b.{0,20}\b(do|should|to)?\s*i?\s*(write|type|put|start|go)\b/i.test(text)
+  );
+}
+
 export function choosePolicy(state: LearningSessionState, reason: HintReason): PolicyDecision {
   const lastGiven = state.hintsAlreadyGiven.at(-1)?.level ?? -1;
   const frustrated = state.repeatedFailures.some((f) => f.count >= 3);
@@ -66,6 +83,13 @@ export function choosePolicy(state: LearningSessionState, reason: HintReason): P
   } else if (reason.stuck) {
     level = Math.min(Math.max(level, 3), MAX_LEVEL);
     because = "learner pressed I'm stuck — floor at point-to-location";
+  } else if (reason.kind === "question" && wordsSignalStuck(reason.text)) {
+    // Floor at explain-concept (one past the stuck button): a learner who
+    // writes "what does the code look like" wants to SEE the shape, and the
+    // v3 prompt shows code PIECES at this level. Point-to-location (3) just
+    // sent them back to read a file — the opposite of what they asked.
+    level = Math.min(Math.max(level, 4), MAX_LEVEL);
+    because = "learner's words ask to see the how — floor at explain-concept (guide shows a code piece)";
   }
 
   if (frustrated && level < 3) {
