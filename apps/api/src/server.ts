@@ -8,6 +8,7 @@
  *   GET    /api/labs/:labId                  lesson content for the UI
  *   GET    /api/sessions/:id/state           reduced state + transcript + checkpoint spec
  *   GET    /api/sessions/:id/greeting        generated session-opening message (cached per session)
+ *   GET    /api/sessions/:id/resume-opening  returning-learner "welcome back" recap (resumed sessions)
  *   POST   /api/sessions/:id/progress        { completedTaskIds } → generated next-step message
  *   GET    /api/sessions/:id/context-preview exactly what the instructor would see now
  *   POST   /api/sessions/:id/ask             { text, stuck? } → instructor message
@@ -751,6 +752,12 @@ export const server = createServer(async (req, res) => {
         // on the session, and 200s even when the provider fails (authored
         // goalPrompt fallback) — onboarding must never block on a model.
         return json(res, 200, { message: await session.greeting() });
+      }
+      if (req.method === "GET" && tail === "resume-opening") {
+        // Returning-learner "welcome back — here's where you are" opening for a
+        // resumed session, from the active guide. Never 500s (authored fallback
+        // inside the session); regenerated per load, not cached.
+        return json(res, 200, { message: await session.resumeOpening() });
       }
       if (req.method === "POST" && tail === "progress") {
         // The client saw task(s) flip to done; the guide checks them off and

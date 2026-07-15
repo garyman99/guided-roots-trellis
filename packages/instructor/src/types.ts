@@ -45,6 +45,9 @@ export interface HintRequest {
     // Instrumentation measured task(s) complete: check them off and hand
     // over the next step (ids validated against the manifest by the session).
     | { kind: "progress"; completedTaskIds: string[] }
+    // The learner is RETURNING to a session already in progress: welcome them
+    // back and restate where they are, rather than re-onboarding from scratch.
+    | { kind: "resume"; completedTaskIds: string[] }
     | { kind: "intervention"; trigger: InterventionTrigger };
   /**
    * What the learner's client says is on screen right now (UNTRUSTED,

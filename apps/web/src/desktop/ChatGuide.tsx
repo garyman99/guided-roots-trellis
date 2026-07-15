@@ -138,13 +138,25 @@ export function ChatGuide({
           if (!stale) setMsgs([{ key: "goal-prompt", from: "bot", text: authored }]);
         });
     } else {
-      const opening = scenarioOpening();
+      // Resumed session (already has progress): open with a GENERATED
+      // "welcome back — here's where you are" recap from the active guide, so
+      // the opening reflects the selected model instead of static authored
+      // text. The recap already ends with the next open task, so we don't
+      // append it. Authored scenarioOpening is the fallback on any hiccup.
       const firstOpen = data.tasks.find((t) => !t.done);
-      if (firstOpen) {
-        promptedTask.current = firstOpen.id;
-        opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
-      }
-      setMsgs(opening);
+      if (firstOpen) promptedTask.current = firstOpen.id;
+      setMsgs([{ key: "resume-typing", from: "bot", text: "", typing: true }]);
+      api
+        .resumeOpening(creds)
+        .then(({ message }) => {
+          if (!stale) setMsgs([{ key: "resume-opening", from: "bot", text: message.text }]);
+        })
+        .catch(() => {
+          if (stale) return;
+          const opening = scenarioOpening();
+          if (firstOpen) opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
+          setMsgs(opening);
+        });
     }
     // Seed dedupe sets so pre-existing transcript/tasks don't replay as new.
     for (const m of data.transcript) seenTranscript.current.add(m.id);

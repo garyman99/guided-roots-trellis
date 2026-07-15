@@ -26,6 +26,7 @@ export type HintReason =
   | { kind: "goal"; text: string }
   | { kind: "greeting" }
   | { kind: "progress"; completedTaskIds: string[] }
+  | { kind: "resume"; completedTaskIds: string[] }
   | { kind: "intervention"; trigger: InterventionTrigger };
 
 /**
@@ -59,6 +60,12 @@ export function choosePolicy(state: LearningSessionState, reason: HintReason): P
   // Progress is good news, never a plea for help — no escalation.
   if (reason.kind === "progress") {
     return { level: 1, strategy: STRATEGIES[1], because: "measured task completion — mark it and orient to the next step" };
+  }
+
+  // Returning learner: a "welcome back — here's where you are" opening, in the
+  // same welcome-and-orient register as the greeting. Never an escalation.
+  if (reason.kind === "resume") {
+    return { level: 1, strategy: STRATEGIES[1], because: "returning learner — welcome back and restate the current step" };
   }
 
   // A goal statement is onboarding, not a plea for help: orient warmly at

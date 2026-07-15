@@ -805,6 +805,32 @@ export class Session {
   }
 
   /**
+   * Returning-learner opening for a RESUMED session: a model-generated
+   * "welcome back — here's where you are" recap that reflects the active guide
+   * (so a resume no longer opens with static authored text). Display-only:
+   * regenerated on each load, never emitted to the event log or the transcript
+   * (the transcript is restored separately). Falls back to the next open task's
+   * text so a provider hiccup never blocks the opening.
+   */
+  async resumeOpening(): Promise<{ text: string; generated: boolean }> {
+    const state = this.state();
+    const done = taskStatuses(this.manifest.tasks, state)
+      .filter((t) => t.done)
+      .map((t) => t.id);
+    const req = this.hintRequest({ kind: "resume", completedTaskIds: done }, state);
+    const assembled = this.assembledProfile();
+    try {
+      const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
+      this.recordHintUsage(hint);
+      return { text: hint.message, generated: true };
+    } catch (err) {
+      console.error(`[instructor] resume opening failed for ${this.id}:`, err);
+      const next = taskStatuses(this.manifest.tasks, state).find((t) => !t.done);
+      return { text: next?.text ?? 'Welcome back 🌿 — run "Check my work" when you\'re ready.', generated: false };
+    }
+  }
+
+  /**
    * Measured progress beat: the client observed task(s) flip to done and asks
    * for the guide's next-step message — completed items checked off, the next
    * open task handed over (or a nudge when the measured state warrants one).

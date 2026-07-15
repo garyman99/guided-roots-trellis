@@ -296,6 +296,9 @@ export const api = {
     }
   },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
+  /** A resumed session's "welcome back — here's where you are" opening (from the active guide). */
+  resumeOpening: (c: SessionCredentials) =>
+    req("GET", `/api/sessions/${c.sessionId}/resume-opening`, c) as Promise<{ message: { text: string } }>,
   /** Guide-model switcher options (mock | live model) + the server default. No auth. */
   guideProviders: () => req("GET", "/api/guide-providers", null) as Promise<GuideOptions>,
   /** Live-swap this session's guide provider. Rejects (400) if the choice isn't available. */

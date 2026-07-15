@@ -131,6 +131,17 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
         `- End with the checklist — put NOTHING after it. The unchecked task's own text is the instruction; do NOT add a "next up…" or "go do X" sentence, and never restate the task in prose (it reads as noise and overloads the learner).\n` +
         `- Keep blocks short: 1–2 sentences per paragraph, blank line between. No headings.`,
     );
+  } else if (reason.kind === "resume") {
+    sections.push(
+      `# RETURNING LEARNER (they're resuming a session already in progress — there is no learner message; you speak first)\n` +
+        `Write a brief "welcome back" opening for someone picking this lesson back up:\n` +
+        `- One warm sentence welcoming them back — do NOT re-introduce yourself and do NOT re-explain the whole lesson; they've already been here.\n` +
+        `- Then a checklist: the task(s) already done as checked items (\`- [x]\`) plus the FIRST still-open task as ONE unchecked item (\`- [ ]\`). Render items in the LESSON-PLAN ORDER of the Tasks list. If nothing is open, say the list is done and point at "Check my work" instead.\n` +
+        `Task(s) already done: ${reason.completedTaskIds.join(", ") || "(see SESSION STATE)"}.\n` +
+        `${CHECKLIST_RULE}\n` +
+        `- End with the checklist — put NOTHING after it. The unchecked task's own text is the instruction; do NOT restate it in prose or add a "next up…" line.\n` +
+        `- Keep it short: 1–2 sentences before the checklist, blank line between paragraphs. No headings, no code blocks.`,
+    );
   } else {
     sections.push(
       `# INTERVENTION TRIGGER (deterministic rule engine)\nType: ${reason.trigger.type}\nEvidence: ${fenceInline(
@@ -143,7 +154,9 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
   sections.push(
     reason.kind === "greeting"
       ? `# YOUR TASK\nWrite the session-opening message described above, following the hard rules.`
-      : `# YOUR TASK\nRespond at hint level ${hintLevel} (${STRATEGY_BY_LEVEL[hintLevel] ?? "orient"}), following the ladder and hard rules.`,
+      : reason.kind === "resume"
+        ? `# YOUR TASK\nWrite the welcome-back opening described above, following the hard rules.`
+        : `# YOUR TASK\nRespond at hint level ${hintLevel} (${STRATEGY_BY_LEVEL[hintLevel] ?? "orient"}), following the ladder and hard rules.`,
   );
 
   return { system, user: sections.join("\n\n"), promptVersion: req.promptVersion };
