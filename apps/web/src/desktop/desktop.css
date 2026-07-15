@@ -300,6 +300,10 @@
 .cs-tabs-empty { font-size: 12px; color: #66756b; align-self: center; padding: 0 12px; }
 
 .cs-editor { flex: 1; position: relative; min-height: 0; }
+.cs-monaco { position: absolute; inset: 0; }
+.cs-monaco-hidden { display: none; }
+/* Legacy textarea-overlay editor styles — unused now that Monaco owns the
+   editor pane, kept only so any stray reference doesn't 404 mid-refactor. */
 .cs-highlight,
 .cs-textarea {
   position: absolute;

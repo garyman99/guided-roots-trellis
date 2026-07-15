@@ -3,8 +3,9 @@
  *
  *   left    activity strip + file explorer (real workspace files, via the
  *           session fs API — served from inside the lab environment)
- *   center  tabbed editor: zero-dep syntax highlighting (overlay technique),
- *           dirty-dot tabs, Ctrl+S saves through the platform (measured)
+ *   center  tabbed editor: a real Monaco (VS Code's engine) instance with
+ *           live TS/JS diagnostics and lab-aware IntelliSense, dirty-dot
+ *           tabs, Ctrl+S saves through the platform (measured)
  *   bottom  the integrated terminal — the SAME instrumented pty as ever
  *
  * The pedagogy: a brand-new user learns the shape of a professional editor —
@@ -16,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type SessionCredentials } from "../api.ts";
 import { Terminal } from "../Terminal.tsx";
+import { monaco, THEME } from "./monacoSetup.ts";
 
 interface OpenFile {
   path: string;
@@ -24,20 +26,15 @@ interface OpenFile {
   truncated: boolean;
 }
 
-/** Minimal JS/JSON/MD tokenizer — comments, strings, keywords, numbers. */
-function highlight(code: string): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const rx =
-    /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(const|let|var|function|async|await|return|if|else|for|while|of|in|import|from|export|default|new|class|extends|try|catch|throw|typeof|test|expect|describe|true|false|null|undefined)\b|(\b\d+(?:\.\d+)?\b)/g;
-  let out = "";
-  let last = 0;
-  for (let m = rx.exec(code); m; m = rx.exec(code)) {
-    out += esc(code.slice(last, m.index));
-    const cls = m[1] ? "tok-comment" : m[2] ? "tok-string" : m[3] ? "tok-keyword" : "tok-number";
-    out += `<span class="${cls}">${esc(m[0])}</span>`;
-    last = m.index + m[0].length;
-  }
-  return out + esc(code.slice(last));
+/** Maps a workspace path to the Monaco language id used for its model. */
+function languageForPath(path: string): string {
+  if (/\.tsx?$/.test(path)) return "typescript";
+  if (/\.(js|jsx|mjs|cjs)$/.test(path)) return "javascript";
+  if (/\.json$/.test(path)) return "json";
+  if (/\.md$/.test(path)) return "markdown";
+  if (/\.(html|htm)$/.test(path)) return "html";
+  if (/\.css$/.test(path)) return "css";
+  return "plaintext";
 }
 
 function FileIcon({ path, dir }: { path: string; dir: boolean }) {
@@ -60,8 +57,16 @@ export function CodeStudio({
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const overlayRef = useRef<HTMLPreElement>(null);
+
+  // Monaco lives outside React's render cycle: one host div, one editor
+  // instance, one model per open file (keyed by path). `openFilesRef` gives
+  // the model-creation path access to the latest openFiles without making
+  // every keystroke re-run the active-file effect.
+  const hostRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const modelsRef = useRef(new Map<string, monaco.editor.ITextModel>());
+  const openFilesRef = useRef<OpenFile[]>(openFiles);
+  openFilesRef.current = openFiles;
 
   const refreshTree = useCallback(() => {
     api.fsList(creds).then((r) => setEntries(r.entries)).catch(() => setStatus("Couldn't list files"));
@@ -89,6 +94,11 @@ export function CodeStudio({
   const closeFile = (path: string) => {
     const f = openFiles.find((x) => x.path === path);
     if (f && f.content !== f.savedContent && !confirm(`${path} has unsaved changes. Close anyway?`)) return;
+    const model = modelsRef.current.get(path);
+    if (model) {
+      model.dispose();
+      modelsRef.current.delete(path);
+    }
     setOpenFiles((fs) => fs.filter((x) => x.path !== path));
     if (active === path) setActive(openFiles.filter((x) => x.path !== path).at(-1)?.path ?? null);
   };
@@ -105,20 +115,77 @@ export function CodeStudio({
   const save = useCallback(async () => {
     const f = openFiles.find((x) => x.path === active);
     if (!f || f.truncated) return;
-    if (f.content === f.savedContent) {
+    // Read straight from the live model so Ctrl+S always saves what's on
+    // screen, not a possibly-lagging React state snapshot.
+    const model = active ? modelsRef.current.get(active) : undefined;
+    const content = model ? model.getValue() : f.content;
+    if (content === f.savedContent) {
       setStatus("No changes to save");
       return;
     }
     try {
-      await api.fsWrite(creds, f.path, f.content);
-      setOpenFiles((fs) => fs.map((x) => (x.path === f.path ? { ...x, savedContent: f.content } : x)));
+      await api.fsWrite(creds, f.path, content);
+      setOpenFiles((fs) => fs.map((x) => (x.path === f.path ? { ...x, content, savedContent: content } : x)));
       setStatus(`Saved ${f.path} ✓`);
     } catch {
       setStatus(`Couldn't save ${f.path}`);
     }
   }, [openFiles, active, creds]);
 
-  const html = useMemo(() => (current ? highlight(current.content) + "\n" : ""), [current]);
+  // Ctrl/Cmd+S is bound to the editor once at creation time; the command
+  // closes over `saveRef` so it always invokes the current `save`.
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
+
+  // Create the editor once and dispose it (and every model) on unmount.
+  useEffect(() => {
+    if (!hostRef.current) return;
+    const editor = monaco.editor.create(hostRef.current, {
+      theme: THEME,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontSize: 13,
+      scrollBeyondLastLine: false,
+      tabSize: 2,
+    });
+    editorRef.current = editor;
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void saveRef.current());
+    return () => {
+      editor.dispose();
+      editorRef.current = null;
+      modelsRef.current.forEach((model) => model.dispose());
+      modelsRef.current.clear();
+    };
+  }, []);
+
+  // Keep the editor's model in sync with the active tab: lazily create a
+  // model per file (seeded from openFiles content), then point the editor
+  // at it and match its read-only state to `truncated`.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (!active) {
+      editor.setModel(null);
+      return;
+    }
+    let model = modelsRef.current.get(active);
+    if (!model) {
+      const file = openFilesRef.current.find((f) => f.path === active);
+      if (!file) return;
+      model = monaco.editor.createModel(file.content, languageForPath(active), monaco.Uri.file(active));
+      modelsRef.current.set(active, model);
+      const createdModel = model;
+      createdModel.onDidChangeContent(() => {
+        const value = createdModel.getValue();
+        setOpenFiles((fs) => fs.map((x) => (x.path === active ? { ...x, content: value } : x)));
+      });
+    }
+    editor.setModel(model);
+    const file = openFilesRef.current.find((f) => f.path === active);
+    editor.updateOptions({ readOnly: file?.truncated ?? false });
+  }, [active]);
 
   // Directory-grouped, stable order: dirs first at each level, then files.
   const tree = useMemo(() => [...entries].sort((a, b) => a.path.localeCompare(b.path)), [entries]);
@@ -182,33 +249,8 @@ export function CodeStudio({
             {openFiles.length === 0 && <div className="cs-tabs-empty">Click a file on the left to open it</div>}
           </div>
           <div className="cs-editor">
-            {current ? (
-              <>
-                <pre className="cs-highlight" ref={overlayRef} aria-hidden="true" dangerouslySetInnerHTML={{ __html: html }} />
-                <textarea
-                  ref={editorRef}
-                  className="cs-textarea"
-                  value={current.content}
-                  readOnly={current.truncated}
-                  spellCheck={false}
-                  onChange={(e) =>
-                    setOpenFiles((fs) => fs.map((x) => (x.path === current.path ? { ...x, content: e.target.value } : x)))
-                  }
-                  onScroll={(e) => {
-                    if (overlayRef.current) {
-                      overlayRef.current.scrollTop = (e.target as HTMLTextAreaElement).scrollTop;
-                      overlayRef.current.scrollLeft = (e.target as HTMLTextAreaElement).scrollLeft;
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-                      e.preventDefault();
-                      void save();
-                    }
-                  }}
-                />
-              </>
-            ) : (
+            <div className={`cs-monaco${current ? "" : " cs-monaco-hidden"}`} ref={hostRef} />
+            {!current && (
               <div className="cs-welcome">
                 <h3>Code Studio</h3>
                 <p>Your project's files are listed on the left. Click one to read it.</p>
