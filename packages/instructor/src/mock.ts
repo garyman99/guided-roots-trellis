@@ -178,6 +178,15 @@ export class MockInstructorProvider implements InstructorProvider {
     // Returning learner: a "welcome back — here's where you are" recap, in the
     // same hard checklist format as progress, so a resumed session opens with
     // context instead of re-onboarding from scratch.
+    if (reason.kind === "resume" && reason.completed) {
+      return {
+        message: "Welcome back 🌿 — you finished this one ✓. Revisit any step you like, or use Start over to run it again.",
+        level: 1,
+        strategy: "greeting",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
     if (reason.kind === "resume") {
       const doneIds = new Set(reason.completedTaskIds);
       const next = req.lab.tasks.find((t) => t.done === false);

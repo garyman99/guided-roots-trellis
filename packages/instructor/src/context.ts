@@ -131,6 +131,15 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
         `- End with the checklist — put NOTHING after it. The unchecked task's own text is the instruction; do NOT add a "next up…" or "go do X" sentence, and never restate the task in prose (it reads as noise and overloads the learner).\n` +
         `- Keep blocks short: 1–2 sentences per paragraph, blank line between. No headings.`,
     );
+  } else if (reason.kind === "resume" && reason.completed) {
+    sections.push(
+      `# RETURNING LEARNER — LESSON ALREADY COMPLETE (they're resuming a session whose checkpoint has already passed — there is no learner message; you speak first)\n` +
+        `Write a brief "welcome back" opening that CONGRATULATES them — the checkpoint has already passed (done ✓):\n` +
+        `- One warm sentence welcoming them back.\n` +
+        `- Then congratulate them: the lesson's checkpoint has passed. You may note it's complete with a ✓, but do NOT render an unchecked checklist item and do NOT hand over a next step — there isn't one.\n` +
+        `- Instead, invite them to revisit any part of the lesson they like, or move on.\n` +
+        `- Keep it to 1–2 short sentences total. No headings, no code blocks, no checklist.`,
+    );
   } else if (reason.kind === "resume") {
     sections.push(
       `# RETURNING LEARNER (they're resuming a session already in progress — there is no learner message; you speak first)\n` +

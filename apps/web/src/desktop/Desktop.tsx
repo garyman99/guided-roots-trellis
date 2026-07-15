@@ -17,6 +17,7 @@ import { api, type ScreenReport, type SessionCredentials, type StatePayload, typ
 import { isAuthenticated } from "../auth.ts";
 import { CodeStudio } from "./CodeStudio.tsx";
 import { ChatGuide } from "./ChatGuide.tsx";
+import { CheerBurst } from "./Cheer.tsx";
 import { GuideSwitcher } from "./GuideSwitcher.tsx";
 import { EmailApp } from "./EmailApp.tsx";
 import { AiChatApp } from "./AiChatApp.tsx";
@@ -152,6 +153,10 @@ export function Desktop({
     [creds.sessionId],
   );
   const isWorkspaceLab = data.lab.workspaceApps !== null;
+  // Single source of truth for "done": the checkpoint has passed — mirrors
+  // ChatGuide's own `completed` (data.state.completedCheckpoints.includes(...)).
+  const guideCompleted = data.state.completedCheckpoints.includes(data.checkpoint.id);
+  const [celebrate, setCelebrate] = useState(false);
 
   const [windows, setWindows] = useState<Record<AppId, WindowState>>(() =>
     Object.fromEntries(APPS.map((a, i) => [a.id, a.initial(i)])) as Record<AppId, WindowState>,
@@ -296,16 +301,24 @@ export function Desktop({
           key={a.id}
           os={os}
           appId={a.id}
-          title={a.id === "guide" ? `${a.title} — ${data.lab.title}` : a.title}
+          title={a.id === "guide" ? `${a.title} — ${data.lab.title}${guideCompleted ? " ✓" : ""}` : a.title}
           icon={a.icon}
           state={windows[a.id]}
           onChange={(next) => update(a.id, next)}
           onFocus={() => focusWin(a.id)}
           onClose={() => update(a.id, { open: false })}
+          cheering={a.id === "guide" && celebrate}
         >
           {a.id === "code" && <CodeStudio creds={creds} onEditorState={(s) => (editorState.current = s)} />}
           {a.id === "guide" && (
-            <ChatGuide creds={creds} data={data} onNewData={onNewData} getScreen={getScreen} startOver={startOver} />
+            <ChatGuide
+              creds={creds}
+              data={data}
+              onNewData={onNewData}
+              getScreen={getScreen}
+              startOver={startOver}
+              onCelebrate={() => setCelebrate(true)}
+            />
           )}
           {a.id === "preview" && <PreviewApp creds={creds} />}
           {a.id === "email" &&
@@ -381,6 +394,8 @@ export function Desktop({
 
       {/* Interventions surface IN the chat (ChatGuide) on the desktop —
           conversational check-ins with quick replies, not a toast. */}
+
+      <CheerBurst active={celebrate} onDone={() => setCelebrate(false)} />
     </div>
   );
 }

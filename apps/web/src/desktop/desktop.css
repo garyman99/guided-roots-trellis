@@ -78,6 +78,11 @@
 }
 .win-icon { font-size: 15px; }
 .win-title { font-size: 13px; color: #c9d5cd; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Lesson-complete celebration: one pulse on the guide window's titlebar. */
+.win-titlebar.cheering { animation: cheer-glow 2.2s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .win-titlebar.cheering { animation: none; box-shadow: inset 0 -2px 0 0 var(--accent); }
+}
 .win-controls.windows { display: flex; height: 100%; }
 .winbtn {
   width: 46px;
@@ -350,7 +355,13 @@
   border-bottom: 1px solid var(--chrome-edge);
   background: #12171d;
 }
-.chat-head-name { font-size: 13px; color: #cfe3d3; font-weight: 600; }
+.chat-head-name { font-size: 13px; color: #cfe3d3; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+/* Persistent "done" badge once the checkpoint has passed — mirrors .course-complete-chip's language/look. */
+.chat-complete-chip {
+  font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: #cfe8b0;
+  border: 1px solid #3f6b34; border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+  background: rgba(127, 176, 105, 0.14);
+}
 .chat-head-actions { display: flex; align-items: center; gap: 10px; }
 .chat-head .link { background: none; border: none; color: #8ea296; font-size: 12px; cursor: pointer; text-decoration: underline; }
 
@@ -636,4 +647,28 @@
 .aichat-prompt {
   flex: 1; resize: none; background: #0d0f16; color: #dfe0ec; border: 1px solid #26233a;
   border-radius: 6px; padding: 8px; font: inherit; font-size: 13px;
+}
+
+/* Lesson-complete celebration. z-index 10050: above the taskbar (9999) and
+   the start menu (10000, the highest chrome z-index besides the toast at
+   10001) — the shower must cover the whole desktop, including open windows. */
+.cheer-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 10050; overflow: hidden; }
+.cheer-piece {
+  position: absolute; top: -8%; font-size: var(--sz, 18px); will-change: transform, opacity; opacity: 0;
+  animation: cheer-drift var(--dur, 3s) linear var(--delay, 0s) 1;
+}
+.cheer-piece.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, #7fb069); }
+@keyframes cheer-drift {
+  0% { transform: translate3d(var(--x, 0), -10vh, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate3d(calc(var(--x, 0) + var(--drift, 0)), 110vh, 0) rotate(var(--rot, 360deg)); opacity: 0; }
+}
+@keyframes cheer-glow {
+  0% { box-shadow: 0 0 0 0 rgba(127, 176, 105, 0); }
+  22% { box-shadow: 0 0 0 3px rgba(127, 176, 105, 0.55), 0 0 22px 4px rgba(127, 176, 105, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(127, 176, 105, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cheer-piece { display: none; }
 }

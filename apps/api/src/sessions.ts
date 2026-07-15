@@ -817,7 +817,8 @@ export class Session {
     const done = taskStatuses(this.manifest.tasks, state)
       .filter((t) => t.done)
       .map((t) => t.id);
-    const req = this.hintRequest({ kind: "resume", completedTaskIds: done }, state);
+    const completed = state.completedCheckpoints.includes(this.manifest.checkpoint.id);
+    const req = this.hintRequest({ kind: "resume", completedTaskIds: done, completed }, state);
     const assembled = this.assembledProfile();
     try {
       const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
@@ -825,6 +826,7 @@ export class Session {
       return { text: hint.message, generated: true };
     } catch (err) {
       console.error(`[instructor] resume opening failed for ${this.id}:`, err);
+      if (completed) return { text: "Welcome back 🌿 — you finished this one ✓.", generated: false };
       const next = taskStatuses(this.manifest.tasks, state).find((t) => !t.done);
       return { text: next?.text ?? 'Welcome back 🌿 — run "Check my work" when you\'re ready.', generated: false };
     }

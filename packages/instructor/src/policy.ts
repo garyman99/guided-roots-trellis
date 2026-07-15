@@ -26,7 +26,7 @@ export type HintReason =
   | { kind: "goal"; text: string }
   | { kind: "greeting" }
   | { kind: "progress"; completedTaskIds: string[] }
-  | { kind: "resume"; completedTaskIds: string[] }
+  | { kind: "resume"; completedTaskIds: string[]; completed: boolean }
   | { kind: "intervention"; trigger: InterventionTrigger };
 
 /**

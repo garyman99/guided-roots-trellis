@@ -45,12 +45,15 @@ export function ChatGuide({
   onNewData,
   getScreen,
   startOver,
+  onCelebrate,
 }: {
   creds: SessionCredentials;
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
   getScreen: () => ScreenReport;
   startOver: () => Promise<void>;
+  /** Fired once on a REAL checkpoint pass (never on resume/re-render) — see runCheck(). */
+  onCelebrate?: () => void;
 }) {
   const botName = data.lab.chat?.botName ?? FALLBACK_BOT;
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
@@ -76,6 +79,9 @@ export function ChatGuide({
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
+  // Fires the celebration once per mount, on a REAL pass only — resumed
+  // (already-complete) sessions never call runCheck, so they never celebrate.
+  const celebratedRef = useRef(false);
 
   // ── Voice: dictate into the composer, narrate the guide's replies ─────────
   const narration = useNarration();
@@ -398,10 +404,14 @@ export function ChatGuide({
     push({ from: "learner", text: "Check my work?" });
     try {
       const result = await api.evaluate(creds);
+      if (result.passed && !celebratedRef.current) {
+        celebratedRef.current = true;
+        onCelebrate?.();
+      }
       push({
         from: "bot",
         text: result.passed
-          ? "Everything checks out — that's a pass! 🎉 Here's what the platform verified:"
+          ? "✓ Complete — that's a pass! 🎉 Here's what the platform verified:"
           : "Not quite everything yet — here's where things stand:",
         checkpoint: result,
       });
@@ -416,7 +426,10 @@ export function ChatGuide({
   return (
     <div className="chat-guide">
       <div className="chat-head">
-        <span className="chat-head-name">🌿 {botName}</span>
+        <span className="chat-head-name">
+          🌿 {botName}
+          {completed && <span className="chat-complete-chip">Completed ✓</span>}
+        </span>
         <div className="chat-head-actions">
           {narration.supported && (
             <button
