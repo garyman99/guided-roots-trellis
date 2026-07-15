@@ -23,6 +23,7 @@ import { api, type RequirementResult, type ScreenReport, type SessionCredentials
 import { ContextDrawer, ReflectionCard } from "../panels.tsx";
 import { useDictation, useNarration } from "../voice/useVoice.ts";
 import { ChatMarkdown } from "./ChatMarkdown.tsx";
+import { NextLessonCard } from "./NextLessonCard.tsx";
 
 interface ChatMsg {
   key: string;
@@ -526,6 +527,7 @@ export function ChatGuide({
             <ReflectionCard creds={creds} />
           </div>
         )}
+        {completed && <NextLessonCard labId={data.lab.id} />}
       </div>
       <div className="chat-composer">
         {/* Actions row: lesson controls, kept clear of the message input so

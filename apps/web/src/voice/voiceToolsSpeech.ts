@@ -86,6 +86,27 @@ export class VoiceToolsTextToSpeech implements TextToSpeech {
     this.releaseAudio();
   }
 
+  /**
+   * Quick reachability check for the local service. A `no-cors` GET resolves
+   * (opaque) whenever the socket is actually listening — even if the service
+   * sets no CORS headers on that path — and rejects on a refused connection
+   * or the timeout, which is exactly the "is Orpheus running?" signal we want
+   * (so a live-but-strict server is never a false negative).
+   */
+  async probe(timeoutMs = 1500): Promise<boolean> {
+    if (!this.dependencies) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await this.dependencies.fetch(this.options.baseUrl, { method: "GET", mode: "no-cors", signal: controller.signal });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async generateAndPlay(
     text: string,
     generation: number,

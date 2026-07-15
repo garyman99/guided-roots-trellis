@@ -523,11 +523,81 @@
 .chip:disabled { opacity: 0.55; cursor: default; }
 .chip-primary { background: var(--accent); border-color: var(--accent); color: #0d1a14; font-weight: 600; }
 .chip-primary:hover:not(:disabled) { background: #8fbe7c; }
+/* .chip/.chip-primary style buttons by default; an anchor needs the same
+   look plus the button-like display + no underline. */
+a.chip { text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
 .chat-reqs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: #aeb8b1; }
 .chat-reqs li.ok { color: #9fce8c; }
 .chat-req-detail { color: #c9a15f; font-size: 12px; margin: 2px 0 0 16px; }
 .chat-reflection { margin-top: 6px; }
 .chat-reflection .reflection-card { margin: 0; }
+
+/* ── Next-lesson CTA — the final card in the completion stack ───────────── */
+.chat-nextlesson {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: linear-gradient(180deg, #1d2731, #1b232c);
+  border: 1px solid var(--chrome-edge);
+  border-radius: 12px;
+  padding: 13px 14px;
+  animation: nextlesson-rise 0.4s ease-out;
+}
+@keyframes nextlesson-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-nextlesson { animation: none; }
+}
+.nextlesson-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #6a7681;
+  font-variant-numeric: tabular-nums;
+}
+.nextlesson-line { margin: 0; font-size: 13.5px; line-height: 1.5; color: #dbe4ec; }
+.nextlesson-line strong { color: #eaf2ea; }
+.nextlesson-meter {
+  height: 6px;
+  border-radius: 4px;
+  background: #0f151b;
+  border: 1px solid var(--chrome-edge);
+  overflow: hidden;
+}
+.nextlesson-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #8fbe7c);
+  transition: width 0.6s;
+}
+.nextlesson-tile {
+  background: #141b22;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 9px;
+  padding: 9px 11px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.nextlesson-badge {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(127, 176, 105, 0.16);
+  border: 1px solid rgba(127, 176, 105, 0.45);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nextlesson-tile-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nextlesson-tile-title { font-size: 13px; font-weight: 600; color: #eaf2ea; }
+.nextlesson-tile-note { font-size: 12px; color: #8ea296; }
 .chat-composer {
   flex: none;
   display: flex;

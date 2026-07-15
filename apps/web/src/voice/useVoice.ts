@@ -138,18 +138,55 @@ export function useNarration() {
     }
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (!enabledRef.current) return;
-    const tts = textToSpeechFor(engineRef.current);
-    if (!tts.supported) return;
-    const words = narratable(text);
-    if (!words) return;
-    tts.speak(words, {
-      onStart: () => setSpeaking(true),
-      onEnd: () => setSpeaking(false),
-      onError: () => setSpeaking(false),
-    });
-  }, []);
+  // Speak with a specific engine. When the local Voice Tools service errors
+  // (e.g. it isn't running), back down to the browser voice: flip the
+  // persisted selection so the UI stops showing a dead option, and re-speak
+  // this same message with the browser so narration isn't silently dropped.
+  const speakWith = useCallback(
+    (engineId: TtsEngine, words: string, allowFallback: boolean) => {
+      const tts = textToSpeechFor(engineId);
+      if (!tts.supported) return;
+      tts.speak(words, {
+        onStart: () => setSpeaking(true),
+        onEnd: () => setSpeaking(false),
+        onError: () => {
+          setSpeaking(false);
+          if (allowFallback && engineId === "voice-tools") {
+            setEngine("browser");
+            speakWith("browser", words, false);
+          }
+        },
+      });
+    },
+    [setEngine],
+  );
+
+  const speak = useCallback(
+    (text: string) => {
+      if (!enabledRef.current) return;
+      const words = narratable(text);
+      if (!words) return;
+      speakWith(engineRef.current, words, true);
+    },
+    [speakWith],
+  );
+
+  // Proactive fallback: if Voice Tools is the chosen engine but the service
+  // isn't reachable, switch to the browser voice up front (on load, or the
+  // moment it's selected) — so the dropdown reflects reality instead of
+  // leaving a dead "Local voice" checked, and the first message still speaks.
+  useEffect(() => {
+    if (!enabled || engine !== "voice-tools") return;
+    let cancelled = false;
+    void textToSpeechFor("voice-tools")
+      .probe?.()
+      .then((reachable) => {
+        if (!cancelled && reachable === false) setEngine("browser");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, engine, setEngine]);
 
   // Stop talking if the guide unmounts.
   useEffect(() => () => textToSpeechFor(engineRef.current).cancel(), []);
