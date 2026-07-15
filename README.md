@@ -67,6 +67,15 @@ Copy `.env.example`. Highlights:
 | `LAB_DRIVER` | `local` (default) / `docker` | `local` is dev-only, **not** isolation |
 | `INSTRUCTOR_PROVIDER` | `mock` (default) / `openai` | mock is deterministic + offline |
 | `TRELLIS_PERSISTENCE` | `on` / `off` | `off` = in-memory only |
+| `VITE_TTS_PROVIDER` | `browser` (default) / `voice-tools` | guide narration engine |
+| `VITE_TTS_BASE_URL` | URL | Voice Tools service, normally `http://127.0.0.1:48720` |
+| `VITE_TTS_VOICE` | Orpheus voice | defaults to `tara` |
+| `VITE_TTS_LM_STUDIO_TARGET` | `workstation` / `headless` | where Voice Tools runs Orpheus |
+
+For local Orpheus narration, start `voice-tools` first and set
+`VITE_TTS_PROVIDER=voice-tools`. Trellis keeps browser speech recognition for
+dictation while routing guide narration to Voice Tools; starting a newer take
+cancels any generation or playback already in progress.
 
 For `docker`: build the lab image first —
 `docker build -t trellis-lab-inspect-generated-changes labs/inspect-generated-changes`
