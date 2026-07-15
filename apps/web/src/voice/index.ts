@@ -1,19 +1,55 @@
 /**
  * The single seam where the app chooses its speech engines.
  *
- * ChatGuide (and anything else) imports `speechToText` / `textToSpeech` from
- * here and never touches a concrete implementation. To move off the browser
- * engines later — a cloud STT, an on-device TTS voice — write a module that
- * satisfies the contracts in ./types and swap the two assignments below. No
- * caller changes.
+ * Narration has TWO backends, both satisfying the TextToSpeech contract, and
+ * the learner flips between them at runtime (a UI toggle drives useNarration):
+ *   • "browser"     — the Web Speech API; dependency-free, always available.
+ *   • "voice-tools" — a local Orpheus service (OpenAI /v1/audio/speech-shaped);
+ *                     nicer voice, needs the service running.
+ * Dictation (speech→text) stays browser-only. VITE_TTS_PROVIDER only picks the
+ * DEFAULT engine; the toggle overrides it live.
  */
 import { browserSpeechToText, browserTextToSpeech } from "./browserSpeech.ts";
+import { VoiceToolsTextToSpeech } from "./voiceToolsSpeech.ts";
 import type { SpeechToText, TextToSpeech } from "./types.ts";
 
 export type * from "./types.ts";
 
+export type TtsEngine = "browser" | "voice-tools";
+
 export const speechToText: SpeechToText = browserSpeechToText;
-export const textToSpeech: TextToSpeech = browserTextToSpeech;
+
+// The local-service narrator, configured from env. `supported` here only means
+// the browser can play audio — whether the Orpheus service is up is discovered
+// at speak() time (a failed take surfaces onError, and the UI can fall back).
+const voiceToolsTextToSpeech = new VoiceToolsTextToSpeech({
+  baseUrl: import.meta.env.VITE_TTS_BASE_URL ?? "http://127.0.0.1:48720",
+  voice: import.meta.env.VITE_TTS_VOICE ?? "tara",
+  lmStudioTarget: import.meta.env.VITE_TTS_LM_STUDIO_TARGET === "workstation" ? "workstation" : "headless",
+});
+
+/** The concrete narrator for a chosen engine. */
+export function textToSpeechFor(engine: TtsEngine): TextToSpeech {
+  return engine === "voice-tools" ? voiceToolsTextToSpeech : browserTextToSpeech;
+}
+
+export interface TtsEngineInfo {
+  id: TtsEngine;
+  label: string;
+  supported: boolean;
+}
+
+/** Narration engines to offer in the toggle (browser first, the reliable one). */
+export function ttsEngines(): TtsEngineInfo[] {
+  return [
+    { id: "browser", label: "Browser voice", supported: browserTextToSpeech.supported },
+    { id: "voice-tools", label: "Local voice (Orpheus)", supported: voiceToolsTextToSpeech.supported },
+  ];
+}
+
+/** Build-time default engine (VITE_TTS_PROVIDER); the runtime toggle overrides it. */
+export const defaultTtsEngine: TtsEngine =
+  import.meta.env.VITE_TTS_PROVIDER === "voice-tools" ? "voice-tools" : "browser";
 
 /**
  * Flatten the guide's light markdown into words worth hearing: drop code

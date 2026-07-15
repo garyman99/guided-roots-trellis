@@ -420,6 +420,23 @@ export function ChatGuide({
               <span className="voice-toggle-label">{narration.enabled ? "Voice on" : "Voice off"}</span>
             </button>
           )}
+          {narration.enabled && narration.engines.filter((e) => e.supported).length > 1 && (
+            <select
+              className="voice-engine"
+              value={narration.engine}
+              onChange={(e) => narration.setEngine(e.target.value as typeof narration.engine)}
+              aria-label={`${botName}'s voice source`}
+              title="Which engine narrates — the browser's built-in voice, or the local Voice Tools service"
+            >
+              {narration.engines
+                .filter((e) => e.supported)
+                .map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+            </select>
+          )}
           <button className="link" onClick={() => setShowContext(true)}>
             What does {botName} see?
           </button>

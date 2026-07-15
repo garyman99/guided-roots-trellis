@@ -371,6 +371,19 @@
 .voice-toggle.off { background: #1b232c; color: #8ea296; }
 .voice-toggle:hover { border-color: var(--accent); }
 .voice-toggle-label { font-weight: 600; letter-spacing: 0.01em; }
+/* Narration engine picker (browser vs local Voice Tools) — sits by the toggle. */
+.voice-engine {
+  background: #1b232c;
+  color: #cfe3d3;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 150px;
+}
+.voice-engine:hover { border-color: var(--accent); }
 
 /* Mic dictation button in the composer. */
 .mic-btn {

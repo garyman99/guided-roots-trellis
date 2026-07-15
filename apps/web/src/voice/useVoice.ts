@@ -9,7 +9,7 @@
  * survive a provider swap untouched.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { narratable, speechToText, textToSpeech } from "./index.ts";
+import { defaultTtsEngine, narratable, speechToText, textToSpeechFor, ttsEngines, type TtsEngine } from "./index.ts";
 import type { SpeechToTextSession } from "./types.ts";
 
 /**
@@ -68,9 +68,12 @@ export function useDictation(onChange: (value: string) => void) {
 }
 
 const NARRATION_PREF_KEY = "trellis.voice.narration";
+const NARRATION_ENGINE_KEY = "trellis.voice.engine";
+
+const anyNarrationSupported = (): boolean => ttsEngines().some((e) => e.supported);
 
 function loadNarrationPref(): boolean {
-  if (!textToSpeech.supported) return false;
+  if (!anyNarrationSupported()) return false;
   try {
     const saved = localStorage.getItem(NARRATION_PREF_KEY);
     return saved === null ? true : saved === "1"; // default ON
@@ -79,20 +82,34 @@ function loadNarrationPref(): boolean {
   }
 }
 
+function loadEnginePref(): TtsEngine {
+  try {
+    const saved = localStorage.getItem(NARRATION_ENGINE_KEY);
+    if (saved === "browser" || saved === "voice-tools") return saved;
+  } catch {
+    /* fall through to the build default */
+  }
+  return defaultTtsEngine;
+}
+
 /**
  * Spoken narration of guide messages. `enabled` defaults on (persisted), and
- * `speak()` is a safe no-op whenever narration is off or unsupported — so
- * callers can fire it unconditionally for every new message and let the hook
- * decide whether it's actually voiced.
+ * `speak()` is a safe no-op whenever narration is off — so callers fire it for
+ * every new message and let the hook decide. `engine` chooses the backend
+ * (browser Web Speech vs the local Voice Tools service) live; switching cancels
+ * any take already in flight. Both choices persist across sessions.
  */
 export function useNarration() {
   const [enabled, setEnabledState] = useState(loadNarrationPref);
+  const [engine, setEngineState] = useState<TtsEngine>(loadEnginePref);
   const [speaking, setSpeaking] = useState(false);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
 
   const cancel = useCallback(() => {
-    textToSpeech.cancel();
+    textToSpeechFor(engineRef.current).cancel();
     setSpeaking(false);
   }, []);
 
@@ -109,11 +126,25 @@ export function useNarration() {
     [cancel],
   );
 
+  const setEngine = useCallback((next: TtsEngine) => {
+    // Switching mid-utterance: silence the current engine before handing over.
+    textToSpeechFor(engineRef.current).cancel();
+    setSpeaking(false);
+    setEngineState(next);
+    try {
+      localStorage.setItem(NARRATION_ENGINE_KEY, next);
+    } catch {
+      /* session-only pref is fine */
+    }
+  }, []);
+
   const speak = useCallback((text: string) => {
-    if (!enabledRef.current || !textToSpeech.supported) return;
+    if (!enabledRef.current) return;
+    const tts = textToSpeechFor(engineRef.current);
+    if (!tts.supported) return;
     const words = narratable(text);
     if (!words) return;
-    textToSpeech.speak(words, {
+    tts.speak(words, {
       onStart: () => setSpeaking(true),
       onEnd: () => setSpeaking(false),
       onError: () => setSpeaking(false),
@@ -121,7 +152,17 @@ export function useNarration() {
   }, []);
 
   // Stop talking if the guide unmounts.
-  useEffect(() => () => textToSpeech.cancel(), []);
+  useEffect(() => () => textToSpeechFor(engineRef.current).cancel(), []);
 
-  return { supported: textToSpeech.supported, enabled, setEnabled, speaking, speak, cancel };
+  return {
+    supported: anyNarrationSupported(),
+    enabled,
+    setEnabled,
+    engine,
+    setEngine,
+    engines: ttsEngines(),
+    speaking,
+    speak,
+    cancel,
+  };
 }
