@@ -118,6 +118,17 @@ export interface LearnerProgress {
   sessions: Array<{ sessionId: string; labId: string; createdAt: string; completed: boolean }>;
 }
 
+/** One ESLint diagnostic, mapped straight onto Monaco marker fields (see /api/sessions/:id/lint). */
+export interface LintMessage {
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  severity: 1 | 2;
+  message: string;
+  ruleId: string | null;
+}
+
 /** Client self-report of what's on screen, sent alongside learner messages. */
 export interface ScreenReport {
   activeApp: string | null;
@@ -345,6 +356,9 @@ export const api = {
     }>,
   fsWrite: (c: SessionCredentials, path: string, content: string) =>
     req("PUT", `/api/sessions/${c.sessionId}/file`, c, { path, content }) as Promise<{ saved: boolean }>,
+  /** Type-aware ESLint for the Code Studio editor — debounced client-side, live squiggles server-side. */
+  lint: (c: SessionCredentials, path: string, content: string) =>
+    req("POST", `/api/sessions/${c.sessionId}/lint`, c, { path, content }) as Promise<{ messages: LintMessage[] }>,
 };
 
 async function learnerReq(method: string, path: string, learner: LearnerCredentials, body?: unknown) {

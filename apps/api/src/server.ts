@@ -17,6 +17,7 @@
  *   POST   /api/sessions/:id/checkpoint/evaluate
  *   POST   /api/sessions/:id/reset
  *   POST   /api/sessions/:id/abandon         mark abandoned (start over); works live or not
+ *   POST   /api/sessions/:id/lint            { path, content } → type-aware ESLint messages (Code Studio squiggles)
  *   GET    /api/sessions/:id/export          full event log (data transparency)
  *   DELETE /api/sessions/:id
  *   WS     /ws/terminal?session=ID&token=T   the learner terminal
@@ -816,6 +817,18 @@ export const server = createServer(async (req, res) => {
           const msg = String((err as Error).message);
           return json(res, msg.includes("invalid path") || msg.includes("too large") ? 400 : 500, { error: msg.slice(0, 300) });
         }
+      }
+
+      if (req.method === "POST" && tail === "lint") {
+        // Type-aware ESLint for the Monaco editor's live squiggles. Lazy
+        // import: eslint/typescript are hefty and only ever needed once a
+        // learner opens Code Studio and edits a file — keep them out of
+        // startup and off the hot path for every other route/test.
+        const body = await readBody(req);
+        const path = typeof body.path === "string" ? body.path : "";
+        const content = typeof body.content === "string" ? body.content : "";
+        const { lintSource } = await import("./lint.ts");
+        return json(res, 200, { messages: await lintSource(path, content) });
       }
 
       if (req.method === "POST" && tail === "guide-provider") {

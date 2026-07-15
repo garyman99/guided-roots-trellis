@@ -37,6 +37,11 @@ function languageForPath(path: string): string {
   return "plaintext";
 }
 
+/** Same extensions the server's lint service will actually lint — checked
+ *  client-side too so plain files never fire a debounce timer for nothing. */
+const LINTABLE = /\.(mjs|cjs|jsx?|tsx?)$/;
+const LINT_DEBOUNCE_MS = 800;
+
 function FileIcon({ path, dir }: { path: string; dir: boolean }) {
   const glyph = dir ? "📁" : path.endsWith(".html") ? "🌐" : path.endsWith(".json") ? "🧾" : path.endsWith(".md") ? "📘" : "📄";
   return (
@@ -67,6 +72,65 @@ export function CodeStudio({
   const modelsRef = useRef(new Map<string, monaco.editor.ITextModel>());
   const openFilesRef = useRef<OpenFile[]>(openFiles);
   openFilesRef.current = openFiles;
+
+  // Debounced server-side lint (type-aware ESLint — see apps/api/src/lint.ts):
+  // one pending timer and one "latest request" sequence number per open
+  // file, so a fast typist's earlier in-flight response can never clobber
+  // the markers a later keystroke's response should set.
+  const lintTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const lintSeqRef = useRef(new Map<string, number>());
+
+  const runLint = useCallback(
+    (path: string, model: monaco.editor.ITextModel) => {
+      const seq = (lintSeqRef.current.get(path) ?? 0) + 1;
+      lintSeqRef.current.set(path, seq);
+      api
+        .lint(creds, path, model.getValue())
+        .then((r) => {
+          // Stale if a newer request has since gone out, or this model was
+          // disposed/replaced (tab closed and reopened) while we waited.
+          if (lintSeqRef.current.get(path) !== seq || modelsRef.current.get(path) !== model) return;
+          monaco.editor.setModelMarkers(
+            model,
+            "eslint",
+            r.messages.map((m) => ({
+              startLineNumber: m.line,
+              startColumn: m.column,
+              endLineNumber: m.endLine,
+              endColumn: m.endColumn,
+              message: m.ruleId ? `${m.message} (${m.ruleId})` : m.message,
+              severity: m.severity === 2 ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+            })),
+          );
+        })
+        .catch(() => {
+          // Best-effort: a lint hiccup leaves the previous markers in place
+          // rather than clearing information the learner was already seeing.
+        });
+    },
+    [creds],
+  );
+
+  const scheduleLint = useCallback(
+    (path: string, model: monaco.editor.ITextModel) => {
+      const existing = lintTimersRef.current.get(path);
+      if (existing) clearTimeout(existing);
+      if (!LINTABLE.test(path)) {
+        // Not a lintable file (or e.g. a truncated/read-only guard upstream) —
+        // make sure no stale squiggles linger from a previous file at this path.
+        monaco.editor.setModelMarkers(model, "eslint", []);
+        return;
+      }
+      lintTimersRef.current.set(
+        path,
+        setTimeout(() => {
+          lintTimersRef.current.delete(path);
+          runLint(path, model);
+        }, LINT_DEBOUNCE_MS),
+      );
+    },
+    [runLint],
+  );
 
   const refreshTree = useCallback(() => {
     api.fsList(creds).then((r) => setEntries(r.entries)).catch(() => setStatus("Couldn't list files"));
@@ -99,6 +163,12 @@ export function CodeStudio({
       model.dispose();
       modelsRef.current.delete(path);
     }
+    const timer = lintTimersRef.current.get(path);
+    if (timer) {
+      clearTimeout(timer);
+      lintTimersRef.current.delete(path);
+    }
+    lintSeqRef.current.delete(path);
     setOpenFiles((fs) => fs.filter((x) => x.path !== path));
     if (active === path) setActive(openFiles.filter((x) => x.path !== path).at(-1)?.path ?? null);
   };
@@ -157,6 +227,8 @@ export function CodeStudio({
       editorRef.current = null;
       modelsRef.current.forEach((model) => model.dispose());
       modelsRef.current.clear();
+      lintTimersRef.current.forEach((t) => clearTimeout(t));
+      lintTimersRef.current.clear();
     };
   }, []);
 
@@ -177,10 +249,15 @@ export function CodeStudio({
       model = monaco.editor.createModel(file.content, languageForPath(active), monaco.Uri.file(active));
       modelsRef.current.set(active, model);
       const createdModel = model;
+      const path = active;
       createdModel.onDidChangeContent(() => {
         const value = createdModel.getValue();
-        setOpenFiles((fs) => fs.map((x) => (x.path === active ? { ...x, content: value } : x)));
+        setOpenFiles((fs) => fs.map((x) => (x.path === path ? { ...x, content: value } : x)));
+        if (!file.truncated) scheduleLint(path, createdModel);
       });
+      // Lint once up front too, so squiggles are there before the first edit
+      // (truncated/read-only files are never sent — they're not real editable content).
+      if (!file.truncated) scheduleLint(path, createdModel);
     }
     editor.setModel(model);
     const file = openFilesRef.current.find((f) => f.path === active);
