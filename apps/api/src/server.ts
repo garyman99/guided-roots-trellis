@@ -416,17 +416,9 @@ export const server = createServer(async (req, res) => {
         const open = store.latestOpenSession(learnerId, labId);
         if (open) {
           try {
-            const session = await manager.resume(open.sessionId);
-            // Re-apply the learner's saved guide choice (not part of the
-            // replayable event log, so resume rebuilds with the default).
-            // An invalid/unavailable choice must not fail the resume.
-            if (guideProviderId) {
-              try {
-                manager.setSessionGuide(session.id, guideProviderId);
-              } catch {
-                /* keep the default guide */
-              }
-            }
+            // resume() applies the learner's saved guide choice itself (and
+            // only replays a stored greeting when it matches that guide).
+            const session = await manager.resume(open.sessionId, guideProviderId);
             return json(res, 200, sessionPayload(session, true));
           } catch (err) {
             if (err instanceof ResumeError) {

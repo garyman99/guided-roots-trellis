@@ -800,7 +800,7 @@ export class Session {
     const assembled = this.assembledProfile();
     const hint = await this.instructor.generateHint(req, buildInstructorContext(req, assembled ?? undefined));
     this.recordHintUsage(hint);
-    this.emit({ type: "instructor.greeting", text: hint.message.slice(0, 4000), contextManifest: assembled?.manifest ?? null, timestamp: now() });
+    this.emit({ type: "instructor.greeting", text: hint.message.slice(0, 4000), contextManifest: assembled?.manifest ?? null, guideProviderId: this.guideProviderId, timestamp: now() });
     return { text: hint.message, generated: true };
   }
 
@@ -1402,21 +1402,21 @@ export class SessionManager {
    * the learner's live session was released but their row is still "open".
    * Concurrent calls for the same id share one in-flight rebuild.
    */
-  async resume(sessionId: string): Promise<Session> {
+  async resume(sessionId: string, guideProviderId?: string): Promise<Session> {
     const live = this.sessions.get(sessionId);
     if (live) return live;
 
     const pending = this.resuming.get(sessionId);
     if (pending) return pending;
 
-    const task = this.doResume(sessionId).finally(() => {
+    const task = this.doResume(sessionId, guideProviderId).finally(() => {
       this.resuming.delete(sessionId);
     });
     this.resuming.set(sessionId, task);
     return task;
   }
 
-  private async doResume(sessionId: string): Promise<Session> {
+  private async doResume(sessionId: string, guideProviderId?: string): Promise<Session> {
     const meta = this.store.sessionMeta(sessionId);
     if (!meta || meta.status !== "open") throw new ResumeError("not-found");
 
@@ -1448,10 +1448,16 @@ export class SessionManager {
       if (!variant) throw new ResumeError("lab-changed");
     }
 
-    // Resume rebuilds with the default guide; the caller re-applies the
-    // learner's saved provider choice via setSessionGuide (same as create),
-    // since the choice isn't part of the replayable event log.
-    const guideId = this.defaultGuideId;
+    // Apply the learner's saved guide choice up front (the choice isn't part
+    // of the replayable event log). Invalid/unavailable falls back to default.
+    let guideId = this.defaultGuideId;
+    if (guideProviderId) {
+      try {
+        guideId = this.requireGuideId(guideProviderId);
+      } catch {
+        guideId = this.defaultGuideId;
+      }
+    }
     const session = new Session(
       manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
       meta.learnerId, this.learners, variant, lessonConcepts, this.taskValidator,
@@ -1487,10 +1493,17 @@ export class SessionManager {
 
     session.seedTranscript(rebuildTranscript(events));
 
+    // Replay the stored greeting only if it was produced by the SAME guide
+    // the learner is resuming with. A greeting made by mock must not be shown
+    // as if the model wrote it (and vice-versa); untagged legacy greetings
+    // have no known provider, so regenerate under the active guide too.
     const greetingEvent = events.find(
       (e): e is Extract<SessionEvent, { type: "instructor.greeting" }> => e.type === "instructor.greeting",
     );
-    if (greetingEvent) session.seedGreeting(greetingEvent.text);
+    if (greetingEvent && greetingEvent.guideProviderId === guideId) {
+      session.seedGreeting(greetingEvent.text);
+    }
+    // else: leave greetingPromise null so /greeting regenerates under guideId.
 
     await this.attachRuntime(session, manifest);
 
