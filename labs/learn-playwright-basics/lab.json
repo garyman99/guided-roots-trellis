@@ -6,30 +6,62 @@
   "scenario": "You're the QA engineer on a tiny web app: a community-garden signup page. It already has a small Playwright test suite that the whole team trusts. Yesterday an AI coding agent was asked to add ONE new test (covering the plot-size choice). It says everything is done — but its change is sitting uncommitted in your working tree, and it touched more than it was asked to. Review its work the way you'd review any test change: read the diff, run the suite, believe the failure report over the comments.",
   "chat": {
     "botName": "Sage",
+    "goalPrompt": "Hey! Sage here 🌿 — before we open anything: in your own words, what are you here to do today?",
     "welcome": [
       "Hey, welcome in! I'm Sage 🌿 — I'll be right here the whole time. Nothing here is graded and you can't break anything that we can't put back, so poke around all you like.",
       "So here's what's going on: we've got a little signup page for the community garden, and a handful of automated checks — 'tests' — that visit the page like a real person would (click the buttons, read what appears) and make sure it all still works.",
       "Yesterday we asked an AI coding assistant to add ONE more test for us. It just pinged me saying it's all done…"
+    ],
+    "faq": [
+      {
+        "match": "run|npm test|git diff|git status|terminal|how do i start|command",
+        "answer": "Everything runs in the TERMINAL panel at the bottom of Code Studio — click into it so it has the keyboard. `git diff` shows exactly what the agent changed (press q to leave the view); `npm test` runs the suite. Run the diff first, then the tests, and read what each prints top to bottom."
+      },
+      {
+        "match": "expected|received|which.*trust|actual|failure report|read.*fail",
+        "answer": "In the failure, Expected = what the TEST claimed should be there; Received = what the PAGE actually showed. Normally you'd suspect the product — but the app hasn't changed today, so the Received line is the truth and the test's Expected is the suspect."
+      },
+      {
+        "match": "fix (the )?(app|page)|change the (app|page|html)|edit.*index|which.*fix|test or.*app",
+        "answer": "Fix the TEST, never the app — the page is fine and untouched. Making the app match a wrong test is exactly the trap; the checkpoint checks the app was left alone. The move is to retype the wrong value in the test as what the app really shows."
+      },
+      {
+        "match": "comment|honest|misleading|the note|explains.*edit",
+        "answer": "Once your fix is in, re-read the comment the agent left near its edit. If it now describes something the code no longer does, it's lying — and a comment that contradicts the code is worse than none. Remove it. That's part of reviewing, not a formality."
+      },
+      {
+        "match": "keep.*test|delete|skip|checkout|git reset|remove.*test|undo the agent",
+        "answer": "Keep the agent's new plot-size test — that part it got right. Don't `git checkout`/reset the whole file (that would wipe the good test too), and don't delete or .skip the failing one. Fix only the wrong line."
+      },
+      {
+        "match": "reset|start over|messed up|restore|broke",
+        "answer": "The Reset button is right by \"Check my work\" at the bottom of this chat — it puts every file back exactly how it started (including the agent's uncommitted change) and I'll stay right here."
+      }
     ]
   },
   "tasks": [
     {
       "id": "orient",
-      "text": "Get your bearings. Open Code Studio (double-click its icon on the desktop). The list on the left is every file in the project — click README.md and read it; it explains everything you'll need today. Then, in the TERMINAL panel at the bottom, type `git status` to see which files the agent touched. (No desktop? `ls` and `cat README.md` in any terminal work too.)",
-      "auto": "any-command"
+      "title": "Get oriented",
+      "text": "Open Code Studio from the desktop (double-click its icon), then click README.md in the file list and read it — it explains the app, the tests, and exactly what you're reviewing today. You'll use the terminal at the bottom of Code Studio for the git and test commands in the next steps.",
+      "auto": "file-viewed",
+      "autoPath": "README.md"
     },
     {
       "id": "review-diff",
-      "text": "See exactly what the agent changed: run `git diff` (press q to leave the view). Read every changed line, not just the new test at the bottom. Comments can lie; diffs can't.",
+      "title": "Read the diff",
+      "text": "See exactly what the agent changed: run `git diff` in the terminal (press q to leave the view). Read every changed line, not just the new test at the bottom. Comments can lie; diffs can't.",
       "auto": "diff-viewed"
     },
     {
       "id": "run-tests",
+      "title": "Run the suite",
       "text": "Run `npm test`. One test fails. Read the failure slowly — Playwright prints what the test EXPECTED and what the page actually showed (RECEIVED). Careful: your QA instincts are trained to trust the expected value and suspect the product. Today it's reversed — the app hasn't changed, so the test's expectation is the suspect.",
       "auto": "tests-run"
     },
     {
       "id": "fix",
+      "title": "Fix the broken test",
       "text": "Fix the broken TEST (the app is fine — it hasn't changed). The move is always the same: find the exact wrong text in the test, retype it as what the app really shows. In Code Studio, click tests/garden.spec.js in the file list, fix the wrong text, and press Ctrl+S — the dot on the tab disappears when it's saved. (In a plain terminal, `nano tests/garden.spec.js` works too: Ctrl+O, Enter saves; Ctrl+X exits.) Keep the agent's new plot-size test. And one more reviewer's duty: the agent left a comment explaining its edit — after your fix, does that comment still tell the truth? A comment that contradicts the code is worse than no comment. Remove it.",
       "auto": "file-edited",
       "validate": {
@@ -39,6 +71,7 @@
     },
     {
       "id": "verify",
+      "title": "Get to green",
       "text": "Run `npm test` again until all four tests pass.",
       "auto": "tests-green"
     }
