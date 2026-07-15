@@ -177,6 +177,12 @@ export function reduce(events: SessionEvent[], opts: ReduceOptions = {}): Learni
         break;
       }
 
+      case "session.resumed":
+        break; // lifecycle marker; no reduced-state effect
+
+      case "session.abandoned":
+        break; // lifecycle marker; no reduced-state effect
+
       case "terminal.command.started":
         state.recentCommands.push({ command: ev.command, at: ev.timestamp });
         if (state.recentCommands.length > cmdLimit) state.recentCommands.shift();

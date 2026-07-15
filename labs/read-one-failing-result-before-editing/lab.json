@@ -51,28 +51,27 @@
   },
   "tasks": [
     {
-      "id": "orient",
-      "text": "Get your bearings. Open Code Studio from the desktop (double-click its icon) and read README.md — it says what this workspace holds and what your four facts are. Want to see the page like a visitor? Open Garden Site too; a covered window's taskbar button at the bottom brings it back to the front. Don't change anything yet.",
-      "auto": "any-command"
+      "id": "read-readme",
+      "title": "Read the brief",
+      "text": "Open Code Studio from the desktop (double-click its icon) and read README.md — it says what's in this workspace and which four facts you're after. (Curious what a visitor sees? Open Garden Site too; a covered window's taskbar button brings it back to the front. Optional — and don't change anything.)",
+      "auto": "file-viewed",
+      "autoPath": "README.md"
     },
     {
       "id": "run",
-      "text": "Run `npm test` in the terminal and let it finish. It will fail — that's expected. Read the result all the way down: the red line at the top only says THAT it failed; the four useful facts (the test's name, a file-and-line, an Expected value, and a Received value) are printed below it.",
+      "title": "Run the failing test",
+      "text": "Run `npm test` in the terminal and let it finish. It fails on purpose — that's fine. Read the result all the way down: the red line at the top only says THAT it failed; the four facts you want (the test's name, a file-and-line, an Expected value, and a Received value) are printed below it.",
       "auto": "tests-run"
     },
     {
       "id": "record",
-      "text": "Open EVIDENCE.md in Code Studio and fill in the four facts from what you just read: the failed test's name, the file-and-line the result points to, the text the test Expected, and the text the page Received. Copy what the result shows — don't guess, and keep Expected and Received the right way round. Save with Ctrl+S. Do not edit the test or the page.",
+      "title": "Record the four facts",
+      "text": "Open EVIDENCE.md in Code Studio and fill in the four facts from what you just read: the failed test's name, the file-and-line the result points to, the text the test Expected, and the text the page Received. Copy what the result shows — don't guess, keep Expected and Received the right way round, and save with Ctrl+S. Don't edit the test or the page. When all four facts are in, use \"Check my work\" — it's fine that the test is still red; reading it correctly is the whole goal.",
       "auto": "file-edited",
       "validate": {
         "reads": ["EVIDENCE.md"],
         "criterion": "EVIDENCE.md must have all FOUR facts filled in with real values — NOT left blank, NOT the original placeholder/instructional text, and NOT the bare word 'failed' used as a value: (1) the failed test's NAME, (2) the FILE-and-LINE the result points to, (3) the text the test EXPECTED, and (4) the text the page RECEIVED. Expected and Received must be the right way round (Expected = the test's claim; Received = what the page actually showed) — they must not be swapped or identical to each other. PASS only if all four fields hold plausible, distinct, filled-in values and Expected/Received are sensibly assigned. FAIL if any field is still blank or placeholder, or if Expected and Received are swapped or the same."
       }
-    },
-    {
-      "id": "verify",
-      "text": "When all four facts are in EVIDENCE.md and you can say which is the test's claim (Expected) and which is what the page really did (Received), use \"Check my work\" — I'll confirm the note matches the run. It's fine that the test is still red; reading it correctly is the whole goal.",
-      "auto": "file-edited"
     }
   ],
   "checkpoint": {

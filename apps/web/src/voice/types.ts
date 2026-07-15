@@ -55,4 +55,11 @@ export interface TextToSpeech {
   speak(text: string, handlers?: TextToSpeechHandlers, opts?: { lang?: string }): void;
   /** Stop immediately and clear anything pending. */
   cancel(): void;
+  /**
+   * Optional reachability check: resolves true if the backing engine is
+   * usable RIGHT NOW (e.g. a local service is actually running), false if it
+   * can't be reached. Engines that are always available (the browser synth)
+   * may omit it. Used to auto-fall-back away from a dead local service.
+   */
+  probe?(): Promise<boolean>;
 }

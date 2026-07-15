@@ -71,6 +71,7 @@ export function WindowFrame({
   onFocus,
   onClose,
   children,
+  cheering,
 }: {
   os: OsStyle;
   /** Stable app id stamped on the DOM so the shell can move keyboard focus into a fronted window. */
@@ -82,6 +83,8 @@ export function WindowFrame({
   onFocus: () => void;
   onClose: () => void;
   children: ReactNode;
+  /** Briefly pulses the titlebar (lesson-complete celebration) — see .win-titlebar.cheering in desktop.css. */
+  cheering?: boolean;
 }) {
   const dragging = useRef<{ startX: number; startY: number; rect: WindowRect; mode: "move" | "resize" } | null>(null);
 
@@ -126,7 +129,7 @@ export function WindowFrame({
       onPointerDown={onFocus}
     >
       <header
-        className="win-titlebar"
+        className={`win-titlebar${cheering ? " cheering" : ""}`}
         onPointerDown={onPointerDown("move")}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

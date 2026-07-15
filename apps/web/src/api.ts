@@ -118,6 +118,17 @@ export interface LearnerProgress {
   sessions: Array<{ sessionId: string; labId: string; createdAt: string; completed: boolean }>;
 }
 
+/** One ESLint diagnostic, mapped straight onto Monaco marker fields (see /api/sessions/:id/lint). */
+export interface LintMessage {
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  severity: 1 | 2;
+  message: string;
+  ruleId: string | null;
+}
+
 /** Client self-report of what's on screen, sent alongside learner messages. */
 export interface ScreenReport {
   activeApp: string | null;
@@ -269,7 +280,36 @@ export const api = {
       throw err;
     }
   },
+  /**
+   * The client's single boot call: resume-or-create bound to the persistent
+   * learner. The server decides — 200 (resumed) vs 201 (created fresh) — the
+   * client never chooses. Same stale-learner self-heal as createSession.
+   */
+  ensureSession: async (labId: string) => {
+    const attempt = async () => {
+      const learner = await learnerApi.ensureLearner();
+      return learnerReq("POST", `/api/learners/${learner.learnerId}/lessons/${labId}/session`, learner, {
+        consentAnalytics: false,
+        // Apply the learner's saved guide choice (on both create and resume);
+        // falls back to the server default when null or unavailable.
+        guideProviderId: savedGuidePref() ?? undefined,
+      }) as Promise<SessionCredentials & { labId: string; resumed: boolean; guideProvider: GuideProviderId }>;
+    };
+    try {
+      return await attempt();
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401 || status === 410) {
+        saveLearner(null);
+        return await attempt();
+      }
+      throw err;
+    }
+  },
   state: (c: SessionCredentials) => req("GET", `/api/sessions/${c.sessionId}/state`, c) as Promise<StatePayload>,
+  /** A resumed session's "welcome back — here's where you are" opening (from the active guide). */
+  resumeOpening: (c: SessionCredentials) =>
+    req("GET", `/api/sessions/${c.sessionId}/resume-opening`, c) as Promise<{ message: { text: string } }>,
   /** Guide-model switcher options (mock | live model) + the server default. No auth. */
   guideProviders: () => req("GET", "/api/guide-providers", null) as Promise<GuideOptions>,
   /** Live-swap this session's guide provider. Rejects (400) if the choice isn't available. */
@@ -300,6 +340,8 @@ export const api = {
       requirements: RequirementResult[];
     }>,
   reset: (c: SessionCredentials) => req("POST", `/api/sessions/${c.sessionId}/reset`, c),
+  /** "Start over": ends the current attempt (history kept), doesn't create a new one — pair with ensureSession. */
+  abandonSession: (c: SessionCredentials) => req("POST", `/api/sessions/${c.sessionId}/abandon`, c) as Promise<{ ok: true }>,
   contextPreview: (c: SessionCredentials) =>
     req("GET", `/api/sessions/${c.sessionId}/context-preview`, c) as Promise<{ system: string; user: string }>,
   destroy: (c: SessionCredentials) => req("DELETE", `/api/sessions/${c.sessionId}`, c),
@@ -314,6 +356,9 @@ export const api = {
     }>,
   fsWrite: (c: SessionCredentials, path: string, content: string) =>
     req("PUT", `/api/sessions/${c.sessionId}/file`, c, { path, content }) as Promise<{ saved: boolean }>,
+  /** Type-aware ESLint for the Code Studio editor — debounced client-side, live squiggles server-side. */
+  lint: (c: SessionCredentials, path: string, content: string) =>
+    req("POST", `/api/sessions/${c.sessionId}/lint`, c, { path, content }) as Promise<{ messages: LintMessage[] }>,
 };
 
 async function learnerReq(method: string, path: string, learner: LearnerCredentials, body?: unknown) {
@@ -322,7 +367,7 @@ async function learnerReq(method: string, path: string, learner: LearnerCredenti
     headers: { "content-type": "application/json", authorization: `Bearer ${learner.learnerToken}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`${method} ${path} → ${res.status}`), { status: res.status });
   return res.json();
 }
 

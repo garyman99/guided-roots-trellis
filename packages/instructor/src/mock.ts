@@ -175,6 +175,35 @@ export class MockInstructorProvider implements InstructorProvider {
       };
     }
 
+    // Returning learner: a "welcome back — here's where you are" recap, in the
+    // same hard checklist format as progress, so a resumed session opens with
+    // context instead of re-onboarding from scratch.
+    if (reason.kind === "resume" && reason.completed) {
+      return {
+        message: "Welcome back 🌿 — you finished this one ✓. Revisit any step you like, or use Start over to run it again.",
+        level: 1,
+        strategy: "greeting",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+    if (reason.kind === "resume") {
+      const doneIds = new Set(reason.completedTaskIds);
+      const next = req.lab.tasks.find((t) => t.done === false);
+      const lines = req.lab.tasks
+        .filter((t) => doneIds.has(t.id) || t.id === next?.id)
+        .map((t) => checklistItem(t, doneIds.has(t.id)));
+      return {
+        message: next
+          ? `Welcome back 🌿 — here's where you left off:\n\n${lines.join("\n")}`
+          : `Welcome back 🌿 — you'd worked all the way through the list:\n\n${lines.join("\n")}\n\nRun "Check my work" when you're ready and I'll verify it for real.`,
+        level: 1,
+        strategy: "greeting",
+        promptVersion: req.promptVersion,
+        provider: this.name,
+      };
+    }
+
     // Goal-first onboarding: the learner just said what they're here to do.
     // Acknowledge THEIR words and hand them the first concrete step — never
     // a Socratic prompt (a stated goal is not a question to bounce back).

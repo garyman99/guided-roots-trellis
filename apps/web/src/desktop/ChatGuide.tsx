@@ -23,6 +23,7 @@ import { api, type RequirementResult, type ScreenReport, type SessionCredentials
 import { ContextDrawer, ReflectionCard } from "../panels.tsx";
 import { useDictation, useNarration } from "../voice/useVoice.ts";
 import { ChatMarkdown } from "./ChatMarkdown.tsx";
+import { NextLessonCard } from "./NextLessonCard.tsx";
 
 interface ChatMsg {
   key: string;
@@ -44,18 +45,23 @@ export function ChatGuide({
   data,
   onNewData,
   getScreen,
+  startOver,
+  onCelebrate,
 }: {
   creds: SessionCredentials;
   data: StatePayload;
   onNewData: (d: StatePayload) => void;
   getScreen: () => ScreenReport;
+  startOver: () => Promise<void>;
+  /** Fired once on a REAL checkpoint pass (never on resume/re-render) — see runCheck(). */
+  onCelebrate?: () => void;
 }) {
   const botName = data.lab.chat?.botName ?? FALLBACK_BOT;
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const seenTranscript = useRef(new Set<number>());
   const seenTasks = useRef(new Set<string>());
@@ -74,6 +80,9 @@ export function ChatGuide({
   const nudgeArmed = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
+  // Fires the celebration once per mount, on a REAL pass only — resumed
+  // (already-complete) sessions never call runCheck, so they never celebrate.
+  const celebratedRef = useRef(false);
 
   // ── Voice: dictate into the composer, narrate the guide's replies ─────────
   const narration = useNarration();
@@ -136,13 +145,25 @@ export function ChatGuide({
           if (!stale) setMsgs([{ key: "goal-prompt", from: "bot", text: authored }]);
         });
     } else {
-      const opening = scenarioOpening();
+      // Resumed session (already has progress): open with a GENERATED
+      // "welcome back — here's where you are" recap from the active guide, so
+      // the opening reflects the selected model instead of static authored
+      // text. The recap already ends with the next open task, so we don't
+      // append it. Authored scenarioOpening is the fallback on any hiccup.
       const firstOpen = data.tasks.find((t) => !t.done);
-      if (firstOpen) {
-        promptedTask.current = firstOpen.id;
-        opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
-      }
-      setMsgs(opening);
+      if (firstOpen) promptedTask.current = firstOpen.id;
+      setMsgs([{ key: "resume-typing", from: "bot", text: "", typing: true }]);
+      api
+        .resumeOpening(creds)
+        .then(({ message }) => {
+          if (!stale) setMsgs([{ key: "resume-opening", from: "bot", text: message.text }]);
+        })
+        .catch(() => {
+          if (stale) return;
+          const opening = scenarioOpening();
+          if (firstOpen) opening.push({ key: `task-${firstOpen.id}`, from: "bot", text: firstOpen.text });
+          setMsgs(opening);
+        });
     }
     // Seed dedupe sets so pre-existing transcript/tasks don't replay as new.
     for (const m of data.transcript) seenTranscript.current.add(m.id);
@@ -384,10 +405,14 @@ export function ChatGuide({
     push({ from: "learner", text: "Check my work?" });
     try {
       const result = await api.evaluate(creds);
+      if (result.passed && !celebratedRef.current) {
+        celebratedRef.current = true;
+        onCelebrate?.();
+      }
       push({
         from: "bot",
         text: result.passed
-          ? "Everything checks out — that's a pass! 🎉 Here's what the platform verified:"
+          ? "✓ Complete — that's a pass! 🎉 Here's what the platform verified:"
           : "Not quite everything yet — here's where things stand:",
         checkpoint: result,
       });
@@ -402,7 +427,10 @@ export function ChatGuide({
   return (
     <div className="chat-guide">
       <div className="chat-head">
-        <span className="chat-head-name">🌿 {botName}</span>
+        <span className="chat-head-name">
+          🌿 {botName}
+          {completed && <span className="chat-complete-chip">Completed ✓</span>}
+        </span>
         <div className="chat-head-actions">
           {narration.supported && (
             <button
@@ -499,80 +527,89 @@ export function ChatGuide({
             <ReflectionCard creds={creds} />
           </div>
         )}
+        {completed && <NextLessonCard labId={data.lab.id} />}
       </div>
       <div className="chat-composer">
-        <button className="chip" onClick={() => void runCheck()} disabled={checking}>
-          {checking ? "Checking…" : "Check my work"}
-        </button>
-        {/* In-UI confirmation (never window.confirm: a native modal blocks the
-            main thread and cannot be seen or dismissed in embedded/driven
-            browsers — live-sim finding, froze the whole workspace). */}
-        {confirmingReset ? (
-          <>
-            <button
-              className="chip chip-primary"
-              onClick={() => {
-                setConfirmingReset(false);
-                void api.reset(creds).then(async () => {
-                  push({ from: "system", text: "Workspace reset — everything is back to the starting state. ✓" });
-                  onNewData(await api.state(creds));
-                });
-              }}
-            >
-              Yes, reset everything
-            </button>
-            <button className="chip" onClick={() => setConfirmingReset(false)}>
-              Keep working
-            </button>
-          </>
-        ) : (
-          <button
-            className="chip"
-            title="Put the workspace back exactly how it started (your edits are removed)"
-            onClick={() => setConfirmingReset(true)}
-          >
-            Reset
+        {/* Actions row: lesson controls, kept clear of the message input so
+            neither crowds the other. */}
+        <div className="chat-actions">
+          <button className="chip" onClick={() => void runCheck()} disabled={checking}>
+            {checking ? "Checking…" : "Check my work"}
           </button>
-        )}
-        {dictation.supported && (
-          <button
-            className={`mic-btn ${dictation.listening ? "recording" : ""}`}
-            onClick={() => {
-              if (dictation.listening) {
-                dictation.stop();
-              } else {
-                narration.cancel(); // don't talk over the learner
-                dictation.start(draft);
+          {/* In-UI confirmation (never window.confirm: a native modal blocks the
+              main thread and cannot be seen or dismissed in embedded/driven
+              browsers — live-sim finding, froze the whole workspace). */}
+          {confirmingStartOver ? (
+            <>
+              <span className="chat-confirm-text">
+                Start this lesson over? Your previous attempt is archived and you'll get a fresh workspace.
+              </span>
+              <button
+                className="chip chip-primary"
+                onClick={() => {
+                  setConfirmingStartOver(false);
+                  void startOver();
+                }}
+              >
+                Yes, start over
+              </button>
+              <button className="chip" onClick={() => setConfirmingStartOver(false)}>
+                Keep working
+              </button>
+            </>
+          ) : (
+            <button
+              className="chip"
+              title="End this attempt (archived, not lost) and get a fresh session for this lab"
+              onClick={() => setConfirmingStartOver(true)}
+            >
+              Start over
+            </button>
+          )}
+        </div>
+        {/* Input row: the message box gets the full width, with the mic and
+            Send flanking it. */}
+        <div className="chat-input-row">
+          {dictation.supported && (
+            <button
+              className={`mic-btn ${dictation.listening ? "recording" : ""}`}
+              onClick={() => {
+                if (dictation.listening) {
+                  dictation.stop();
+                } else {
+                  narration.cancel(); // don't talk over the learner
+                  dictation.start(draft);
+                }
+              }}
+              aria-pressed={dictation.listening}
+              aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
+              title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
+            >
+              <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+            </button>
+          )}
+          <textarea
+            value={draft}
+            placeholder={
+              dictation.listening
+                ? "Listening…"
+                : awaitingGoal
+                  ? `Tell ${botName} what you're here to do…`
+                  : `Message ${botName}…`
+            }
+            rows={3}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send(draft, false);
               }
             }}
-            aria-pressed={dictation.listening}
-            aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
-            title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
-          >
-            <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+          />
+          <button className="chip chip-primary" onClick={() => void send(draft, false)} disabled={sending || !draft.trim()}>
+            Send
           </button>
-        )}
-        <textarea
-          value={draft}
-          placeholder={
-            dictation.listening
-              ? "Listening…"
-              : awaitingGoal
-                ? `Tell ${botName} what you're here to do…`
-                : `Message ${botName}…`
-          }
-          rows={2}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send(draft, false);
-            }
-          }}
-        />
-        <button className="chip chip-primary" onClick={() => void send(draft, false)} disabled={sending || !draft.trim()}>
-          Send
-        </button>
+        </div>
       </div>
       {showContext && <ContextDrawer creds={creds} onClose={() => setShowContext(false)} />}
     </div>

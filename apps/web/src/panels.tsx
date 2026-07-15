@@ -18,7 +18,15 @@ import {
 
 /* ── lesson: scenario, agent message, trellis, checkpoint ──────────────── */
 
-export function LessonPanel({ creds, data }: { creds: SessionCredentials; data: StatePayload }) {
+export function LessonPanel({
+  creds,
+  data,
+  startOver,
+}: {
+  creds: SessionCredentials;
+  data: StatePayload;
+  startOver: () => Promise<void>;
+}) {
   return (
     <section className="panel panel-lesson">
       <h2>The scenario</h2>
@@ -34,7 +42,7 @@ export function LessonPanel({ creds, data }: { creds: SessionCredentials; data: 
       {data.agentTimeline?.length > 0 && <AgentTimeline beats={data.agentTimeline} />}
       <h2>Your path</h2>
       <TrellisTasks tasks={data.tasks} />
-      <CheckpointPanel creds={creds} data={data} />
+      <CheckpointPanel creds={creds} data={data} startOver={startOver} />
     </section>
   );
 }
@@ -145,7 +153,15 @@ export function ReflectionCard({ creds }: { creds: SessionCredentials }) {
   );
 }
 
-function CheckpointPanel({ creds, data }: { creds: SessionCredentials; data: StatePayload }) {
+function CheckpointPanel({
+  creds,
+  data,
+  startOver,
+}: {
+  creds: SessionCredentials;
+  data: StatePayload;
+  startOver: () => Promise<void>;
+}) {
   const [result, setResult] = useState<{ passed: boolean; requirements: RequirementResult[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const completed = data.state.completedCheckpoints.includes(data.checkpoint.id);
@@ -169,6 +185,12 @@ function CheckpointPanel({ creds, data }: { creds: SessionCredentials; data: Sta
     await api.reset(creds);
   };
 
+  const startOverClick = async () => {
+    if (!confirm("Start this lesson over? Your previous attempt is archived and you'll get a fresh workspace.")) return;
+    setResult(null);
+    await startOver();
+  };
+
   const shown = result?.requirements;
   const passed = result?.passed === true;
   return (
@@ -182,6 +204,13 @@ function CheckpointPanel({ creds, data }: { creds: SessionCredentials; data: Sta
         </button>
         <button className="ghost" onClick={() => void reset()}>
           Reset lab
+        </button>
+        <button
+          className="ghost"
+          title="End this attempt (archived, not lost) and get a fresh session for this lab"
+          onClick={() => void startOverClick()}
+        >
+          Start over
         </button>
       </div>
       {shown && (

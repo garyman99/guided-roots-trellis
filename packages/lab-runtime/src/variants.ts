@@ -47,6 +47,24 @@ export function resolveVariant(bp: Blueprint, tier: number): LabVariant {
 }
 
 /**
+ * Resume support: look up a previously-recorded variantId ("tier<N>:<defectId>",
+ * see session.started v2) against the CURRENT blueprint. Returns null when the
+ * tier no longer exists or its defect assignment changed since the session
+ * started — the blueprint invariant (same blueprint + tier → same lab) no
+ * longer holds, so the caller must treat this as "lab changed" rather than
+ * silently resolving a different variant than the learner was working on.
+ */
+export function findVariant(bp: Blueprint, variantId: string): LabVariant | null {
+  const m = /^tier(\d+):(.+)$/.exec(variantId);
+  if (!m) return null;
+  const tier = Number(m[1]);
+  const defect = m[2];
+  const spec = bp.tiers[String(tier)];
+  if (!spec || spec.defect !== defect) return null;
+  return { variantId, tier, defect };
+}
+
+/**
  * Deterministic tier selection with HYSTERESIS, so noisy mastery estimates
  * don't whipsaw learners between tiers:
  *   • promotion is immediate on mastery (the mastery RULE already demands

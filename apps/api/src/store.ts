@@ -24,6 +24,17 @@ export interface SessionMeta {
   labId: string;
   createdAt: string;
   consentAnalytics: boolean;
+  /** Lifecycle: "open" until the learner finishes or starts over. */
+  status: "open" | "abandoned";
+  endedAt: string | null;
+}
+
+/** Latest-wins snapshot of a session's workspace content, for resume-after-restart. */
+export interface SessionSnapshot {
+  sessionId: string;
+  kind: "files" | "workspace";
+  payload: string;
+  updatedAt: string;
 }
 
 export interface LearnerMeta {
@@ -118,6 +129,12 @@ export interface EventStore {
   appendEvent(sessionId: string, event: SessionEvent): void;
   eventsFor(sessionId: string): SessionEvent[];
   sessionMeta(sessionId: string): SessionMeta | null;
+  setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void;
+  /** Newest still-open session for a learner+lab, or null. */
+  latestOpenSession(learnerId: string, labId: string): SessionMeta | null;
+  // session snapshots (resume-after-restart) — latest-wins per (session, kind)
+  saveSnapshot(s: SessionSnapshot): void;
+  snapshotFor(sessionId: string, kind: "files" | "workspace"): SessionSnapshot | null;
   deleteSession(sessionId: string): void;
   close(): void;
 }
@@ -130,6 +147,7 @@ class SqliteStore implements EventStore {
   private selectSession;
   private deleteEvents;
   private deleteSessionRow;
+  private deleteSnapshots;
 
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
@@ -140,7 +158,16 @@ class SqliteStore implements EventStore {
         learner_id TEXT NOT NULL,
         lab_id     TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        consent_analytics INTEGER NOT NULL DEFAULT 0
+        consent_analytics INTEGER NOT NULL DEFAULT 0,
+        status     TEXT NOT NULL DEFAULT 'open',
+        ended_at   TEXT
+      );
+      CREATE TABLE IF NOT EXISTS session_snapshots (
+        session_id TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, kind)
       );
       CREATE TABLE IF NOT EXISTS events (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,6 +238,8 @@ class SqliteStore implements EventStore {
       "ALTER TABLE token_usage ADD COLUMN cache_write_tokens INTEGER",
       "ALTER TABLE token_usage ADD COLUMN estimated_cost_usd REAL",
       "ALTER TABLE token_usage ADD COLUMN pricing_version INTEGER",
+      "ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
+      "ALTER TABLE sessions ADD COLUMN ended_at TEXT",
     ]) {
       try {
         this.db.exec(alter);
@@ -221,15 +250,24 @@ class SqliteStore implements EventStore {
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, type, timestamp, payload) VALUES (?, ?, ?, ?)");
     this.selectEvents = this.db.prepare("SELECT payload FROM events WHERE session_id = ? ORDER BY id ASC");
     this.insertSession = this.db.prepare(
-      "INSERT INTO sessions (session_id, learner_id, lab_id, created_at, consent_analytics) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO sessions (session_id, learner_id, lab_id, created_at, consent_analytics, status, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
     this.selectSession = this.db.prepare("SELECT * FROM sessions WHERE session_id = ?");
     this.deleteEvents = this.db.prepare("DELETE FROM events WHERE session_id = ?");
     this.deleteSessionRow = this.db.prepare("DELETE FROM sessions WHERE session_id = ?");
+    this.deleteSnapshots = this.db.prepare("DELETE FROM session_snapshots WHERE session_id = ?");
   }
 
   createSession(meta: SessionMeta): void {
-    this.insertSession.run(meta.sessionId, meta.learnerId, meta.labId, meta.createdAt, meta.consentAnalytics ? 1 : 0);
+    this.insertSession.run(
+      meta.sessionId,
+      meta.learnerId,
+      meta.labId,
+      meta.createdAt,
+      meta.consentAnalytics ? 1 : 0,
+      meta.status,
+      meta.endedAt,
+    );
   }
 
   appendEvent(sessionId: string, event: SessionEvent): void {
@@ -244,7 +282,7 @@ class SqliteStore implements EventStore {
 
   sessionMeta(sessionId: string): SessionMeta | null {
     const row = this.selectSession.get(sessionId) as
-      | { session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number }
+      | { session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number; status: string; ended_at: string | null }
       | undefined;
     if (!row) return null;
     return {
@@ -253,7 +291,48 @@ class SqliteStore implements EventStore {
       labId: row.lab_id,
       createdAt: row.created_at,
       consentAnalytics: row.consent_analytics === 1,
+      status: row.status === "abandoned" ? "abandoned" : "open",
+      endedAt: row.ended_at,
     };
+  }
+
+  setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void {
+    this.db.prepare("UPDATE sessions SET status = ?, ended_at = ? WHERE session_id = ?").run(status, endedAt, sessionId);
+  }
+
+  latestOpenSession(learnerId: string, labId: string): SessionMeta | null {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM sessions WHERE learner_id = ? AND lab_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(learnerId, labId) as
+      | { session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number; status: string; ended_at: string | null }
+      | undefined;
+    if (!row) return null;
+    return {
+      sessionId: row.session_id,
+      learnerId: row.learner_id,
+      labId: row.lab_id,
+      createdAt: row.created_at,
+      consentAnalytics: row.consent_analytics === 1,
+      status: "open",
+      endedAt: row.ended_at,
+    };
+  }
+
+  // ── session snapshots ──
+  saveSnapshot(s: SessionSnapshot): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO session_snapshots (session_id, kind, payload, updated_at) VALUES (?, ?, ?, ?)")
+      .run(s.sessionId, s.kind, s.payload, s.updatedAt);
+  }
+
+  snapshotFor(sessionId: string, kind: "files" | "workspace"): SessionSnapshot | null {
+    const row = this.db
+      .prepare("SELECT * FROM session_snapshots WHERE session_id = ? AND kind = ?")
+      .get(sessionId, kind) as { session_id: string; kind: string; payload: string; updated_at: string } | undefined;
+    if (!row) return null;
+    return { sessionId: row.session_id, kind: row.kind as SessionSnapshot["kind"], payload: row.payload, updatedAt: row.updated_at };
   }
 
 
@@ -414,7 +493,7 @@ class SqliteStore implements EventStore {
   listSessions(): SessionMeta[] {
     return (
       this.db.prepare("SELECT * FROM sessions ORDER BY created_at ASC").all() as Array<{
-        session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number;
+        session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number; status: string; ended_at: string | null;
       }>
     ).map((r) => ({
       sessionId: r.session_id,
@@ -422,12 +501,15 @@ class SqliteStore implements EventStore {
       labId: r.lab_id,
       createdAt: r.created_at,
       consentAnalytics: r.consent_analytics === 1,
+      status: r.status === "abandoned" ? ("abandoned" as const) : ("open" as const),
+      endedAt: r.ended_at,
     }));
   }
 
   /** Session deletion is the ONE deliberate exception to append-only: a learner discarding their sandbox discards its history. */
   deleteSession(sessionId: string): void {
     this.deleteEvents.run(sessionId);
+    this.deleteSnapshots.run(sessionId);
     this.deleteSessionRow.run(sessionId);
   }
 
@@ -439,6 +521,8 @@ class SqliteStore implements EventStore {
 class MemoryStore implements EventStore {
   private sessions = new Map<string, SessionMeta>();
   private events = new Map<string, SessionEvent[]>();
+  /** Keyed `${sessionId}|${kind}` — latest-wins, like the SQLite primary key. */
+  private snapshots = new Map<string, SessionSnapshot>();
   private learners = new Map<string, LearnerMeta>();
   private tombstones = new Set<string>();
   private evidence = new Map<string, StoredEvidence[]>();
@@ -503,9 +587,29 @@ class MemoryStore implements EventStore {
   sessionMeta(sessionId: string): SessionMeta | null {
     return this.sessions.get(sessionId) ?? null;
   }
+  setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void {
+    const m = this.sessions.get(sessionId);
+    if (m) {
+      m.status = status;
+      m.endedAt = endedAt;
+    }
+  }
+  latestOpenSession(learnerId: string, labId: string): SessionMeta | null {
+    let latest: SessionMeta | null = null;
+    for (const s of this.sessions.values()) {
+      if (s.learnerId !== learnerId || s.labId !== labId || s.status !== "open") continue;
+      if (!latest || s.createdAt.localeCompare(latest.createdAt) > 0) latest = s;
+    }
+    return latest;
+  }
+  saveSnapshot(s: SessionSnapshot): void { this.snapshots.set(`${s.sessionId}|${s.kind}`, s); }
+  snapshotFor(sessionId: string, kind: "files" | "workspace"): SessionSnapshot | null {
+    return this.snapshots.get(`${sessionId}|${kind}`) ?? null;
+  }
   deleteSession(sessionId: string): void {
     this.sessions.delete(sessionId);
     this.events.delete(sessionId);
+    for (const kind of ["files", "workspace"] as const) this.snapshots.delete(`${sessionId}|${kind}`);
   }
   close(): void {}
 }

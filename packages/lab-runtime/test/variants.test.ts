@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { LocalProcessDriver } from "../src/localDriver.ts";
-import { loadBlueprint, resolveVariant, chooseTier } from "../src/variants.ts";
+import { loadBlueprint, resolveVariant, chooseTier, findVariant } from "../src/variants.ts";
 import { autoSolveVariant, autoSolveAll } from "../src/autosolve.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -23,6 +23,31 @@ test("blueprint loads; variant resolution is deterministic; unknown tiers fall b
   assert.deepEqual(resolveVariant(bp, 2), { variantId: "tier2:subtotal-accumulation", tier: 2, defect: "subtotal-accumulation" });
   assert.equal(resolveVariant(bp, 99).tier, 1, "unknown tier falls back to the lowest");
   assert.deepEqual(resolveVariant(bp, 2), resolveVariant(bp, 2), "same inputs, same variant, forever");
+});
+
+test("findVariant: round-trips resolveVariant's own output (resume support)", () => {
+  for (const tier of [1, 2]) {
+    const resolved = resolveVariant(bp, tier);
+    assert.deepEqual(findVariant(bp, resolved.variantId), resolved, `tier ${tier} round-trips through its own variantId`);
+  }
+});
+
+test("findVariant: null when the tier no longer exists on the blueprint", () => {
+  assert.equal(findVariant(bp, "tier99:rounding-floor"), null, "no tier 99 in this blueprint");
+});
+
+test("findVariant: null when the tier's defect assignment changed since the session started", () => {
+  // Same shape as a real recorded variantId, but tier 1 now maps to a
+  // DIFFERENT defect than the one recorded — the blueprint invariant no
+  // longer holds, so this must be treated as "lab changed", not silently
+  // resolved to whatever tier 1 is today.
+  assert.equal(findVariant(bp, "tier1:subtotal-accumulation"), null, "tier 1's defect is rounding-floor, not this one");
+});
+
+test("findVariant: null on a garbage/malformed variantId", () => {
+  for (const garbage of ["", "not-a-variant-id", "tier:rounding-floor", "tierX:rounding-floor", "1:rounding-floor", "tier1"]) {
+    assert.equal(findVariant(bp, garbage), null, garbage);
+  }
 });
 
 test("tier selection has hysteresis: immediate promotion, damped demotion, never mid-lab", () => {

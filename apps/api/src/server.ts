@@ -8,6 +8,7 @@
  *   GET    /api/labs/:labId                  lesson content for the UI
  *   GET    /api/sessions/:id/state           reduced state + transcript + checkpoint spec
  *   GET    /api/sessions/:id/greeting        generated session-opening message (cached per session)
+ *   GET    /api/sessions/:id/resume-opening  returning-learner "welcome back" recap (resumed sessions)
  *   POST   /api/sessions/:id/progress        { completedTaskIds } → generated next-step message
  *   GET    /api/sessions/:id/context-preview exactly what the instructor would see now
  *   POST   /api/sessions/:id/ask             { text, stuck? } → instructor message
@@ -15,6 +16,8 @@
  *   POST   /api/sessions/:id/intervention/answer { accepted } → parked hint or null
  *   POST   /api/sessions/:id/checkpoint/evaluate
  *   POST   /api/sessions/:id/reset
+ *   POST   /api/sessions/:id/abandon         mark abandoned (start over); works live or not
+ *   POST   /api/sessions/:id/lint            { path, content } → type-aware ESLint messages (Code Studio squiggles)
  *   GET    /api/sessions/:id/export          full event log (data transparency)
  *   DELETE /api/sessions/:id
  *   WS     /ws/terminal?session=ID&token=T   the learner terminal
@@ -30,6 +33,7 @@
  *   PUT    /api/learners/:id/consents            { selfAnalytics, cohortAggregate, research }
  *   POST   /api/learners/:id/assertions          contestation: preference | suppression | fresh-start
  *   DELETE /api/learners/:id                     erasure (ADR-0002: delete + tombstone)
+ *   POST   /api/learners/:id/lessons/:labId/session  resume-or-create — the client's single boot call
  *   POST   /api/sessions/:id/self-assessment     { confidence: 1..5 } calibration signal
  *   GET    /api/sessions/:id/reflection          after checkpoint pass
  *   GET    /api/analytics/cohort                 k-suppressed aggregate (consented learners only)
@@ -63,7 +67,7 @@ import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
-import { SessionManager, taskStatuses, type Session } from "./sessions.ts";
+import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -384,6 +388,53 @@ export const server = createServer(async (req, res) => {
         store.eraseLearner(learnerId);
         return json(res, 200, { erased: true });
       }
+      // POST /api/learners/:id/lessons/:labId/session — resume-or-create: the
+      // client's single boot call. An open session for this learner+lab is
+      // resumed in place; otherwise (or if resume can't be honored) a fresh
+      // session is created, bound to this already-authenticated learner.
+      if (req.method === "POST" && tail === "lessons" && parts.length === 6 && parts[5] === "session") {
+        const labId = parts[4];
+        try {
+          manager.loadManifest(labId); // validates the id shape AND that the lab exists
+        } catch {
+          return json(res, 404, { error: `unknown lab: ${labId}` });
+        }
+        const body = await readBody(req);
+        const consentAnalytics = body.consentAnalytics === true;
+        const guideProviderId = typeof body.guideProviderId === "string" ? body.guideProviderId : undefined;
+
+        const sessionPayload = (session: Session, resumed: boolean) => ({
+          sessionId: session.id,
+          token: session.token,
+          learnerId: session.learnerId,
+          variantId: session.variant?.variantId ?? null,
+          labId,
+          driver: manager.driverKind,
+          terminalUrl: `/ws/terminal?session=${session.id}`,
+          guideProvider: session.guideProviderId,
+          resumed,
+        });
+
+        const open = store.latestOpenSession(learnerId, labId);
+        if (open) {
+          try {
+            // resume() applies the learner's saved guide choice itself (and
+            // only replays a stored greeting when it matches that guide).
+            const session = await manager.resume(open.sessionId, guideProviderId);
+            return json(res, 200, sessionPayload(session, true));
+          } catch (err) {
+            if (err instanceof ResumeError) {
+              if (err.reason === "lab-changed") await manager.abandon(open.sessionId);
+              // "not-found": stale row — fall through to create.
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        const session = await manager.createSession(labId, consentAnalytics, learnerId, guideProviderId);
+        return json(res, 201, sessionPayload(session, false));
+      }
       return json(res, 404, { error: "unknown learner route" });
     }
 
@@ -581,6 +632,9 @@ export const server = createServer(async (req, res) => {
             eventCount: events.length,
             counts: { commands, questions, hints, testRuns },
             completed,
+            // Lifecycle: "open" until the learner finishes or starts over.
+            status: m.status,
+            endedAt: m.endedAt,
             // Still attached to a live lab environment in this process?
             live: manager.get(m.sessionId) !== null,
           };
@@ -700,6 +754,12 @@ export const server = createServer(async (req, res) => {
         // goalPrompt fallback) — onboarding must never block on a model.
         return json(res, 200, { message: await session.greeting() });
       }
+      if (req.method === "GET" && tail === "resume-opening") {
+        // Returning-learner "welcome back — here's where you are" opening for a
+        // resumed session, from the active guide. Never 500s (authored fallback
+        // inside the session); regenerated per load, not cached.
+        return json(res, 200, { message: await session.resumeOpening() });
+      }
       if (req.method === "POST" && tail === "progress") {
         // The client saw task(s) flip to done; the guide checks them off and
         // hands over the next step. Never 500s on provider failure (authored
@@ -757,6 +817,18 @@ export const server = createServer(async (req, res) => {
           const msg = String((err as Error).message);
           return json(res, msg.includes("invalid path") || msg.includes("too large") ? 400 : 500, { error: msg.slice(0, 300) });
         }
+      }
+
+      if (req.method === "POST" && tail === "lint") {
+        // Type-aware ESLint for the Monaco editor's live squiggles. Lazy
+        // import: eslint/typescript are hefty and only ever needed once a
+        // learner opens Code Studio and edits a file — keep them out of
+        // startup and off the hot path for every other route/test.
+        const body = await readBody(req);
+        const path = typeof body.path === "string" ? body.path : "";
+        const content = typeof body.content === "string" ? body.content : "";
+        const { lintSource } = await import("./lint.ts");
+        return json(res, 200, { messages: await lintSource(path, content) });
       }
 
       if (req.method === "POST" && tail === "guide-provider") {
@@ -842,6 +914,12 @@ export const server = createServer(async (req, res) => {
         await session.reset();
         return json(res, 200, { ok: true, note: "workspace re-created; reconnect the terminal" });
       }
+      if (req.method === "POST" && tail === "abandon") {
+        // Start over: mark the row abandoned so resume()/latestOpenSession()
+        // stop offering it. session is live here (authed() above required it).
+        await manager.abandon(id);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "GET" && tail === "export") {
         return json(res, 200, {
           meta: { sessionId: session.id, learnerId: session.learnerId, labId: session.manifest.id, createdAt: session.createdAt },
@@ -856,6 +934,9 @@ export const server = createServer(async (req, res) => {
 
     json(res, 404, { error: "not found" });
   } catch (err) {
+    // Always surface an unhandled 500 server-side — a silent catch here once
+    // hid a container-name collision on resume behind a bare browser 500.
+    console.error(`[trellis-api] 500 ${req.method} ${req.url}:`, err);
     json(res, 500, { error: String((err as Error).message ?? err).slice(0, 300) });
   }
 });

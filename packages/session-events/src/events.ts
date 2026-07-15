@@ -23,6 +23,10 @@ export interface ContextManifest {
 export type SessionEvent =
   | ({ type: "session.started"; lessonId: string; learnerId: string; variantId: string | null } & Base)
   | ({ type: "session.reset" } & Base)
+  // A live Session was rebuilt from the store after a restart.
+  | ({ type: "session.resumed" } & Base)
+  // Learner chose "Start over": the attempt ended, history kept for replay/analytics.
+  | ({ type: "session.abandoned" } & Base)
   | ({ type: "terminal.command.started"; command: string } & Base)
   | ({
       type: "terminal.command.completed";
@@ -56,7 +60,7 @@ export type SessionEvent =
   // The generated session-opening message (lesson- and learner-aware).
   // Deliberately NOT an instructor.hint: a greeting must never count toward
   // the hint escalation ladder or the digest's hint stats.
-  | ({ type: "instructor.greeting"; text: string; contextManifest: ContextManifest | null } & Base)
+  | ({ type: "instructor.greeting"; text: string; contextManifest: ContextManifest | null; guideProviderId?: string } & Base)
   // The generated progress beat: instrumentation measured task(s) done and
   // the guide checked them off + handed over the next step. Same rationale
   // as instructor.greeting for being its own type (progress ≠ a hint).

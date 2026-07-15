@@ -78,6 +78,11 @@
 }
 .win-icon { font-size: 15px; }
 .win-title { font-size: 13px; color: #c9d5cd; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Lesson-complete celebration: one pulse on the guide window's titlebar. */
+.win-titlebar.cheering { animation: cheer-glow 2.2s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .win-titlebar.cheering { animation: none; box-shadow: inset 0 -2px 0 0 var(--accent); }
+}
 .win-controls.windows { display: flex; height: 100%; }
 .winbtn {
   width: 46px;
@@ -295,6 +300,10 @@
 .cs-tabs-empty { font-size: 12px; color: #66756b; align-self: center; padding: 0 12px; }
 
 .cs-editor { flex: 1; position: relative; min-height: 0; }
+.cs-monaco { position: absolute; inset: 0; }
+.cs-monaco-hidden { display: none; }
+/* Legacy textarea-overlay editor styles — unused now that Monaco owns the
+   editor pane, kept only so any stray reference doesn't 404 mid-refactor. */
 .cs-highlight,
 .cs-textarea {
   position: absolute;
@@ -350,7 +359,13 @@
   border-bottom: 1px solid var(--chrome-edge);
   background: #12171d;
 }
-.chat-head-name { font-size: 13px; color: #cfe3d3; font-weight: 600; }
+.chat-head-name { font-size: 13px; color: #cfe3d3; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+/* Persistent "done" badge once the checkpoint has passed — mirrors .course-complete-chip's language/look. */
+.chat-complete-chip {
+  font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: #cfe8b0;
+  border: 1px solid #3f6b34; border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+  background: rgba(127, 176, 105, 0.14);
+}
 .chat-head-actions { display: flex; align-items: center; gap: 10px; }
 .chat-head .link { background: none; border: none; color: #8ea296; font-size: 12px; cursor: pointer; text-decoration: underline; }
 
@@ -508,31 +523,114 @@
 .chip:disabled { opacity: 0.55; cursor: default; }
 .chip-primary { background: var(--accent); border-color: var(--accent); color: #0d1a14; font-weight: 600; }
 .chip-primary:hover:not(:disabled) { background: #8fbe7c; }
+/* .chip/.chip-primary style buttons by default; an anchor needs the same
+   look plus the button-like display + no underline. */
+a.chip { text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
 .chat-reqs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: #aeb8b1; }
 .chat-reqs li.ok { color: #9fce8c; }
 .chat-req-detail { color: #c9a15f; font-size: 12px; margin: 2px 0 0 16px; }
 .chat-reflection { margin-top: 6px; }
 .chat-reflection .reflection-card { margin: 0; }
+
+/* ── Next-lesson CTA — the final card in the completion stack ───────────── */
+.chat-nextlesson {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: linear-gradient(180deg, #1d2731, #1b232c);
+  border: 1px solid var(--chrome-edge);
+  border-radius: 12px;
+  padding: 13px 14px;
+  animation: nextlesson-rise 0.4s ease-out;
+}
+@keyframes nextlesson-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-nextlesson { animation: none; }
+}
+.nextlesson-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #6a7681;
+  font-variant-numeric: tabular-nums;
+}
+.nextlesson-line { margin: 0; font-size: 13.5px; line-height: 1.5; color: #dbe4ec; }
+.nextlesson-line strong { color: #eaf2ea; }
+.nextlesson-meter {
+  height: 6px;
+  border-radius: 4px;
+  background: #0f151b;
+  border: 1px solid var(--chrome-edge);
+  overflow: hidden;
+}
+.nextlesson-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #8fbe7c);
+  transition: width 0.6s;
+}
+.nextlesson-tile {
+  background: #141b22;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 9px;
+  padding: 9px 11px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.nextlesson-badge {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(127, 176, 105, 0.16);
+  border: 1px solid rgba(127, 176, 105, 0.45);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nextlesson-tile-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nextlesson-tile-title { font-size: 13px; font-weight: 600; color: #eaf2ea; }
+.nextlesson-tile-note { font-size: 12px; color: #8ea296; }
 .chat-composer {
   flex: none;
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: flex-end;
   padding: 10px;
   border-top: 1px solid var(--chrome-edge);
   background: #12171d;
 }
-.chat-composer textarea {
+/* Row 1: lesson actions (Check my work / Start over + its confirm). */
+.chat-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* The start-over confirmation sentence takes its own line above the chips. */
+.chat-confirm-text { flex: 1 1 100%; font-size: 12.5px; color: #aeb8b1; }
+/* Row 2: the message box gets the width; mic + Send flank it. */
+.chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input-row textarea {
   flex: 1;
-  resize: none;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 180px;
+  resize: vertical;
   background: #1b232c;
   border: 1px solid var(--chrome-edge);
   border-radius: 10px;
   color: #e5ede7;
   font: inherit;
   font-size: 13px;
-  padding: 8px 10px;
+  line-height: 1.45;
+  padding: 9px 11px;
 }
+.chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+.chat-input-row .mic-btn,
+.chat-input-row .chip-primary { flex: none; align-self: stretch; }
 
 /* ── Preview app ───────────────────────────────────────────────────────── */
 .preview-app { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fff; }
@@ -633,4 +731,28 @@
 .aichat-prompt {
   flex: 1; resize: none; background: #0d0f16; color: #dfe0ec; border: 1px solid #26233a;
   border-radius: 6px; padding: 8px; font: inherit; font-size: 13px;
+}
+
+/* Lesson-complete celebration. z-index 10050: above the taskbar (9999) and
+   the start menu (10000, the highest chrome z-index besides the toast at
+   10001) — the shower must cover the whole desktop, including open windows. */
+.cheer-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 10050; overflow: hidden; }
+.cheer-piece {
+  position: absolute; top: -8%; font-size: var(--sz, 18px); will-change: transform, opacity; opacity: 0;
+  animation: cheer-drift var(--dur, 3s) linear var(--delay, 0s) 1;
+}
+.cheer-piece.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, #7fb069); }
+@keyframes cheer-drift {
+  0% { transform: translate3d(var(--x, 0), -10vh, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate3d(calc(var(--x, 0) + var(--drift, 0)), 110vh, 0) rotate(var(--rot, 360deg)); opacity: 0; }
+}
+@keyframes cheer-glow {
+  0% { box-shadow: 0 0 0 0 rgba(127, 176, 105, 0); }
+  22% { box-shadow: 0 0 0 3px rgba(127, 176, 105, 0.55), 0 0 22px 4px rgba(127, 176, 105, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(127, 176, 105, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cheer-piece { display: none; }
 }
