@@ -528,78 +528,86 @@ export function ChatGuide({
         )}
       </div>
       <div className="chat-composer">
-        <button className="chip" onClick={() => void runCheck()} disabled={checking}>
-          {checking ? "Checking…" : "Check my work"}
-        </button>
-        {/* In-UI confirmation (never window.confirm: a native modal blocks the
-            main thread and cannot be seen or dismissed in embedded/driven
-            browsers — live-sim finding, froze the whole workspace). */}
-        {confirmingStartOver ? (
-          <>
-            <span className="chat-confirm-text">
-              Start this lesson over? Your previous attempt is archived and you'll get a fresh workspace.
-            </span>
-            <button
-              className="chip chip-primary"
-              onClick={() => {
-                setConfirmingStartOver(false);
-                void startOver();
-              }}
-            >
-              Yes, start over
-            </button>
-            <button className="chip" onClick={() => setConfirmingStartOver(false)}>
-              Keep working
-            </button>
-          </>
-        ) : (
-          <button
-            className="chip"
-            title="End this attempt (archived, not lost) and get a fresh session for this lab"
-            onClick={() => setConfirmingStartOver(true)}
-          >
-            Start over
+        {/* Actions row: lesson controls, kept clear of the message input so
+            neither crowds the other. */}
+        <div className="chat-actions">
+          <button className="chip" onClick={() => void runCheck()} disabled={checking}>
+            {checking ? "Checking…" : "Check my work"}
           </button>
-        )}
-        {dictation.supported && (
-          <button
-            className={`mic-btn ${dictation.listening ? "recording" : ""}`}
-            onClick={() => {
-              if (dictation.listening) {
-                dictation.stop();
-              } else {
-                narration.cancel(); // don't talk over the learner
-                dictation.start(draft);
+          {/* In-UI confirmation (never window.confirm: a native modal blocks the
+              main thread and cannot be seen or dismissed in embedded/driven
+              browsers — live-sim finding, froze the whole workspace). */}
+          {confirmingStartOver ? (
+            <>
+              <span className="chat-confirm-text">
+                Start this lesson over? Your previous attempt is archived and you'll get a fresh workspace.
+              </span>
+              <button
+                className="chip chip-primary"
+                onClick={() => {
+                  setConfirmingStartOver(false);
+                  void startOver();
+                }}
+              >
+                Yes, start over
+              </button>
+              <button className="chip" onClick={() => setConfirmingStartOver(false)}>
+                Keep working
+              </button>
+            </>
+          ) : (
+            <button
+              className="chip"
+              title="End this attempt (archived, not lost) and get a fresh session for this lab"
+              onClick={() => setConfirmingStartOver(true)}
+            >
+              Start over
+            </button>
+          )}
+        </div>
+        {/* Input row: the message box gets the full width, with the mic and
+            Send flanking it. */}
+        <div className="chat-input-row">
+          {dictation.supported && (
+            <button
+              className={`mic-btn ${dictation.listening ? "recording" : ""}`}
+              onClick={() => {
+                if (dictation.listening) {
+                  dictation.stop();
+                } else {
+                  narration.cancel(); // don't talk over the learner
+                  dictation.start(draft);
+                }
+              }}
+              aria-pressed={dictation.listening}
+              aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
+              title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
+            >
+              <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+            </button>
+          )}
+          <textarea
+            value={draft}
+            placeholder={
+              dictation.listening
+                ? "Listening…"
+                : awaitingGoal
+                  ? `Tell ${botName} what you're here to do…`
+                  : `Message ${botName}…`
+            }
+            rows={3}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send(draft, false);
               }
             }}
-            aria-pressed={dictation.listening}
-            aria-label={dictation.listening ? "Stop voice input" : "Speak your message"}
-            title={dictation.listening ? "Listening… click to stop" : "Speak instead of typing"}
-          >
-            <span aria-hidden="true">{dictation.listening ? "⏺" : "🎤"}</span>
+          />
+          <button className="chip chip-primary" onClick={() => void send(draft, false)} disabled={sending || !draft.trim()}>
+            Send
           </button>
-        )}
-        <textarea
-          value={draft}
-          placeholder={
-            dictation.listening
-              ? "Listening…"
-              : awaitingGoal
-                ? `Tell ${botName} what you're here to do…`
-                : `Message ${botName}…`
-          }
-          rows={2}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send(draft, false);
-            }
-          }}
-        />
-        <button className="chip chip-primary" onClick={() => void send(draft, false)} disabled={sending || !draft.trim()}>
-          Send
-        </button>
+        </div>
       </div>
       {showContext && <ContextDrawer creds={creds} onClose={() => setShowContext(false)} />}
     </div>

@@ -527,26 +527,36 @@
 .chat-composer {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  align-items: flex-end;
   padding: 10px;
   border-top: 1px solid var(--chrome-edge);
   background: #12171d;
 }
-/* The start-over confirmation sentence: always its own row above the chips. */
+/* Row 1: lesson actions (Check my work / Start over + its confirm). */
+.chat-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* The start-over confirmation sentence takes its own line above the chips. */
 .chat-confirm-text { flex: 1 1 100%; font-size: 12.5px; color: #aeb8b1; }
-.chat-composer textarea {
+/* Row 2: the message box gets the width; mic + Send flank it. */
+.chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input-row textarea {
   flex: 1;
-  resize: none;
+  min-width: 0;
+  min-height: 72px;
+  max-height: 180px;
+  resize: vertical;
   background: #1b232c;
   border: 1px solid var(--chrome-edge);
   border-radius: 10px;
   color: #e5ede7;
   font: inherit;
   font-size: 13px;
-  padding: 8px 10px;
+  line-height: 1.45;
+  padding: 9px 11px;
 }
+.chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+.chat-input-row .mic-btn,
+.chat-input-row .chip-primary { flex: none; align-self: stretch; }
 
 /* ── Preview app ───────────────────────────────────────────────────────── */
 .preview-app { display: flex; flex-direction: column; height: 100%; min-height: 0; background: #fff; }
