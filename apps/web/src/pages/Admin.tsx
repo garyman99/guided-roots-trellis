@@ -17,7 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUser, logout } from "../auth.ts";
 import type { Course, CourseLesson } from "../api.ts";
-import { fetchScenarios } from "../api.ts";
+import { fetchScenarios, adminGet, adminSend, ADMIN_TOKEN_KEY } from "../api.ts";
+import { CourseStudio } from "./CourseStudio.tsx";
 import { scenarioMap, type Scenario } from "../scenarios.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
@@ -126,33 +127,6 @@ interface ReplayPayload {
   events: ReplayEvent[];
 }
 
-/* ---------- fetch helper (optional admin token) ---------- */
-
-const ADMIN_TOKEN_KEY = "trellis.admin.token";
-
-async function adminGet<T>(path: string): Promise<T> {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-  const res = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
-  return res.json() as Promise<T>;
-}
-
-/** Mutations (course CRUD). Surfaces the API's error message when it has one. */
-async function adminSend<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-  const res = await fetch(path, {
-    method,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const payload = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw Object.assign(new Error(payload.error ?? `HTTP ${res.status}`), { status: res.status });
-  return payload as T;
-}
-
 /* ---------- formatting ---------- */
 
 function fmtTokens(n: number): string {
@@ -186,7 +160,7 @@ function modelColor(model: string, order: string[]): string {
   return SERIES_COLORS[i % SERIES_COLORS.length];
 }
 
-type Tab = "agents" | "users" | "usage" | "courses" | "sessions";
+type Tab = "agents" | "users" | "usage" | "courses" | "studio" | "sessions";
 
 export function Admin() {
   const user = getUser();
@@ -275,6 +249,7 @@ export function Admin() {
                 ["users", "Users"],
                 ["usage", "Token usage"],
                 ["courses", "Courses"],
+                ["studio", "Course studio"],
                 ["sessions", "Sessions"],
               ] as Array<[Tab, string]>
             ).map(([key, label]) => (
@@ -330,6 +305,7 @@ export function Admin() {
               {tab === "users" && <UsersView users={users} sessions={sessions} scenarioByLabId={scenarioByLabId} />}
               {tab === "usage" && <UsageView usage={usage} />}
               {tab === "courses" && <CoursesView courses={courses} onChanged={reload} scenarios={scenarios} scenarioByLabId={scenarioByLabId} />}
+              {tab === "studio" && <CourseStudio onCoursesChanged={reload} />}
               {tab === "sessions" && <SessionsView sessions={sessions} scenarioByLabId={scenarioByLabId} />}
             </>
           )}

@@ -418,6 +418,95 @@ export async function fetchScenarios(): Promise<Scenario[]> {
   return body.scenarios;
 }
 
+/* ---------- admin-gated fetch (optional bearer token) ---------- */
+
+export const ADMIN_TOKEN_KEY = "trellis.admin.token";
+
+export async function adminGet<T>(path: string): Promise<T> {
+  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+  const res = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.json() as Promise<T>;
+}
+
+/** Admin mutations — surfaces the API's error message when it has one. */
+export async function adminSend<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+  const res = await fetch(path, {
+    method,
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw Object.assign(new Error(payload.error ?? `HTTP ${res.status}`), { status: res.status });
+  return payload as T;
+}
+
+/* ---------- course-generation runs (Course studio) ---------- */
+
+export type RunStatus =
+  | "queued" | "framing" | "designing" | "authoring" | "materializing"
+  | "awaiting-frame" | "awaiting-blueprint" | "awaiting-package" | "awaiting-publish"
+  | "approved" | "interrupted" | "archived" | "failed";
+
+export type GateId = "frame" | "blueprint" | "package" | "publish";
+
+export interface GateNote {
+  path?: string;
+  lessonId?: string;
+  comment: string;
+}
+
+export interface CourseRunGate {
+  gateId: GateId;
+  requestedAt: string;
+  decidedAt: string | null;
+  decision: "approved" | "changes" | "rejected" | null;
+  decidedBy: string | null;
+  notes: GateNote[] | null;
+}
+
+export interface CourseRunEvent {
+  id?: number;
+  at: string;
+  type: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface CourseRunSummary {
+  runId: string;
+  status: RunStatus;
+  technology: string;
+  title: string | null;
+  pendingGate: GateId | null;
+  createdAt: string;
+  updatedAt: string;
+  lastError: string | null;
+}
+
+export interface CourseRunDetail extends CourseRunSummary {
+  request: Record<string, string>;
+  pendingPhase: string | null;
+  events: CourseRunEvent[];
+  gates: CourseRunGate[];
+  artifacts: string[];
+}
+
+export const courseRunApi = {
+  list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
+  get: (runId: string) => adminGet<{ run: CourseRunDetail }>(`/api/admin/course-runs/${encodeURIComponent(runId)}`).then((r) => r.run),
+  create: (body: Record<string, string>) =>
+    adminSend<{ run: CourseRunDetail }>("POST", "/api/admin/course-runs", body).then((r) => r.run),
+  artifact: (runId: string, path: string) =>
+    adminGet<{ path: string; content: string }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/artifacts/${path.split("/").map(encodeURIComponent).join("/")}`),
+  decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string) =>
+    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by }).then((r) => r.run),
+  resume: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/resume`).then((r) => r.run),
+  archive: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/archive`).then((r) => r.run),
+  publishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`),
+  unpublishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/unpublish`),
+};
+
 export function terminalUrl(c: SessionCredentials): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/ws/terminal?session=${c.sessionId}&token=${encodeURIComponent(c.token)}`;

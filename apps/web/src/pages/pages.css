@@ -506,3 +506,29 @@
 /* Users tab: clickable roster rows */
 .admin-clickable tbody tr { cursor: pointer; }
 .admin-clickable tbody tr:hover td { background: rgba(107, 165, 95, 0.07); }
+
+/* ===== Course studio (course-generation runs) ===== */
+.cg-rail { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cg-rail-node { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.cg-rail-dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.18); flex: none; }
+.cg-rail-node.gate .cg-rail-dot { border-radius: 2px; transform: rotate(45deg); }
+.cg-rail-node.passed .cg-rail-dot { background: #6ba55f; }
+.cg-rail-node.active .cg-rail-dot { background: #c9803a; box-shadow: 0 0 0 4px rgba(201,128,58,0.25); animation: cg-pulse 1.4s ease-in-out infinite; }
+.cg-rail-node.changes .cg-rail-dot { background: #d98b3a; }
+.cg-rail-node.interrupted .cg-rail-dot { background: #c0554e; }
+.cg-rail-label { font-size: 0.9rem; }
+.cg-rail-node.pending .cg-rail-label { opacity: 0.5; }
+.cg-rail-state { text-transform: uppercase; font-size: 0.62rem; opacity: 0.7; }
+@keyframes cg-pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(201,128,58,0.25);} 50% { box-shadow: 0 0 0 7px rgba(201,128,58,0.05);} }
+
+.cg-gatebar { border-left: 3px solid #c9803a; }
+
+.cg-artifacts { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 16px; }
+.cg-artifact-list { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.cg-artifact-list li { margin: 0; }
+.cg-artifact-link { width: 100%; text-align: left; background: none; border: none; color: inherit; font-family: var(--mono); font-size: 0.78rem; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+.cg-artifact-link:hover { background: rgba(255,255,255,0.06); }
+.cg-artifact-link.active { background: rgba(107,165,95,0.15); }
+.cg-artifact-body { min-width: 0; }
+.cg-artifact-pre { margin: 0; max-height: 460px; overflow: auto; background: rgba(0,0,0,0.25); padding: 12px; border-radius: 6px; font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 720px) { .cg-artifacts { grid-template-columns: 1fr; } }
