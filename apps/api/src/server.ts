@@ -107,28 +107,6 @@ function seedCourses(): void {
   const at = new Date().toISOString();
   const catalog: Array<Omit<Course, "createdAt" | "updatedAt">> = [
     {
-      courseId: "selenium-getting-started",
-      title: "Selenium: Getting Started",
-      description:
-        "Brand new to Selenium? Start here. Meet what Selenium is, tour a real test bench, and watch a browser run a test — before you write a single line of your own.",
-      audience: "QA & Testing",
-      level: "intro",
-      lessons: [
-        { labId: "tour-the-selenium-bench", title: "Tour the test bench", note: "Open the site, read a complete example test, and get the lay of the land." },
-      ],
-    },
-    {
-      courseId: "selenium-foundations",
-      title: "Selenium Foundations",
-      description:
-        "Write Selenium tests one sitting at a time. Start where Playwright Foundations does — turn a manual check into your first automated Selenium assertion — then (as the course grows) read a failing result calmly and repair a broken test without touching the app it protects.",
-      audience: "QA & Testing",
-      level: "beginner",
-      lessons: [
-        { labId: "run-your-first-selenium-test", title: "Your first Selenium check", note: "Open a real browser, read the heading, and write the check Selenium leaves to you." },
-      ],
-    },
-    {
       courseId: "playwright-foundations",
       title: "Playwright Foundations",
       description:

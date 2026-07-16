@@ -41,8 +41,8 @@ A lesson is a directory under `labs/<id>/` (`id` must match `^[a-z0-9-]+$`).
 
 **The test stack is pluggable.** Playwright labs use `tests/*.spec.js` +
 `playwright.config.js`; but the framework only cares about the *contract*, not the
-tool. A lab can use any stack (e.g. Selenium + TypeScript via `tsx`, see
-`run-your-first-selenium-test`) as long as `scripts/test.mjs` still (a) exits 0 on
+tool. A lab can use any stack (e.g. a different runner, or TypeScript via `tsx`)
+as long as `scripts/test.mjs` still (a) exits 0 on
 pass / non-0 on fail and (b) writes `{passed,failed,total}` to `TRELLIS_RESULTS_FILE`.
 Bake whatever browser/driver the stack needs into the `Dockerfile` at build time
 (the runtime is `--network none`) and pin driver paths so nothing phones home.

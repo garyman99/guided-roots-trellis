@@ -87,26 +87,6 @@ export const scenarios: Scenario[] = [
     technologies: ["AI tools"],
     level: "beginner",
   },
-  {
-    labId: "tour-the-selenium-bench",
-    title: "Tour the Selenium test bench",
-    blurb:
-      "Brand new to Selenium? Take the tour first: learn what Selenium is, open the page under test, read a complete example test, and walk the project structure — no code, no grade to beat.",
-    tag: "SELENIUM · ORIENTATION",
-    role: "QA & Testing",
-    technologies: ["Selenium", "TypeScript"],
-    level: "beginner",
-  },
-  {
-    labId: "run-your-first-selenium-test",
-    title: "Run your first Selenium test",
-    blurb:
-      "Meet Selenium by running a real browser end to end: watch it open a page, find the heading, and read its text — then write the one line Selenium never writes for you, the check that the text is what you expected.",
-    tag: "SELENIUM · FIRST RUN",
-    role: "QA & Testing",
-    technologies: ["Selenium", "TypeScript"],
-    level: "beginner",
-  },
 ];
 
 export const scenarioByLabId = new Map(scenarios.map((s) => [s.labId, s]));
