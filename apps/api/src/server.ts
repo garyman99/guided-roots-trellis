@@ -205,13 +205,15 @@ const materialize: Materializer = async ({ run, lessons }) => {
   // Reuse this run's existing draft course on a re-materialization; else mint one.
   const prior = store.listCourses().find((c) => c.sourceRunId === run.runId);
   const courseId = prior?.courseId ?? newCourseId(run.request.title ?? tech);
+  // Course lessons carry each lesson's level + title so /home can group by level.
+  const byId = new Map(lessons.map((l) => [l.lessonId, l]));
   store.saveCourse({
     courseId,
     title: run.request.title ?? `${tech} course`,
     description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
     audience: run.request.targetLearner ?? "",
-    level: lessons[0]?.level ?? "beginner",
-    lessons: labIds.map((labId) => ({ labId })),
+    level: lessons[0]?.level ?? "beginner", // legacy single-level (kept for accent/back-compat)
+    lessons: labIds.map((labId) => ({ labId, title: byId.get(labId)?.title, level: byId.get(labId)?.level })),
     status: "draft",
     sourceRunId: run.runId,
     createdAt: prior?.createdAt ?? at,
@@ -381,6 +383,7 @@ function parseCourseBody(body: Record<string, unknown>): string | Omit<Course, "
       labId,
       ...(typeof l.title === "string" && l.title.trim() ? { title: l.title.trim().slice(0, 120) } : {}),
       ...(typeof l.note === "string" && l.note.trim() ? { note: l.note.trim().slice(0, 300) } : {}),
+      ...(typeof l.level === "string" && l.level.trim() ? { level: l.level.trim().slice(0, 20) } : {}),
     });
   }
   return { title, description, audience, level, lessons };

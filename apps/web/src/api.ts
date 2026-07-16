@@ -100,6 +100,8 @@ export interface CourseLesson {
   labId: string;
   title?: string;
   note?: string;
+  /** Progression level (intro…expert); courses span levels, /home groups by it. */
+  level?: string;
 }
 
 export interface Course {

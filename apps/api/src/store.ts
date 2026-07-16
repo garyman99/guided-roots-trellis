@@ -90,6 +90,9 @@ export interface CourseLesson {
   /** Course-voice name for this step (falls back to the scenario's own title). */
   title?: string;
   note?: string;
+  /** Progression level for this lesson (intro | beginner | intermediate |
+   *  advanced | expert). A course spans levels; /home groups lessons by this. */
+  level?: string;
 }
 
 /**

@@ -223,39 +223,17 @@ function CoursesSection({
   resumeId: string | null;
   scenarioByLabId: Map<string, Scenario>;
 }) {
-  const [level, setLevel] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
 
-  const byLevel = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of courses ?? []) {
-      const k = normalizeLevel(c.level);
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-    return counts;
-  }, [courses]);
-
   const courseRoles = useMemo(
-    () => Array.from(new Set((courses ?? []).map((c) => c.audience))),
+    () => Array.from(new Set((courses ?? []).map((c) => c.audience))).filter(Boolean),
     [courses],
   );
-
-  const sorted = useMemo(
-    () =>
-      [...(courses ?? [])].sort((a, b) => {
-        const r = (LEVEL_RANK[normalizeLevel(a.level)] ?? 9) - (LEVEL_RANK[normalizeLevel(b.level)] ?? 9);
-        return r !== 0 ? r : a.title.localeCompare(b.title);
-      }),
-    [courses],
-  );
+  // A course spans multiple levels, so we don't file (or filter) courses by a
+  // single level — only by audience. Most recently updated first.
   const filtered = useMemo(
-    () =>
-      sorted.filter(
-        (c) =>
-          (level === null || normalizeLevel(c.level) === level) &&
-          (role === null || c.audience === role),
-      ),
-    [sorted, level, role],
+    () => [...(courses ?? [])].filter((c) => role === null || c.audience === role),
+    [courses, role],
   );
 
   return (
@@ -267,37 +245,9 @@ function CoursesSection({
             Learn it by <em>doing</em> it
           </h2>
           <p className="gr-lede">
-            Each course is an ordered path through real work. Climb the ladder from your first steps
-            to mastery — finish a lesson in the desktop and the next unlocks, your progress measured,
-            never self-reported.
+            Each course is a full path through real work — from your first steps to mastery. Every
+            lesson is done in the desktop, your progress measured, never self-reported.
           </p>
-        </div>
-
-        {/* level ladder — doubles as a filter and shows the roadmap */}
-        <div className="level-ladder" role="group" aria-label="Filter courses by level">
-          <button
-            className={`level-rung all${level === null ? " active" : ""}`}
-            onClick={() => setLevel(null)}
-          >
-            <span className="rung-label">All levels</span>
-            <span className="rung-count gr-mono-note">{courses?.length ?? 0}</span>
-          </button>
-          {COURSE_LEVELS.map((l) => {
-            const n = byLevel.get(l.key) ?? 0;
-            return (
-              <button
-                key={l.key}
-                className={`level-rung${level === l.key ? " active" : ""}${n === 0 ? " empty" : ""}`}
-                data-level={l.key}
-                onClick={() => setLevel(level === l.key ? null : l.key)}
-                aria-pressed={level === l.key}
-              >
-                <span className="rung-label">{l.label}</span>
-                <span className="rung-hint">{l.hint}</span>
-                <span className="rung-count gr-mono-note">{n === 0 ? "SOON" : n}</span>
-              </button>
-            );
-          })}
         </div>
 
         {courseRoles.length > 1 && (
@@ -312,16 +262,15 @@ function CoursesSection({
           <p className="library-empty">
             {courses.length === 0
               ? "Courses are being cultivated — check back soon. Meanwhile, the playground below is open."
-              : "No course on that rung yet — it's in cultivation 🌱. Clear the filter to see what's ready."}
+              : "No course for that audience yet — clear the filter to see what's ready."}
           </p>
         ) : (
-          <div className="course-list">
-            {filtered.map((c, i) => (
+          <div className="course-stack">
+            {filtered.map((c) => (
               <CourseCard
                 key={c.courseId}
                 course={c}
                 completed={completed}
-                delay={i % 2}
                 highlight={c.courseId === resumeId}
                 scenarioByLabId={scenarioByLabId}
               />
@@ -333,84 +282,99 @@ function CoursesSection({
   );
 }
 
+/** The level of a course lesson: its own, else the scenario's facet, else beginner. */
+function lessonLevel(lesson: Course["lessons"][number], scenarioByLabId: Map<string, Scenario>): string {
+  return normalizeLevel(lesson.level ?? scenarioByLabId.get(lesson.labId)?.level ?? "beginner");
+}
+
 function CourseCard({
   course,
   completed,
-  delay,
   highlight,
   scenarioByLabId,
 }: {
   course: Course;
   completed: Set<string>;
-  delay: number;
   highlight: boolean;
   scenarioByLabId: Map<string, Scenario>;
 }) {
   const p = courseProgress(course, completed);
-  const lvl = normalizeLevel(course.level);
-  const levelLabel = COURSE_LEVELS.find((l) => l.key === lvl)?.label ?? course.level;
+
+  // Group lessons by level, preserving course order, keeping each lesson's
+  // overall position number for the progression.
+  const groups = useMemo(() => {
+    const byLevel = new Map<string, Array<{ lesson: Course["lessons"][number]; index: number }>>();
+    course.lessons.forEach((lesson, index) => {
+      const key = lessonLevel(lesson, scenarioByLabId);
+      if (!byLevel.has(key)) byLevel.set(key, []);
+      byLevel.get(key)!.push({ lesson, index });
+    });
+    // Ordered columns: only levels present, in ladder order.
+    return COURSE_LEVELS.filter((l) => byLevel.has(l.key)).map((l) => ({ meta: l, items: byLevel.get(l.key)! }));
+  }, [course.lessons, scenarioByLabId]);
+
+  const spanLabel =
+    groups.length === 0 ? "" : groups.length === 1 ? groups[0].meta.label : `${groups[0].meta.label} → ${groups[groups.length - 1].meta.label}`;
 
   return (
-    <article
-      className={`gr-card course-card gr-reveal${highlight ? " highlight" : ""}`}
-      data-delay={String(delay)}
-      data-level={lvl}
-    >
+    <article className={`gr-card course-wide gr-reveal${highlight ? " highlight" : ""}`}>
       <div className="course-head">
         <div>
           <span className="course-badges">
-            <span className="level-badge" data-level={lvl}>
-              {levelLabel}
-            </span>
+            {spanLabel && <span className="level-badge span" data-level={groups[groups.length - 1]?.meta.key}>{spanLabel}</span>}
             <span className="gr-mono-note">
-              {course.audience.toUpperCase()} · {p.total} LESSON{p.total === 1 ? "" : "S"}
+              {course.audience.toUpperCase()}
+              {course.audience ? " · " : ""}
+              {p.total} LESSON{p.total === 1 ? "" : "S"}
             </span>
           </span>
           <h3>{course.title}</h3>
+          <p className="course-desc">{course.description}</p>
         </div>
-        {p.complete ? (
-          <span className="course-complete-chip">Complete ✓</span>
-        ) : (
-          p.next && (
-            <a
-              className="gr-btn gr-btn-primary gr-btn-small"
-              href={`/lab?lab=${encodeURIComponent(p.next.labId)}`}
-            >
-              {p.started ? "Continue" : "Start course"}
-            </a>
-          )
-        )}
-      </div>
-      <p className="course-desc">{course.description}</p>
-
-      <div className="course-progress" role="img" aria-label={`${p.done} of ${p.total} lessons complete`}>
-        <div className="bar">
-          <div className="fill" style={{ width: `${p.pct}%` }} />
-        </div>
-        <span className="gr-mono-note">
-          {p.done}/{p.total} · {p.pct}%
-        </span>
-      </div>
-
-      <ol className="course-lessons">
-        {course.lessons.map((l, i) => {
-          const s = scenarioByLabId.get(l.labId);
-          const isDone = completed.has(l.labId);
-          const isNext = p.next?.labId === l.labId;
-          return (
-            <li key={`${l.labId}-${i}`} className={isDone ? "done" : isNext ? "next" : ""}>
-              <span className="mark" aria-hidden="true">
-                {isDone ? "✓" : i + 1}
-              </span>
-              <a href={`/lab?lab=${encodeURIComponent(l.labId)}`}>
-                <span className="lesson-title">{l.title ?? s?.title ?? l.labId}</span>
-                {l.note && <span className="lesson-note">{l.note}</span>}
+        <div className="course-cta">
+          {p.complete ? (
+            <span className="course-complete-chip">Complete ✓</span>
+          ) : (
+            p.next && (
+              <a className="gr-btn gr-btn-primary gr-btn-small" href={`/lab?lab=${encodeURIComponent(p.next.labId)}`}>
+                {p.started ? "Continue" : "Start course"}
               </a>
-              {isNext && <span className="up-next gr-mono-note">UP NEXT</span>}
-            </li>
-          );
-        })}
-      </ol>
+            )
+          )}
+          <div className="course-progress" role="img" aria-label={`${p.done} of ${p.total} lessons complete`}>
+            <div className="bar"><div className="fill" style={{ width: `${p.pct}%` }} /></div>
+            <span className="gr-mono-note">{p.done}/{p.total} · {p.pct}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Lessons grouped by level — a column per level, full visibility. */}
+      <div className="course-levels">
+        {groups.map(({ meta, items }) => (
+          <div className="course-level-col" data-level={meta.key} key={meta.key}>
+            <div className="course-level-head">
+              <span className="lvl-label">{meta.label}</span>
+              <span className="gr-mono-note">{items.length}</span>
+            </div>
+            <ol className="course-level-lessons">
+              {items.map(({ lesson, index }) => {
+                const s = scenarioByLabId.get(lesson.labId);
+                const isDone = completed.has(lesson.labId);
+                const isNext = p.next?.labId === lesson.labId;
+                return (
+                  <li key={`${lesson.labId}-${index}`} className={isDone ? "done" : isNext ? "next" : ""}>
+                    <a href={`/lab?lab=${encodeURIComponent(lesson.labId)}`}>
+                      <span className="mark" aria-hidden="true">{isDone ? "✓" : index + 1}</span>
+                      <span className="lesson-title">{lesson.title ?? s?.title ?? lesson.labId}</span>
+                      {isNext && <span className="up-next gr-mono-note">NEXT</span>}
+                    </a>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        ))}
+      </div>
     </article>
   );
 }
