@@ -41,3 +41,23 @@ on `feature/voice-tools-tts`.** Do not touch the primary worktree's branch.
   survives a stomp and other sessions can see it.
 - **Commit trailer:** end commit messages with
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+
+## Course generation (AI-authored courses)
+
+The Admin **Course studio** generates courses through a gated pipeline. The
+as-built reference (architecture, config, how to run a live model, findings) is
+**`docs/course-generation.md`**; the design + decisions are
+`docs/plans/course-generation-approval-gates.md`.
+
+Two things that will bite you:
+
+- **Test isolation.** The `apps/api/test/*.e2e.test.ts` suites hit the REAL
+  `./data/trellis.db` and `curriculum/` unless isolated (ESM import-hoisting
+  reads env too late). Run them with **shell-level** env — e.g.
+  `TRELLIS_PERSISTENCE=off TRELLIS_RUNS_DIR=$(mktemp -d)
+  TRELLIS_PUBLISHED_DIR=$(mktemp -d) node --test --test-concurrency=1 <files>`.
+  Always `--test-concurrency=1` (parallel processes lock the SQLite file). The
+  pty suites (`e2e`, `learner.e2e`, `resume.e2e`, `workspace-journey`) are slow
+  and env-sensitive — prefer the targeted non-pty files.
+- **Never run destructive cleanup against `./data/trellis.db` or `curriculum/`**
+  — those hold real generated runs/courses. Use throwaway temp dirs for testing.

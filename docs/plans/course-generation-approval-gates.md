@@ -1,10 +1,10 @@
 # Plan: Course-generation visibility & human approval gates (Admin)
 
-Status: in progress · 2026-07-15 · rev 2 after design grill (10 decisions
-recorded in §0) · Derived from "Technology Course Architect" (external
-strategy doc) verified against `feature/course-planning-rework` @ 65509c2
-(Selenium track removed; `playwright-foundations` is the only seeded
-course).
+Status: implemented (Phases A–E + follow-ons) · rev 2 after design grill
+(decisions in §0) · Derived from "Technology Course Architect" (external
+strategy doc). This file is the DESIGN + decision record; for the current
+as-built reality (config, how to run live, operational findings) see
+[docs/course-generation.md](../course-generation.md).
 
 **Implementation progress** (branch `feature/course-planning-rework`):
 Phase A done (a9417c3, 17ed0e5) — capability registry, published lab path,
