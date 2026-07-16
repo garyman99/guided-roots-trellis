@@ -98,6 +98,28 @@
 }
 @media (max-width: 880px) { .launch-card { grid-template-columns: 1fr; } }
 
+/* ---------- home: resume band (pick up where you left off) ---------- */
+.resume-band {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: clamp(20px, 4vw, 48px);
+  background: linear-gradient(170deg, var(--surface), rgba(13, 20, 16, 0.5));
+  border: 1px solid var(--green-deep); border-radius: var(--radius);
+  padding: clamp(24px, 3.4vw, 40px);
+  position: relative; overflow: hidden; text-decoration: none;
+  transition: border-color var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.resume-band:hover { border-color: var(--green); transform: translateY(-2px); }
+.resume-band .launch-rings { bottom: -170px; left: -140px; width: 380px; opacity: 0.18; }
+.resume-copy { display: grid; gap: 10px; position: relative; min-width: 0; }
+.resume-course { font-family: var(--serif); font-weight: 400; font-size: clamp(1.5rem, 2.6vw, 2.1rem); color: var(--ink); }
+.resume-next { display: flex; align-items: baseline; gap: 12px; color: var(--ink-dim); font-size: var(--fs-small); flex-wrap: wrap; }
+.resume-next .up-next { color: var(--copper); }
+.resume-progress { max-width: 460px; margin-top: 4px; }
+.resume-cta { flex: none; }
+@media (max-width: 720px) {
+  .resume-band { grid-template-columns: 1fr; }
+  .resume-cta { justify-self: start; }
+}
+
 /* ---------- home: scenario cards ---------- */
 .scenario-card { text-decoration: none; display: grid; gap: 12px; }
 .scenario-card:hover h3 { color: var(--green-bright); }
@@ -151,6 +173,87 @@
 .course-lessons li.done .lesson-title { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: var(--line-solid); }
 .course-lessons .lesson-note { font-size: 0.82rem; color: var(--ink-faint); }
 .course-lessons .up-next { color: var(--copper); margin-left: auto; white-space: nowrap; }
+
+/* ---------- home: level ladder (course level filter + roadmap) ---------- */
+.level-ladder {
+  display: grid; grid-template-columns: auto repeat(4, 1fr); gap: 10px;
+  margin-bottom: clamp(18px, 2.4vw, 28px);
+}
+.level-rung {
+  display: grid; align-content: center; gap: 3px; text-align: left;
+  padding: 14px 16px; cursor: pointer;
+  background: rgba(10, 15, 11, 0.35); color: var(--ink);
+  border: 1px solid var(--line-solid); border-radius: var(--radius-sm);
+  border-top: 2px solid var(--rung, var(--line-solid));
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease, opacity var(--dur-fast) ease;
+}
+.level-rung:hover { background: rgba(10, 15, 11, 0.6); }
+.level-rung .rung-label { font-family: var(--sans); font-weight: 600; font-size: 0.95rem; }
+.level-rung .rung-hint { font-size: 0.74rem; color: var(--ink-faint); }
+.level-rung .rung-count {
+  position: absolute; top: 10px; right: 12px; color: var(--ink-faint);
+}
+.level-rung { position: relative; }
+.level-rung.all { align-content: center; }
+.level-rung.all .rung-label { color: var(--ink-dim); }
+.level-rung.active { background: rgba(107, 165, 95, 0.1); border-color: var(--rung, var(--green)); }
+.level-rung.active .rung-count { color: var(--ink); }
+.level-rung.empty { opacity: 0.5; }
+.level-rung.empty .rung-count { color: var(--copper-dim); letter-spacing: var(--ls-label); }
+/* rung accent colors: green = growth, copper = mastery */
+.level-rung[data-level="intro"] { --rung: var(--ink-faint); }
+.level-rung[data-level="beginner"] { --rung: var(--green-deep); }
+.level-rung[data-level="advanced"] { --rung: var(--green); }
+.level-rung[data-level="expert"] { --rung: var(--copper); }
+@media (max-width: 900px) {
+  .level-ladder { grid-template-columns: 1fr 1fr; }
+  .level-rung.all { grid-column: 1 / -1; }
+}
+@media (max-width: 460px) { .level-ladder { grid-template-columns: 1fr; } }
+
+.course-role-filter { margin-bottom: clamp(18px, 2.4vw, 28px); }
+
+/* ---------- home: course card level accent + badge ---------- */
+.course-card { border-top: 2px solid var(--rung, var(--line-solid)); }
+.course-card[data-level="intro"] { --rung: var(--ink-faint); }
+.course-card[data-level="beginner"] { --rung: var(--green-deep); }
+.course-card[data-level="advanced"] { --rung: var(--green); }
+.course-card[data-level="expert"] { --rung: var(--copper); }
+.course-card.highlight { border-color: var(--green-deep); box-shadow: 0 0 0 1px var(--green-deep) inset; }
+.course-badges { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.level-badge {
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: var(--ls-label);
+  text-transform: uppercase; padding: 3px 10px; border-radius: var(--radius-pill);
+  border: 1px solid var(--rung, var(--line-solid)); color: var(--rung, var(--ink-dim));
+}
+.level-badge[data-level="intro"] { --rung: var(--ink-faint); }
+.level-badge[data-level="beginner"] { --rung: var(--green-deep); color: var(--green); }
+.level-badge[data-level="advanced"] { --rung: var(--green); color: var(--green-bright); }
+.level-badge[data-level="expert"] { --rung: var(--copper); color: var(--copper-bright); }
+
+/* ---------- home: playground (demoted desk + free practice) ---------- */
+.desk-card {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: clamp(20px, 4vw, 48px);
+  background: rgba(10, 15, 11, 0.35);
+  border: 1px solid var(--line-solid); border-radius: var(--radius);
+  padding: clamp(22px, 3vw, 34px); position: relative; overflow: hidden;
+  text-decoration: none; transition: border-color var(--dur-fast) ease, transform var(--dur-fast) ease;
+  margin-bottom: clamp(32px, 4.5vw, 56px);
+}
+.desk-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+.desk-card .launch-rings { bottom: -160px; left: -130px; width: 340px; opacity: 0.14; }
+.desk-copy { display: grid; gap: 8px; position: relative; min-width: 0; }
+.desk-copy h3 { font-size: 1.3rem; }
+.desk-copy p { color: var(--ink-dim); max-width: 56ch; font-size: var(--fs-small); }
+.desk-cta { flex: none; }
+.desk-card:hover .desk-cta { border-color: var(--green-deep); color: var(--green-bright); }
+@media (max-width: 720px) {
+  .desk-card { grid-template-columns: 1fr; }
+  .desk-cta { justify-self: start; }
+}
+.scenario-shelf { display: grid; gap: clamp(16px, 2vw, 22px); }
+.shelf-head { display: grid; gap: 8px; }
+.shelf-head p { color: var(--ink-dim); font-size: var(--fs-small); max-width: 64ch; }
 
 /* ---------- home: scenario library filters ---------- */
 .scenario-filters {

@@ -77,10 +77,15 @@ For local Orpheus narration, start `voice-tools` first and set
 dictation while routing guide narration to Voice Tools; starting a newer take
 cancels any generation or playback already in progress.
 
-For `docker`: build the lab image first —
-`docker build -t trellis-lab-inspect-generated-changes labs/inspect-generated-changes`
-— then see `docker-compose.yml`. ⚠ Docker paths are written and reviewed but
-were **unverified in the offline build sandbox** (see `PROGRESS.md`).
+For `docker`: build the lab images first. The driver looks for an image named
+`trellis-lab-<labId>` per lab and does **not** build them automatically, so a
+newly-authored lab fails its first launch until its image exists. Build them by
+convention with `npm run build:labs` (builds any missing images; `--force`
+rebuilds all; pass lab ids to build just those; `--list` shows what's built).
+The equivalent by hand is
+`docker build -t trellis-lab-inspect-generated-changes labs/inspect-generated-changes`.
+Then see `docker-compose.yml`. ⚠ Docker paths are written and reviewed but were
+**unverified in the offline build sandbox** (see `PROGRESS.md`).
 
 ## Repository map
 

@@ -97,35 +97,61 @@ const store = createStore();
 export const manager = new SessionManager(store, join(repoRoot, "labs"));
 
 /**
- * Curated-course seed: a fresh deployment starts with the Playwright path
- * already on the shelf. Runs once (only when the course shelf is empty);
- * after that the course is ordinary admin content — editable, deletable.
+ * Curated-course seed: the catalog every deployment ships with. Each canonical
+ * course is seeded when it's ABSENT by id (so a new course reaches existing
+ * deployments on the next boot), and only when every lab it references actually
+ * ships in this checkout. An existing course is never overwritten — once seeded
+ * it's ordinary admin content, editable and (until the next restart) deletable.
  */
 function seedCourses(): void {
-  if (store.listCourses().length > 0) return;
-  const lessons: CourseLesson[] = [
-    { labId: "turn-heading-check-into-first-test", title: "Your first automated check", note: "Turn one manual expected result into a real Playwright assertion." },
-    { labId: "read-one-failing-result-before-editing", title: "Read the failure like evidence", note: "A check fails on purpose — collect the four facts before touching anything." },
-    { labId: "learn-playwright-basics", title: "Repair a broken test", note: "Fix the test itself without changing the app it protects." },
-  ];
-  // Only seed when every referenced lab actually ships in this checkout.
-  try {
-    for (const l of lessons) manager.loadManifest(l.labId);
-  } catch {
-    return;
-  }
   const at = new Date().toISOString();
-  store.saveCourse({
-    courseId: "playwright-foundations",
-    title: "Playwright Foundations",
-    description:
-      "Get comfortable writing Playwright tests, one sitting at a time: turn a manual check into your first automated test, learn to read a failing result calmly, then repair a broken test without touching the app it protects.",
-    audience: "QA & Testing",
-    level: "beginner",
-    lessons,
-    createdAt: at,
-    updatedAt: at,
-  });
+  const catalog: Array<Omit<Course, "createdAt" | "updatedAt">> = [
+    {
+      courseId: "selenium-getting-started",
+      title: "Selenium: Getting Started",
+      description:
+        "Brand new to Selenium? Start here. Meet what Selenium is, tour a real test bench, and watch a browser run a test — before you write a single line of your own.",
+      audience: "QA & Testing",
+      level: "intro",
+      lessons: [
+        { labId: "tour-the-selenium-bench", title: "Tour the test bench", note: "Open the site, read a complete example test, and get the lay of the land." },
+      ],
+    },
+    {
+      courseId: "selenium-foundations",
+      title: "Selenium Foundations",
+      description:
+        "Write Selenium tests one sitting at a time. Start where Playwright Foundations does — turn a manual check into your first automated Selenium assertion — then (as the course grows) read a failing result calmly and repair a broken test without touching the app it protects.",
+      audience: "QA & Testing",
+      level: "beginner",
+      lessons: [
+        { labId: "run-your-first-selenium-test", title: "Your first Selenium check", note: "Open a real browser, read the heading, and write the check Selenium leaves to you." },
+      ],
+    },
+    {
+      courseId: "playwright-foundations",
+      title: "Playwright Foundations",
+      description:
+        "Get comfortable writing Playwright tests, one sitting at a time: turn a manual check into your first automated test, learn to read a failing result calmly, then repair a broken test without touching the app it protects.",
+      audience: "QA & Testing",
+      level: "beginner",
+      lessons: [
+        { labId: "turn-heading-check-into-first-test", title: "Your first automated check", note: "Turn one manual expected result into a real Playwright assertion." },
+        { labId: "read-one-failing-result-before-editing", title: "Read the failure like evidence", note: "A check fails on purpose — collect the four facts before touching anything." },
+        { labId: "learn-playwright-basics", title: "Repair a broken test", note: "Fix the test itself without changing the app it protects." },
+      ],
+    },
+  ];
+  for (const course of catalog) {
+    if (store.getCourse(course.courseId)) continue; // already on the shelf — leave admin edits alone
+    // Only seed when every referenced lab actually ships in this checkout.
+    try {
+      for (const l of course.lessons) manager.loadManifest(l.labId);
+    } catch {
+      continue;
+    }
+    store.saveCourse({ ...course, createdAt: at, updatedAt: at });
+  }
 }
 seedCourses();
 
@@ -135,7 +161,10 @@ function parseCourseBody(body: Record<string, unknown>): string | Omit<Course, "
   if (!title) return "title is required";
   const description = typeof body.description === "string" ? body.description.trim().slice(0, 1000) : "";
   const audience = typeof body.audience === "string" ? body.audience.trim().slice(0, 80) : "";
-  const levels = ["beginner", "intermediate", "advanced"];
+  // The course-level ladder shown on /home: intro → beginner → advanced → expert.
+  // "intermediate" is still accepted for older payloads (the home ladder folds it
+  // into "advanced") so existing content keeps validating.
+  const levels = ["intro", "beginner", "advanced", "expert", "intermediate"];
   const level = typeof body.level === "string" && levels.includes(body.level) ? body.level : "beginner";
   if (!Array.isArray(body.lessons) || body.lessons.length > 50) return "lessons must be an array (max 50)";
   const lessons: CourseLesson[] = [];
