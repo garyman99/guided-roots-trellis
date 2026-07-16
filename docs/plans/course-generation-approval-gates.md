@@ -17,10 +17,12 @@ go-live), verified live against the mock pipeline. Build + auto-solve
 materializer done (4481d79) — generated lessons now become COMPLETE, playable
 labs proven broken-as-shipped AND solvable via the auto-solve harness (local
 driver) before they ship; verified live (a generated lab launches a session).
-Remaining: Phase D+ (capability dev skill), Phase E (first governed run: Git
-fundamentals), plus further Phase-C richness (full 3-stage review scoring,
-batched multi-role authoring, prompts/course-gen/*, commission outbox,
-lesson-specific labs beyond the stub shape).
+Capability commission loop done (c586b02) — per-gap dispositions at the
+blueprint gate, the capability-request outbox, a G2 disposition panel + outbox
+summary in Course studio, and the build-capability dev skill; verified live.
+Remaining: Phase E (first governed run: Git fundamentals), plus further Phase-C
+richness (full 3-stage review scoring, batched multi-role authoring,
+prompts/course-gen/*, lesson-specific labs beyond the stub shape).
 
 This plan makes the multi-agent course-generation pipeline described in
 the strategy doc a **server-native, human-governed** feature of Trellis:
