@@ -8,11 +8,13 @@ process.env.NODE_ENV = "test";
 process.env.TRELLIS_PERSISTENCE = "off";
 process.env.INSTRUCTOR_PROVIDER = "mock";
 process.env.TRELLIS_ADMIN_TOKEN = "test-admin-token";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-process.env.TRELLIS_RUNS_DIR = mkdtempSync(join(tmpdir(), "trellis-runs-e2e-"));
-process.env.TRELLIS_PUBLISHED_DIR = mkdtempSync(join(tmpdir(), "trellis-published-e2e-"));
+const RUNS_DIR = mkdtempSync(join(tmpdir(), "trellis-runs-e2e-"));
+const PUBLISHED_DIR = mkdtempSync(join(tmpdir(), "trellis-published-e2e-"));
+process.env.TRELLIS_RUNS_DIR = RUNS_DIR;
+process.env.TRELLIS_PUBLISHED_DIR = PUBLISHED_DIR;
 
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
@@ -33,6 +35,7 @@ after(async () => {
   for (const s of store.listScenarioEntries()) store.deleteScenarioEntry(s.labId);
   await manager.destroyAll();
   server.close();
+  for (const d of [RUNS_DIR, PUBLISHED_DIR]) try { rmSync(d, { recursive: true, force: true }); } catch { /* windows handle */ }
 });
 
 const api = async (method: string, path: string, body?: unknown, token?: string) => {
@@ -103,9 +106,21 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   assert.ok(!publicCourses.courses.some((c) => c.sourceRunId === runId), "draft course is not public until Go-live");
   const scenarios = (await api("GET", "/api/scenarios")).body as { scenarios: Array<{ labId: string; tag: string }> };
   const generated = scenarios.scenarios.filter((s) => /GENERATED/.test(s.tag));
-  assert.ok(generated.length >= 2, "generated lessons registered as scenarios");
+  assert.ok(generated.length >= 2, "generated (auto-solved) lessons registered as scenarios");
   assert.ok(final.artifacts.includes("lesson-inventory.json"), "blueprint artifact present");
   assert.ok(final.artifacts.some((p) => p.startsWith("lessons/") && p.endsWith("lesson.md")), "authored lesson present");
+
+  // The manifest records the auto-solve proof for every shipped lab.
+  const manifest = JSON.parse(
+    ((await admin("GET", `/api/admin/course-runs/${runId}/artifacts/manifest.json`)).body as { content: string }).content,
+  ) as { autoSolve?: Array<{ labId: string; ok: boolean }> };
+  assert.ok(manifest.autoSolve && manifest.autoSolve.length >= 2, "auto-solve ran per lab");
+  assert.ok(manifest.autoSolve.every((p) => p.ok), "every shipped lab proved broken-as-shipped AND solvable");
+
+  // A shipped generated lab is genuinely loadable/launchable (manifest resolves).
+  const first = generated[0].labId;
+  const started = await api("POST", "/api/sessions", { labId: first });
+  assert.equal(started.status, 201, "a generated lab can start a session");
 });
 
 test("changes requires notes; the state machine rejects out-of-order and unknown decisions", async () => {

@@ -61,7 +61,7 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -69,6 +69,7 @@ import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
+import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab } from "./generatedLab.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
 import {
   CourseRunScheduler,
@@ -123,7 +124,7 @@ const runsDir = (): string => process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "cu
 // Two lab search paths: hand-authored labs ship in the repo (labs/); generated
 // labs published through the course-generation pipeline land in curriculum/
 // published/. loadManifest searches repo-first; the materializer writes there.
-export const manager = new SessionManager(store, labsRoot, { publishedRoot: publishedDir() });
+export const manager = new SessionManager(store, labsRoot, { publishedRoot: publishedDir });
 
 // ── course-generation runs ──────────────────────────────────────────────────
 // Artifacts live under curriculum/runs/<runId>/; run STATE lives in the store.
@@ -137,16 +138,23 @@ function scenarioLevelFor(level: string): ScenarioLevel {
 }
 
 /**
- * Materializer: turns an authored run into a DRAFT course. It writes a minimal
- * lab manifest per lesson into curriculum/published/, registers a runtime
- * scenario entry, and saves the course with status "draft" + sourceRunId. The
- * Docker build + auto-solve proof is a documented seam for a later slice; a
- * draft course never reaches learners until an operator runs Go-live (D9).
+ * Materializer: turns an authored run into a DRAFT course. For each lesson it
+ * emits a COMPLETE, playable lab (template + verifier + blueprint) into
+ * curriculum/published/, then PROVES it with the auto-solve harness (broken as
+ * shipped AND solvable) exactly like a hand-authored lab. Only proven labs join
+ * the course + catalog; a lab that fails auto-solve is recorded and skipped —
+ * an unprovable lab never reaches learners. The draft stays hidden until Go-live.
+ *
+ * Auto-solve runs via the local driver (node + git, no Docker). Set
+ * TRELLIS_SKIP_AUTOSOLVE=1 to skip the proof in environments without a shell.
  */
 const materialize: Materializer = async ({ run, lessons }) => {
   const tech = run.request.technology;
   const published = publishedDir();
+  const skipProof = process.env.TRELLIS_SKIP_AUTOSOLVE === "1";
   const labIds: string[] = [];
+  const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];
+
   for (const lesson of lessons) {
     const labId = lesson.lessonId; // already course-slugged, kebab-case
     // A hand-authored REPO lab with this id is a hard collision. A generated
@@ -155,21 +163,19 @@ const materialize: Materializer = async ({ run, lessons }) => {
       throw new Error(`lab id collision: "${labId}" is a hand-authored lab in this build`);
     }
 
-    const auto = CAPABILITY_REGISTRY.autoRules.some((r) => r.id === lesson.lab.primaryAuto) ? lesson.lab.primaryAuto : "any-command";
-    const labJson = {
-      id: labId,
-      version: 1,
-      title: lesson.title,
-      objective: lesson.lab.objective,
-      scenario: `Generated lesson for the "${tech}" course (run ${run.runId}). Draft — pending build + auto-solve.`,
-      tasks: [{ id: "complete", title: "Complete the lesson task", text: lesson.lab.objective, auto }],
-      checkpoint: { id: "cp", title: "Lesson complete", requirements: [{ id: "did", kind: "session", label: "Completed the lesson's observable action" }] },
-      generated: { runId: run.runId, draft: true },
-    };
-    mkdirSync(join(published, labId), { recursive: true });
-    writeFileSync(join(published, labId, "lab.json"), JSON.stringify(labJson, null, 2));
+    const files = buildGeneratedLabFiles({ lessonId: labId, title: lesson.title, objective: lesson.lab.objective }, run.runId);
+    const labDir = writeGeneratedLab(published, labId, files);
 
-    const scenario: Scenario = {
+    if (!skipProof) {
+      const reports = await autoSolveGeneratedLab(labDir, labId);
+      const ok = reports.length > 0 && reports.every((r) => r.ok);
+      proofs.push({ labId, ok, ...(ok ? {} : { detail: reports.map((r) => r.detail).filter(Boolean).join("; ") || "auto-solve failed" }) });
+      if (!ok) continue; // unprovable lab — keep the files for inspection, but don't ship it
+    } else {
+      proofs.push({ labId, ok: true, detail: "auto-solve skipped (TRELLIS_SKIP_AUTOSOLVE)" });
+    }
+
+    store.saveScenarioEntry({
       labId,
       title: lesson.title,
       blurb: lesson.lab.objective,
@@ -177,8 +183,7 @@ const materialize: Materializer = async ({ run, lessons }) => {
       role: run.request.targetLearner ?? "QA & Testing",
       technologies: [tech],
       level: scenarioLevelFor(lesson.level),
-    };
-    store.saveScenarioEntry(scenario);
+    });
     labIds.push(labId);
   }
 
@@ -198,7 +203,7 @@ const materialize: Materializer = async ({ run, lessons }) => {
     createdAt: prior?.createdAt ?? at,
     updatedAt: at,
   });
-  return { courseId, labIds, scenarioCount: labIds.length };
+  return { courseId, labIds, scenarioCount: labIds.length, autoSolve: proofs };
 };
 
 /**

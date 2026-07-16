@@ -42,6 +42,8 @@ export interface MaterializeResult {
   courseId: string;
   labIds: string[];
   scenarioCount: number;
+  /** Per-lab auto-solve proof (broken-as-shipped AND solvable), when run. */
+  autoSolve?: Array<{ labId: string; ok: boolean; detail?: string }>;
 }
 /** Builds published labs, persists the draft course + scenario entries (injected). */
 export type Materializer = (input: MaterializeInput) => Promise<MaterializeResult>;

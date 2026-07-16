@@ -1271,19 +1271,21 @@ export class SessionManager {
   private readonly taskValidator = buildTaskValidator();
   private readonly store: EventStore;
   private readonly labsRoot: string;
-  /** Ordered lab search roots: repo labs first, then published (generated) labs. */
-  private readonly labRoots: string[];
+  /** Resolves the published (generated) labs root; may be a getter so a test's
+   *  lazily-set env is honored, since loadManifest can run long after construction. */
+  private readonly resolvePublishedRoot: () => string | undefined;
   readonly driverKind: "local" | "docker";
   readonly learners: LearnerService;
 
   constructor(
     store: EventStore,
     labsRoot: string,
-    opts?: { publishedRoot?: string; driverKind?: "local" | "docker" },
+    opts?: { publishedRoot?: string | (() => string | undefined); driverKind?: "local" | "docker" },
   ) {
     this.store = store;
     this.labsRoot = labsRoot;
-    this.labRoots = opts?.publishedRoot ? [labsRoot, opts.publishedRoot] : [labsRoot];
+    const pr = opts?.publishedRoot;
+    this.resolvePublishedRoot = typeof pr === "function" ? pr : () => pr;
     this.driverKind = opts?.driverKind ?? ((process.env.LAB_DRIVER as "local" | "docker") ?? "local");
     // Container resource limits are env-tunable: browser labs (Playwright)
     // need more than the conservative defaults. Unset env keeps the defaults.
@@ -1304,7 +1306,9 @@ export class SessionManager {
    */
   labDir(labId: string): string {
     if (!/^[a-z0-9-]+$/.test(labId)) throw new Error("invalid lab id");
-    for (const root of this.labRoots) {
+    const published = this.resolvePublishedRoot();
+    const roots = published ? [this.labsRoot, published] : [this.labsRoot];
+    for (const root of roots) {
       const dir = join(root, labId);
       if (existsSync(join(dir, "lab.json"))) return dir;
     }
