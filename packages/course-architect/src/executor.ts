@@ -146,6 +146,7 @@ function taskInstruction(task: string): string {
       '  "markdown": string,               // the full lesson plan as markdown (why it matters, objective, demonstration, guided + independent practice, failure/diagnosis, mastery evidence)',
       '  "lab": { "objective": string, "primaryAuto": string } // primaryAuto is one of CONTEXT.lesson.requiredCapabilities',
       '}',
+      'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
     ].join("\n");
   }
   if (task.startsWith("review:pedagogy:")) {

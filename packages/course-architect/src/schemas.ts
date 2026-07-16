@@ -52,17 +52,32 @@ function tryParse(s: string): unknown {
   }
 }
 
-/** Parse JSON from a role's text, tolerating ```json fences, prose, trailing commas. */
+/**
+ * Parse JSON from a role's text, tolerating fences, surrounding prose, and
+ * trailing commas. Order matters: try the WHOLE response FIRST — valid JSON may
+ * legitimately contain ``` code fences inside a string value (e.g. a lesson's
+ * markdown), and extracting a fence first would grab that inner block by
+ * mistake (the "expected JSON, got: python3 --version" failure).
+ */
 export function parseJson<T>(text: string): T {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const body = (fenced ? fenced[1] : text).trim();
-  let out = tryParse(body);
+  const t = text.trim();
+  let out = tryParse(t); // 1. the whole thing
   if (out === undefined) {
-    // Last resort: the first {...} or [...] span.
-    const span = body.match(/[[{][\s\S]*[\]}]/);
+    // 2. a ```json-fenced block specifically
+    const jsonFence = t.match(/```json\s*([\s\S]*?)```/i);
+    if (jsonFence) out = tryParse(jsonFence[1].trim());
+  }
+  if (out === undefined) {
+    // 3. the largest {...}/[...] span in the ORIGINAL text (prose around JSON)
+    const span = t.match(/[[{][\s\S]*[\]}]/);
     if (span) out = tryParse(span[0]);
   }
-  if (out === undefined) throw new ValidationError([`expected JSON, got: ${body.slice(0, 120)}…`]);
+  if (out === undefined) {
+    // 4. any fenced block, last resort
+    const anyFence = t.match(/```(?:[a-zA-Z]+)?\s*([\s\S]*?)```/);
+    if (anyFence) out = tryParse(anyFence[1].trim());
+  }
+  if (out === undefined) throw new ValidationError([`expected JSON, got: ${t.slice(0, 120)}…`]);
   return out as T;
 }
 
