@@ -20,8 +20,11 @@ driver) before they ship; verified live (a generated lab launches a session).
 Capability commission loop done (c586b02) — per-gap dispositions at the
 blueprint gate, the capability-request outbox, a G2 disposition panel + outbox
 summary in Course studio, and the build-capability dev skill; verified live.
-Remaining: Phase E (first governed run: Git fundamentals), plus further Phase-C
-richness (full 3-stage review scoring, batched multi-role authoring,
+Real 3-stage review scoring done (d53ba67) — technical/pedagogy/cohesion
+validated + scored 1–5, below-threshold fails the lesson (needs-revision, not
+shipped) unless justified, with a bounded re-author loop; lesson board shows the
+pedagogy heat strip + quality gates. Remaining: Phase E (first governed run: Git
+fundamentals), plus further Phase-C richness (batched multi-role authoring,
 prompts/course-gen/*, lesson-specific labs beyond the stub shape).
 
 This plan makes the multi-agent course-generation pipeline described in
