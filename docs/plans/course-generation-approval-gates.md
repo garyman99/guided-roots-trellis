@@ -1,10 +1,21 @@
 # Plan: Course-generation visibility & human approval gates (Admin)
 
-Status: proposed · 2026-07-15 · rev 2 after design grill (10 decisions
+Status: in progress · 2026-07-15 · rev 2 after design grill (10 decisions
 recorded in §0) · Derived from "Technology Course Architect" (external
 strategy doc) verified against `feature/course-planning-rework` @ 65509c2
 (Selenium track removed; `playwright-foundations` is the only seeded
 course).
+
+**Implementation progress** (branch `feature/course-planning-rework`):
+Phase A done (a9417c3, 17ed0e5) — capability registry, published lab path,
+course draft/publish, 5-level ladder, dynamic catalog. Phase B done (842fd8b)
+— run entity, state machine, four gates, scheduler, store, admin endpoints.
+Phase C done (ee90e25) — real role pipeline (roles/schemas/gaps/executor/mock),
+materializer producing a draft course; mock-driven and verified live end to
+end. Remaining: Phase D (Course studio UI), Phase D+ (capability dev skill),
+Phase E (first governed run: Git fundamentals), plus Phase-C richness (real
+Docker build + auto-solve materializer, full 3-stage review scoring, batched
+multi-role authoring, prompts/course-gen/*, commission outbox).
 
 This plan makes the multi-agent course-generation pipeline described in
 the strategy doc a **server-native, human-governed** feature of Trellis:
