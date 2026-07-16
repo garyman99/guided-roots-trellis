@@ -15,6 +15,24 @@ export class ValidationError extends Error {
   }
 }
 
+/**
+ * Recursively rename snake_case / kebab-case object KEYS to camelCase — a safety
+ * net for live models that ignore the camelCase field names (`target_learner` →
+ * `targetLearner`). Values are untouched; camelCase keys pass through unchanged.
+ */
+export function camelizeKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(camelizeKeys);
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const ck = k.replace(/[_-]([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
+      out[ck] = camelizeKeys(val);
+    }
+    return out;
+  }
+  return v;
+}
+
 /** Parse JSON from a role's text, tolerating ```json fences and surrounding prose. */
 export function parseJson<T>(text: string): T {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);

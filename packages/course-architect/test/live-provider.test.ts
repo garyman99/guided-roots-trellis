@@ -26,9 +26,18 @@ function fakeFetch(provider: Provider): typeof fetch {
   return (async (_url: string, init?: { body?: string }) => {
     const body = JSON.parse(init?.body ?? "{}") as { model: string; messages: Array<{ role: string; content: string }> };
     const user = body.messages.find((m) => m.role === "user")!.content;
-    const task = user.match(/Produce the "([^"]+)" artifact/)?.[1] ?? "";
     const ctx = user.match(/CONTEXT:\n([\s\S]*?)\n\n/)?.[1];
     const context = ctx ? (JSON.parse(ctx) as Record<string, unknown>) : {};
+    // Infer the task from the explicit schema instruction (or the older phrasing).
+    const lessonId = (context.lesson as { lessonId?: string } | undefined)?.lessonId ?? "x";
+    const task =
+      user.match(/Produce the "([^"]+)" artifact/)?.[1] ??
+      (/course-request/.test(user) ? "course-request"
+        : /course blueprint/.test(user) ? "blueprint"
+        : /lesson plan for/.test(user) ? `lesson:${lessonId}`
+        : /pedagogy/i.test(user) ? `review:pedagogy:${lessonId}`
+        : /Review the lesson/.test(user) ? `review:technical:${lessonId}`
+        : "");
     const text = defaultMockResponder("architect", { task, context, system: "", user });
     const envelope =
       provider === "anthropic"

@@ -158,6 +158,25 @@ test("a lesson that fails pedagogy review lands in needs-revision and is not shi
   assert.equal(ped.scores.activeLearning, 2);
 });
 
+test("a live model returning snake_case fields still validates (camelizeKeys)", async () => {
+  // A responder that emits snake_case for the course-request (as a real model might).
+  const snake: MockResponder = (role, prompt) => {
+    if (prompt.task === "course-request") {
+      return JSON.stringify({
+        title: "Snake Course", technology: "Snake", target_learner: "devs",
+        starting_point: "none", ending_capability: "fluent", assumptions: ["a"], out_of_scope: ["b"],
+      });
+    }
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(snake);
+  const run = h.sched.create({ technology: "Snake" });
+  await h.sched.settle();
+  // Framing did NOT interrupt — the snake_case course-request validated.
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-frame");
+  assert.match(h.artifactsFor(run.runId).read("course-request.md")!, /Snake Course/);
+});
+
 test("blueprint validation rejects a cyclic prerequisite graph and unknown prereqs", () => {
   assert.throws(
     () =>

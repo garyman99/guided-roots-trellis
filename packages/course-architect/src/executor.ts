@@ -20,6 +20,7 @@ import type { CourseRun, LiveActivity, PhaseContext, PhaseExecutor } from "./typ
 import type { CourseGenRole, RoleDelta, RoleInvoker, RolePrompt } from "./roles.ts";
 import {
   ValidationError,
+  camelizeKeys,
   parseJson,
   validateBlueprint,
   validateCourseRequest,
@@ -76,19 +77,88 @@ export interface ExecutorDeps {
 /** ExecutorDeps with the run's provider resolved — what phase functions receive. */
 type RunDeps = Omit<ExecutorDeps, "rolesFor"> & { roles: RoleInvoker };
 
+const JSON_ONLY = " Return ONLY a single JSON object — no markdown, no code fences, no commentary — using EXACTLY the field names given.";
 const SYSTEM: Record<CourseGenRole, string> = {
-  architect: "You are the Course Architect. Design a cohesive technology course; output strict JSON only.",
-  "domain-analyst": "You map the technology into teachable capabilities; output strict JSON only.",
-  "learner-advocate": "You represent the target learner's prior knowledge and cognitive load; output strict JSON only.",
-  "lesson-author": "You expand one lesson brief into a complete, active-learning lesson plan; output strict JSON only.",
-  "technical-reviewer": "You verify technical correctness and currency; output strict JSON only.",
-  "pedagogy-reviewer": "You score pedagogy 1–5 across the rubric; output strict JSON only.",
-  "cohesion-editor": "You review the course as one authored journey; output strict JSON only.",
+  architect: "You are the Course Architect. Design a cohesive technology course." + JSON_ONLY,
+  "domain-analyst": "You map the technology into teachable capabilities." + JSON_ONLY,
+  "learner-advocate": "You represent the target learner's prior knowledge and cognitive load." + JSON_ONLY,
+  "lesson-author": "You expand one lesson brief into a complete, active-learning lesson plan." + JSON_ONLY,
+  "technical-reviewer": "You verify technical correctness and currency." + JSON_ONLY,
+  "pedagogy-reviewer": "You score pedagogy 1–5 across the rubric." + JSON_ONLY,
+  "cohesion-editor": "You review the course as one authored journey." + JSON_ONLY,
 };
+
+/**
+ * The EXACT JSON shape each task must return. Real models need the schema
+ * spelled out (the mock reads prompt.context and ignores this); without it a
+ * model invents its own field names and every validation fails.
+ */
+function taskInstruction(task: string): string {
+  if (task === "course-request") {
+    return [
+      'Produce the course-request. Return a JSON object with EXACTLY these keys (all required):',
+      '{',
+      '  "title": string,',
+      '  "technology": string,',
+      '  "targetLearner": string,',
+      '  "startingPoint": string,          // where the learner is before the course',
+      '  "endingCapability": string,       // what they can do after',
+      '  "assumptions": string[],',
+      '  "outOfScope": string[]',
+      '}',
+    ].join("\n");
+  }
+  if (task === "blueprint") {
+    return [
+      'Produce the course blueprint. Return a JSON object with EXACTLY these keys (all required):',
+      '{',
+      '  "domainMap": string,              // markdown',
+      '  "progressionSpine": string,       // markdown',
+      '  "conventions": string,            // markdown',
+      '  "planReview": string,             // markdown',
+      '  "prerequisiteGraph": { "concepts": string[], "edges": [{ "from": string, "to": string }] },',
+      '  "lessonInventory": [ {',
+      '    "lessonId": string,             // kebab-case, e.g. "git-101"; unique',
+      '    "level": "intro" | "beginner" | "intermediate" | "advanced" | "expert",',
+      '    "sequence": number,             // 1-based, in order',
+      '    "title": string,',
+      '    "purpose": string,',
+      '    "primaryCapability": string,',
+      '    "conceptsIntroduced": string[],',
+      '    "conceptsReinforced": string[],',
+      '    "prerequisites": string[],      // lessonIds appearing EARLIER in this inventory',
+      '    "requiredCapabilities": string[] // ids from CONTEXT.availableCapabilities; any id NOT there becomes a capability gap',
+      '  } ]',
+      '}',
+      'The prerequisiteGraph MUST be acyclic. Every prerequisites entry MUST reference a lessonId in this inventory. Prefer capabilities from CONTEXT.availableCapabilities; only introduce a new (gap) capability when a lesson genuinely needs it.',
+    ].join("\n");
+  }
+  if (task.startsWith("lesson:")) {
+    return [
+      'Produce the lesson plan for CONTEXT.lesson. Return a JSON object with EXACTLY these keys (all required):',
+      '{',
+      '  "lessonId": string,               // MUST equal CONTEXT.lesson.lessonId',
+      '  "markdown": string,               // the full lesson plan as markdown (why it matters, objective, demonstration, guided + independent practice, failure/diagnosis, mastery evidence)',
+      '  "lab": { "objective": string, "primaryAuto": string } // primaryAuto is one of CONTEXT.lesson.requiredCapabilities',
+      '}',
+    ].join("\n");
+  }
+  if (task.startsWith("review:pedagogy:")) {
+    return [
+      'Score the lesson on pedagogy. Return a JSON object with EXACTLY these keys:',
+      '{ "scores": { "priorKnowledge": 1-5, "mentalModel": 1-5, "activeLearning": 1-5, "feedback": 1-5, "mastery": 1-5 }, "verdict": "approved" | "revise", "justifications"?: { <category>: string } }',
+      'Score 1–5 (integers). If a category is below 4, either the verdict is "revise" or add a justifications entry for it.',
+    ].join("\n");
+  }
+  if (task.startsWith("review:")) {
+    return 'Review the lesson. Return a JSON object with EXACTLY these keys: { "verdict": "approved" | "revise", "issues": string[] }.';
+  }
+  return `Produce the "${task}" artifact as strict JSON.`;
+}
 
 /** Build a role prompt carrying structured context (mock reads it directly). */
 function prompt(task: string, context: Record<string, unknown>, extra = ""): RolePrompt {
-  return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}Produce the "${task}" artifact as strict JSON.` };
+  return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}${taskInstruction(task)}` };
 }
 
 /** Invoke a role, retrying ONCE with the validation errors appended (plan §4).
@@ -117,7 +187,8 @@ async function invokeValidated<T>(
     const res = await deps.roles.invoke(role, { ...p, system: sys }, onDelta);
     ctx.emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0 });
     try {
-      return validate(parseJson<unknown>(res.text));
+      // camelizeKeys tolerates a model that returns snake_case field names.
+      return validate(camelizeKeys(parseJson<unknown>(res.text)));
     } catch (err) {
       lastErr = err;
       if (attempt === 2) break;
@@ -166,7 +237,12 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     deps,
     ctx,
     "architect",
-    prompt("blueprint", { request: ctx.run.request, courseRequest: arts.read("course-request.md") ?? "", changeNotes: ctx.changeNotes ?? undefined }),
+    prompt("blueprint", {
+      request: ctx.run.request,
+      courseRequest: arts.read("course-request.md") ?? "",
+      availableCapabilities: [...deps.availableCapabilities].sort(),
+      changeNotes: ctx.changeNotes ?? undefined,
+    }),
     validateBlueprint,
   );
   writeBlueprint(arts, bp);
