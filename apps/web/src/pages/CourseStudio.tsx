@@ -10,8 +10,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   courseRunApi,
+  type CapabilityGapReport,
+  type CapabilityRequest,
   type CourseRunDetail,
   type CourseRunSummary,
+  type GapDecision,
+  type GapDisposition,
   type GateId,
   type GateNote,
   type RunStatus,
@@ -63,11 +67,13 @@ function fmtWhen(iso: string): string {
 
 export function CourseStudio({ onCoursesChanged }: { onCoursesChanged: () => void }) {
   const [runs, setRuns] = useState<CourseRunSummary[] | null>(null);
+  const [requests, setRequests] = useState<CapabilityRequest[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     courseRunApi.list().then(setRuns).catch((e) => setError(String((e as Error).message)));
+    courseRunApi.capabilityRequests().then(setRequests).catch(() => setRequests([]));
   }, []);
   useEffect(() => refresh(), [refresh]);
 
@@ -85,6 +91,8 @@ export function CourseStudio({ onCoursesChanged }: { onCoursesChanged: () => voi
       {error && <p className="admin-error">{error}</p>}
 
       <StartRunForm onStarted={(run) => { refresh(); setOpenId(run.runId); }} />
+
+      {requests.length > 0 && <CommissionOutbox requests={requests} />}
 
       {runs === null ? (
         <p className="admin-loading">Loading runs…</p>
@@ -203,6 +211,33 @@ function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: st
         </tbody>
       </table>
     </>
+  );
+}
+
+/* ---------- commission outbox ---------- */
+
+function CommissionOutbox({ requests }: { requests: CapabilityRequest[] }) {
+  return (
+    <div className="gr-card">
+      <h3>Commissioned capabilities <span className="gr-mono-note">{requests.length} open</span></h3>
+      <p className="admin-lede-note">
+        Gaps the generator asked the code side to build. A dev picks these up from
+        <code> curriculum/capability-requests/</code>; once the capability ships, its blocked lessons can be authored.
+      </p>
+      <table className="admin-table">
+        <thead><tr><th>Capability</th><th>From run</th><th>Blocks</th><th>Status</th></tr></thead>
+        <tbody>
+          {requests.map((r) => (
+            <tr key={r.gapId}>
+              <td><code>{r.gapId}</code></td>
+              <td>{r.technology} <code className="gr-mono-note">{r.runId.slice(0, 16)}</code></td>
+              <td>{r.blockedLessons.join(", ")}</td>
+              <td><span className="admin-chip">{r.status}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -341,7 +376,20 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
   const [notes, setNotes] = useState<GateNote[]>([{ comment: "" }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Blueprint gate: the capability-gap report + the operator's dispositions.
+  const [gaps, setGaps] = useState<CapabilityGapReport | null>(null);
+  const [dispositions, setDispositions] = useState<Record<string, GapDisposition>>({});
   const by = "operator";
+
+  useEffect(() => {
+    if (gate === "blueprint" && run.artifacts.includes("capability-gaps.json")) {
+      courseRunApi.artifact(run.runId, "capability-gaps.json")
+        .then((a) => setGaps(JSON.parse(a.content) as CapabilityGapReport))
+        .catch(() => setGaps(null));
+    }
+  }, [gate, run]);
+
+  const undecidedGaps = (gaps?.gaps ?? []).filter((g) => !dispositions[g.capabilityId] && !g.disposition);
 
   const decide = (decision: "approved" | "changes" | "rejected") => {
     if (decision === "changes") {
@@ -349,12 +397,17 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
       if (clean.length === 0) { setError("Add at least one change note."); return; }
       submit(decision, clean);
     } else {
+      if (decision === "approved" && undecidedGaps.length > 0) {
+        setError(`Disposition the ${undecidedGaps.length} capability gap(s) before approving.`);
+        return;
+      }
       submit(decision, null);
     }
   };
   const submit = (decision: "approved" | "changes" | "rejected", n: GateNote[] | null) => {
     setBusy(true); setError(null);
-    courseRunApi.decide(run.runId, gate, decision, n, by)
+    const gapDecisions: GapDecision[] = Object.entries(dispositions).map(([capabilityId, disposition]) => ({ capabilityId, disposition }));
+    courseRunApi.decide(run.runId, gate, decision, n, by, gate === "blueprint" ? gapDecisions : undefined)
       .then((r) => { setBusy(false); setMode("idle"); onDecided(r); })
       .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
   };
@@ -363,6 +416,35 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
     <div className="gr-card cg-gatebar">
       <h3>Gate: {gate}</h3>
       <p className="gr-mono-note">This run is awaiting your decision on the {gate} gate.</p>
+
+      {gate === "blueprint" && gaps && gaps.gaps.length > 0 && (
+        <div className="cg-gaps">
+          <h4 className="admin-subhead">Capability gaps — the course needs {gaps.gaps.length} capabilit{gaps.gaps.length === 1 ? "y" : "ies"} this build lacks</h4>
+          <p className="gr-mono-note">Disposition each before approving. Commission writes a request for the code side; defer drops the lesson; redesign = request changes so the architect reworks it.</p>
+          <table className="admin-table">
+            <thead><tr><th>Capability</th><th>Blocks lessons</th><th>Disposition</th></tr></thead>
+            <tbody>
+              {gaps.gaps.map((g) => (
+                <tr key={g.capabilityId}>
+                  <td><code>{g.capabilityId}</code></td>
+                  <td>{g.lessons.join(", ")}</td>
+                  <td>
+                    <select
+                      value={dispositions[g.capabilityId] ?? g.disposition ?? ""}
+                      onChange={(e) => setDispositions((d) => ({ ...d, [g.capabilityId]: e.target.value as GapDisposition }))}
+                    >
+                      <option value="" disabled>choose…</option>
+                      <option value="commission">Commission (build it)</option>
+                      <option value="defer">Defer (drop lesson)</option>
+                      <option value="redesign">Redesign (rework lesson)</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {mode === "changes" ? (
         <div>
           {notes.map((n, i) => (

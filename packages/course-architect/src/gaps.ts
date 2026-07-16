@@ -47,14 +47,36 @@ export function computeCapabilityGaps(inventory: LessonInventoryEntry[], availab
   return { available: [...available].sort(), gaps };
 }
 
-/** The lessonIds blocked by a gap NOT dispositioned to redesign/defer. */
+/**
+ * Every lesson that can't be authored this run because a capability it needs is
+ * missing. A disposition records the PLAN for the gap, not whether the
+ * capability exists — so a gap blocks its lessons regardless of disposition:
+ *   • commission → build it; the lesson is authored on a later run once it ships
+ *   • defer      → drop the lesson from this run
+ *   • redesign   → the operator reworks the lesson via a changes-request, which
+ *                  removes the requiredCapability and so the gap itself
+ * Only removing the requiredCapability (a re-run) actually clears a gap.
+ */
 export function lessonsBlockedByGaps(report: CapabilityGapReport): Set<string> {
   const blocked = new Set<string>();
-  for (const gap of report.gaps) {
-    // redesign/defer resolve the lesson without the capability; commission (or
-    // an undecided gap) leaves its lessons blocked until the capability ships.
-    if (gap.disposition === "redesign" || gap.disposition === "defer") continue;
-    for (const id of gap.lessons) blocked.add(id);
-  }
+  for (const gap of report.gaps) for (const id of gap.lessons) blocked.add(id);
   return blocked;
+}
+
+/** Apply operator dispositions (by capabilityId) to a report, returning a new one. */
+export function applyDispositions(report: CapabilityGapReport, dispositions: Record<string, GapDisposition>): CapabilityGapReport {
+  return {
+    available: report.available,
+    gaps: report.gaps.map((g) => (g.capabilityId in dispositions ? { ...g, disposition: dispositions[g.capabilityId] } : g)),
+  };
+}
+
+/** Gaps the operator chose to commission — these become capability-request briefs. */
+export function commissionedGaps(report: CapabilityGapReport): CapabilityGap[] {
+  return report.gaps.filter((g) => g.disposition === "commission");
+}
+
+/** True once every gap has a disposition (an undecided gap keeps its lessons in limbo). */
+export function allGapsDispositioned(report: CapabilityGapReport): boolean {
+  return report.gaps.every((g) => g.disposition !== null);
 }

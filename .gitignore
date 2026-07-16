@@ -9,4 +9,5 @@ tools/recorder/node_modules/
 artifacts/
 curriculum/runs/
 curriculum/published/
+curriculum/capability-requests/
 .env

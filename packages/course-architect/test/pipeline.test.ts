@@ -17,7 +17,7 @@ import { RunArtifacts } from "../src/artifacts.ts";
 import { createExecutor, type MaterializeResult } from "../src/executor.ts";
 import { MockRoleInvoker, type MockResponder } from "../src/roles.ts";
 import { defaultMockResponder } from "../src/mockCourse.ts";
-import { computeCapabilityGaps, lessonsBlockedByGaps } from "../src/gaps.ts";
+import { computeCapabilityGaps, lessonsBlockedByGaps, applyDispositions, commissionedGaps, allGapsDispositioned } from "../src/gaps.ts";
 import { validateBlueprint, findCycle, ValidationError, type LessonInventoryEntry } from "../src/schemas.ts";
 
 const CAPS = new Set(["file-viewed", "tests-run", "code", "terminal", "any-command"]);
@@ -133,7 +133,7 @@ test("blueprint validation rejects a cyclic prerequisite graph and unknown prere
   assert.equal(findCycle({ concepts: ["a", "b"], edges: [{ from: "a", to: "b" }] }), null);
 });
 
-test("computeCapabilityGaps + lessonsBlockedByGaps respect dispositions", () => {
+test("computeCapabilityGaps blocks a lesson whose capability is missing, whatever the disposition", () => {
   const inv: LessonInventoryEntry[] = [
     { lessonId: "a", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed", "db-browser"] },
   ];
@@ -141,6 +141,10 @@ test("computeCapabilityGaps + lessonsBlockedByGaps respect dispositions", () => 
   assert.equal(report.gaps.length, 1);
   assert.equal(report.gaps[0].capabilityId, "db-browser");
   assert.ok(lessonsBlockedByGaps(report).has("a"), "undecided gap blocks its lesson");
-  report.gaps[0].disposition = "redesign";
-  assert.ok(!lessonsBlockedByGaps(report).has("a"), "redesign unblocks the lesson");
+  // A disposition records the PLAN; it doesn't make the capability appear, so
+  // the lesson stays blocked until the requiredCapability is removed or ships.
+  const commissioned = applyDispositions(report, { "db-browser": "commission" });
+  assert.ok(lessonsBlockedByGaps(commissioned).has("a"), "commission still blocks (capability not yet built)");
+  assert.equal(commissionedGaps(commissioned).length, 1);
+  assert.ok(allGapsDispositioned(commissioned));
 });

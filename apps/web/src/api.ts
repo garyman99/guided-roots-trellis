@@ -492,6 +492,24 @@ export interface CourseRunDetail extends CourseRunSummary {
   artifacts: string[];
 }
 
+export type GapDisposition = "commission" | "defer" | "redesign";
+
+export interface CapabilityGap {
+  capabilityId: string;
+  lessons: string[];
+  disposition: GapDisposition | null;
+}
+
+export interface CapabilityGapReport {
+  available: string[];
+  gaps: CapabilityGap[];
+}
+
+export interface GapDecision {
+  capabilityId: string;
+  disposition: GapDisposition;
+}
+
 export const courseRunApi = {
   list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
   get: (runId: string) => adminGet<{ run: CourseRunDetail }>(`/api/admin/course-runs/${encodeURIComponent(runId)}`).then((r) => r.run),
@@ -499,13 +517,24 @@ export const courseRunApi = {
     adminSend<{ run: CourseRunDetail }>("POST", "/api/admin/course-runs", body).then((r) => r.run),
   artifact: (runId: string, path: string) =>
     adminGet<{ path: string; content: string }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/artifacts/${path.split("/").map(encodeURIComponent).join("/")}`),
-  decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string) =>
-    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by }).then((r) => r.run),
+  decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string, gaps?: GapDecision[]) =>
+    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by, ...(gaps && gaps.length ? { gaps } : {}) }).then((r) => r.run),
   resume: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/resume`).then((r) => r.run),
   archive: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/archive`).then((r) => r.run),
   publishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`),
   unpublishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/unpublish`),
+  capabilityRequests: () => adminGet<{ requests: CapabilityRequest[] }>("/api/admin/capability-requests").then((r) => r.requests),
 };
+
+export interface CapabilityRequest {
+  gapId: string;
+  runId: string;
+  technology: string;
+  blockedLessons: string[];
+  status: string;
+  requestedAt: string;
+  rationale: string;
+}
 
 export function terminalUrl(c: SessionCredentials): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";

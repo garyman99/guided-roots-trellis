@@ -81,12 +81,17 @@ import {
   defaultMockResponder,
   resolveCourseGenConfig,
   createExecutor,
+  applyDispositions,
+  commissionedGaps,
+  type CapabilityGapReport,
   type CourseRun,
   type GateId,
   type GateNote,
+  type GapDisposition,
   type Materializer,
   type RoleInvoker,
 } from "../../../packages/course-architect/src/index.ts";
+import { writeCapabilityRequest, listCapabilityRequests } from "./capabilityRequests.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -120,6 +125,7 @@ export const store = createStore();
 const labsRoot = join(repoRoot, "labs");
 const publishedDir = (): string => process.env.TRELLIS_PUBLISHED_DIR ?? join(repoRoot, "curriculum", "published");
 const runsDir = (): string => process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
+const capabilityRequestsDir = (): string => process.env.TRELLIS_CAPABILITY_REQUESTS_DIR ?? join(repoRoot, "curriculum", "capability-requests");
 
 // Two lab search paths: hand-authored labs ship in the repo (labs/); generated
 // labs published through the course-generation pipeline land in curriculum/
@@ -377,6 +383,47 @@ function courseRunDetail(runId: string) {
     gates: store.courseRunGates(runId),
     artifacts: runArtifactsFor(runId).list(),
   };
+}
+
+/**
+ * At the blueprint gate, apply the operator's per-gap dispositions to
+ * capability-gaps.json and commission the chosen gaps (writes the outbox). No-op
+ * when the run has no gaps or the decision carries none. `rawGaps` items are
+ * { capabilityId | gapId, disposition }.
+ */
+function applyGapDispositions(runId: string, rawGaps: unknown): void {
+  if (!Array.isArray(rawGaps) || rawGaps.length === 0) return;
+  const arts = runArtifactsFor(runId);
+  const raw = arts.read("capability-gaps.json");
+  if (!raw) return;
+  let report: CapabilityGapReport;
+  try {
+    report = JSON.parse(raw) as CapabilityGapReport;
+  } catch {
+    return;
+  }
+  const dispositions: Record<string, GapDisposition> = {};
+  for (const g of rawGaps) {
+    const o = (g ?? {}) as Record<string, unknown>;
+    const id = typeof o.capabilityId === "string" ? o.capabilityId : typeof o.gapId === "string" ? o.gapId : "";
+    const d = o.disposition;
+    if (id && (d === "commission" || d === "defer" || d === "redesign")) dispositions[id] = d;
+  }
+  if (Object.keys(dispositions).length === 0) return;
+
+  const updated = applyDispositions(report, dispositions);
+  arts.write("capability-gaps.json", JSON.stringify(updated, null, 2));
+
+  const run = store.getCourseRun(runId);
+  const tech = run?.request.technology ?? "";
+  const at = new Date().toISOString();
+  for (const gap of commissionedGaps(updated)) {
+    writeCapabilityRequest(
+      capabilityRequestsDir(),
+      { gap, runId, technology: tech, rationale: `Lesson(s) ${gap.lessons.join(", ")} of the "${tech}" course need the "${gap.capabilityId}" capability, which this build's registry does not provide.` },
+      at,
+    );
+  }
 }
 
 function bearerToken(req: IncomingMessage, url: URL): string | null {
@@ -680,6 +727,12 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, CAPABILITY_REGISTRY);
       }
 
+      // GET /api/admin/capability-requests — the commission outbox: capabilities
+      // the generator asked the code side to build (plan §4b / D11).
+      if (req.method === "GET" && parts[2] === "capability-requests" && parts.length === 3) {
+        return json(res, 200, { requests: listCapabilityRequests(capabilityRequestsDir()) });
+      }
+
       // ── course-generation runs (Course studio) ──────────────────────────
       if (parts[2] === "course-runs") {
         try {
@@ -736,6 +789,11 @@ export const server = createServer(async (req, res) => {
               // the signed-in operator's name as `by` (POC), else "operator".
               const by = typeof body.by === "string" && body.by.trim() ? body.by.trim().slice(0, 80) : "operator";
               await courseRuns.settle(); // don't decide while its phase is mid-flight
+              // Blueprint gate: apply any per-gap dispositions to the gap report
+              // and commission the ones the operator chose (writes the outbox).
+              if (gateId === "blueprint" && decision === "approved") {
+                applyGapDispositions(runId, body.gaps);
+              }
               courseRuns.decideGate(runId, gateId, decision, notes, by);
               return json(res, 200, { run: courseRunDetail(runId) });
             }
