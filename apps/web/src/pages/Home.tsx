@@ -1,12 +1,16 @@
 /**
- * Post-login launcher. Front and center: launch the virtual desktop. Then
- * curated courses (ordered paths of scenarios, with derived progress), then
- * the full scenario library with marketplace filters (role / technology /
- * experience level). Navigation to /lab is a full page load on purpose — the
- * lab experience reads its query params at module load.
+ * Post-login launcher — course-first. The primary job of this page is to put
+ * the learner back into a course: a resume band for work already in flight,
+ * then the course catalog organized by a level ladder (Intro → Beginner →
+ * Advanced → Expert) that also communicates the roadmap (empty rungs read as
+ * "more coming"). The virtual desktop ("step up to the desk") is demoted to a
+ * playground for advanced users who want to work without the rails, sitting
+ * alongside the free-practice scenario library at the bottom.
  *
- * Progress is read-only truth from the API (completion digests); the page
- * never computes or stores its own idea of "done".
+ * Navigation to /lab is a full page load on purpose — the lab experience reads
+ * its query params at module load. Progress is read-only truth from the API
+ * (completion digests); the page never computes or stores its own idea of
+ * "done".
  */
 import { useEffect, useMemo, useState } from "react";
 import { getUser, isAdmin, logout } from "../auth.ts";
@@ -23,6 +27,50 @@ import { useReveal } from "./reveal.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
 
+/* ---- course level ladder (the spine of the catalog) ---- */
+interface LevelMeta {
+  key: string;
+  label: string;
+  hint: string;
+}
+const COURSE_LEVELS: LevelMeta[] = [
+  { key: "intro", label: "Intro", hint: "No experience assumed" },
+  { key: "beginner", label: "Beginner", hint: "You've met the basics" },
+  { key: "advanced", label: "Advanced", hint: "You work in this" },
+  { key: "expert", label: "Expert", hint: "Sharpening mastery" },
+];
+const LEVEL_RANK: Record<string, number> = Object.fromEntries(
+  COURSE_LEVELS.map((l, i) => [l.key, i]),
+);
+/** Normalize a course's free-form level onto a ladder rung (intermediate ≈ advanced). */
+function normalizeLevel(level: string): string {
+  const l = level.toLowerCase();
+  if (l === "intermediate") return "advanced";
+  return LEVEL_RANK[l] !== undefined ? l : "beginner";
+}
+
+interface CourseProgress {
+  done: number;
+  total: number;
+  pct: number;
+  next: Course["lessons"][number] | null;
+  complete: boolean;
+  started: boolean;
+}
+function courseProgress(course: Course, completed: Set<string>): CourseProgress {
+  const total = course.lessons.length;
+  const done = course.lessons.filter((l) => completed.has(l.labId)).length;
+  const next = course.lessons.find((l) => !completed.has(l.labId)) ?? null;
+  return {
+    done,
+    total,
+    pct: total === 0 ? 0 : Math.round((done / total) * 100),
+    next,
+    complete: total > 0 && done === total,
+    started: done > 0,
+  };
+}
+
 export function Home() {
   useReveal();
   const user = getUser();
@@ -36,6 +84,26 @@ export function Home() {
     if (learner) learnerApi.progress(learner).then(setProgress).catch(() => {});
   }, []);
   const completed = useMemo(() => new Set(progress?.completedLabIds ?? []), [progress]);
+
+  // The course to resume: an in-progress course (0 < done < total), preferring the
+  // one with the most recent session activity so "continue" lands where they last were.
+  const resume = useMemo(() => {
+    if (!courses) return null;
+    const lastActivity = new Map<string, number>();
+    for (const s of progress?.sessions ?? []) {
+      const t = new Date(s.createdAt).getTime();
+      const prev = lastActivity.get(s.labId) ?? 0;
+      if (t > prev) lastActivity.set(s.labId, t);
+    }
+    const inProgress = courses
+      .map((c) => ({ course: c, p: courseProgress(c, completed) }))
+      .filter(({ p }) => p.started && !p.complete && p.next);
+    if (inProgress.length === 0) return null;
+    const recency = (c: Course) =>
+      Math.max(0, ...c.lessons.map((l) => lastActivity.get(l.labId) ?? 0));
+    inProgress.sort((a, b) => recency(b.course) - recency(a.course));
+    return inProgress[0];
+  }, [courses, completed, progress]);
 
   return (
     <div className="gr-scope">
@@ -64,60 +132,27 @@ export function Home() {
 
       <header className="gr-section tight">
         <div className="gr-container">
-          <div className="gr-section-head" style={{ marginBottom: "clamp(28px, 4vw, 48px)" }}>
-            <p className="gr-eyebrow">Your workspace</p>
+          <div className="gr-section-head" style={{ marginBottom: "clamp(28px, 4vw, 44px)" }}>
+            <p className="gr-eyebrow">Your courses</p>
             <h2>
               Welcome back, <em>{firstName}</em>.
             </h2>
           </div>
 
-          <div className="launch-card gr-reveal in">
-            <img className="launch-rings" src="/brand/rings-watermark.svg" alt="" />
-            <div className="copy">
-              <p className="gr-mono-note">VIRTUAL DESKTOP · FRESH SESSION</p>
-              <h2>Step up to the desk</h2>
-              <p>
-                A windowed machine with an editor, a terminal, and a guide at the next desk. Everything
-                you do in it is measured; nothing outside it is touched.
-              </p>
-              <a className="gr-btn gr-btn-primary gr-btn-big" href="/lab">
-                Launch the virtual desktop
-              </a>
-            </div>
-            <figure className="shot-frame">
-              <div className="bar" aria-hidden="true">
-                <i /><i /><i />
-                <span className="url">trellis · virtual desktop</span>
-              </div>
-              <img src="/landing/desktop.png" alt="Preview of the Trellis virtual desktop" />
-            </figure>
-          </div>
+          {resume ? (
+            <ResumeBand course={resume.course} p={resume.p} />
+          ) : (
+            <p className="gr-lede" style={{ marginTop: "-12px" }}>
+              Pick a course below and learn it by doing it — every step measured inside a real
+              machine, a guide at the next desk when you want one.
+            </p>
+          )}
         </div>
       </header>
 
-      {courses !== null && courses.length > 0 && (
-        <section className="gr-section tight" style={{ paddingTop: 0 }}>
-          <div className="gr-container">
-            <div className="gr-section-head" style={{ marginBottom: "clamp(24px, 3vw, 40px)" }}>
-              <p className="gr-eyebrow">Courses</p>
-              <h2 style={{ fontSize: "clamp(1.7rem, 2.6vw, 2.3rem)" }}>
-                Follow a <em>guided path</em>
-              </h2>
-              <p className="gr-lede">
-                Each course is an ordered run of scenarios. Finish a lesson in the desktop and the next
-                one unlocks its place in the path — your progress is measured, never self-reported.
-              </p>
-            </div>
-            <div className="course-list">
-              {courses.map((c, i) => (
-                <CourseCard key={c.courseId} course={c} completed={completed} delay={i % 2} />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+      <CoursesSection courses={courses} completed={completed} resumeId={resume?.course.courseId ?? null} />
 
-      <ScenarioLibrary completed={completed} />
+      <PlaygroundSection completed={completed} />
 
       <footer className="gr-footer">
         <div className="gr-container">
@@ -132,41 +167,214 @@ export function Home() {
   );
 }
 
-/* ================= courses ================= */
+/* ================= resume band ================= */
 
-function CourseCard({ course, completed, delay }: { course: Course; completed: Set<string>; delay: number }) {
-  const total = course.lessons.length;
-  const done = course.lessons.filter((l) => completed.has(l.labId)).length;
-  const next = course.lessons.find((l) => !completed.has(l.labId)) ?? null;
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+function ResumeBand({ course, p }: { course: Course; p: CourseProgress }) {
+  const next = p.next!;
+  const s = scenarioByLabId.get(next.labId);
+  const lvl = normalizeLevel(course.level);
+  return (
+    <a
+      className="resume-band gr-reveal in"
+      href={`/lab?lab=${encodeURIComponent(next.labId)}`}
+      data-level={lvl}
+    >
+      <img className="launch-rings" src="/brand/rings-watermark.svg" alt="" />
+      <div className="resume-copy">
+        <p className="gr-mono-note">PICK UP WHERE YOU LEFT OFF</p>
+        <h3 className="resume-course">{course.title}</h3>
+        <p className="resume-next">
+          <span className="up-next gr-mono-note">UP NEXT</span>
+          {next.title ?? s?.title ?? next.labId}
+        </p>
+        <div className="course-progress resume-progress" role="img" aria-label={`${p.done} of ${p.total} lessons complete`}>
+          <div className="bar">
+            <div className="fill" style={{ width: `${p.pct}%` }} />
+          </div>
+          <span className="gr-mono-note">
+            {p.done}/{p.total} · {p.pct}%
+          </span>
+        </div>
+      </div>
+      <span className="gr-btn gr-btn-primary gr-btn-big resume-cta">Continue lesson</span>
+    </a>
+  );
+}
+
+/* ================= courses (the primary surface) ================= */
+
+function CoursesSection({
+  courses,
+  completed,
+  resumeId,
+}: {
+  courses: Course[] | null;
+  completed: Set<string>;
+  resumeId: string | null;
+}) {
+  const [level, setLevel] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+
+  const byLevel = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of courses ?? []) {
+      const k = normalizeLevel(c.level);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  }, [courses]);
+
+  const courseRoles = useMemo(
+    () => Array.from(new Set((courses ?? []).map((c) => c.audience))),
+    [courses],
+  );
+
+  const sorted = useMemo(
+    () =>
+      [...(courses ?? [])].sort((a, b) => {
+        const r = (LEVEL_RANK[normalizeLevel(a.level)] ?? 9) - (LEVEL_RANK[normalizeLevel(b.level)] ?? 9);
+        return r !== 0 ? r : a.title.localeCompare(b.title);
+      }),
+    [courses],
+  );
+  const filtered = useMemo(
+    () =>
+      sorted.filter(
+        (c) =>
+          (level === null || normalizeLevel(c.level) === level) &&
+          (role === null || c.audience === role),
+      ),
+    [sorted, level, role],
+  );
 
   return (
-    <article className={`gr-card course-card gr-reveal`} data-delay={String(delay)}>
+    <section className="gr-section tight" style={{ paddingTop: 0 }}>
+      <div className="gr-container">
+        <div className="gr-section-head" style={{ marginBottom: "clamp(22px, 3vw, 36px)" }}>
+          <p className="gr-eyebrow">Courses</p>
+          <h2 style={{ fontSize: "clamp(1.9rem, 3vw, 2.6rem)" }}>
+            Learn it by <em>doing</em> it
+          </h2>
+          <p className="gr-lede">
+            Each course is an ordered path through real work. Climb the ladder from your first steps
+            to mastery — finish a lesson in the desktop and the next unlocks, your progress measured,
+            never self-reported.
+          </p>
+        </div>
+
+        {/* level ladder — doubles as a filter and shows the roadmap */}
+        <div className="level-ladder" role="group" aria-label="Filter courses by level">
+          <button
+            className={`level-rung all${level === null ? " active" : ""}`}
+            onClick={() => setLevel(null)}
+          >
+            <span className="rung-label">All levels</span>
+            <span className="rung-count gr-mono-note">{courses?.length ?? 0}</span>
+          </button>
+          {COURSE_LEVELS.map((l) => {
+            const n = byLevel.get(l.key) ?? 0;
+            return (
+              <button
+                key={l.key}
+                className={`level-rung${level === l.key ? " active" : ""}${n === 0 ? " empty" : ""}`}
+                data-level={l.key}
+                onClick={() => setLevel(level === l.key ? null : l.key)}
+                aria-pressed={level === l.key}
+              >
+                <span className="rung-label">{l.label}</span>
+                <span className="rung-hint">{l.hint}</span>
+                <span className="rung-count gr-mono-note">{n === 0 ? "SOON" : n}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {courseRoles.length > 1 && (
+          <div className="course-role-filter">
+            <FilterGroup label="For" options={courseRoles} value={role} onChange={setRole} />
+          </div>
+        )}
+
+        {courses === null ? (
+          <p className="library-empty">Loading your courses…</p>
+        ) : filtered.length === 0 ? (
+          <p className="library-empty">
+            {courses.length === 0
+              ? "Courses are being cultivated — check back soon. Meanwhile, the playground below is open."
+              : "No course on that rung yet — it's in cultivation 🌱. Clear the filter to see what's ready."}
+          </p>
+        ) : (
+          <div className="course-list">
+            {filtered.map((c, i) => (
+              <CourseCard
+                key={c.courseId}
+                course={c}
+                completed={completed}
+                delay={i % 2}
+                highlight={c.courseId === resumeId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CourseCard({
+  course,
+  completed,
+  delay,
+  highlight,
+}: {
+  course: Course;
+  completed: Set<string>;
+  delay: number;
+  highlight: boolean;
+}) {
+  const p = courseProgress(course, completed);
+  const lvl = normalizeLevel(course.level);
+  const levelLabel = COURSE_LEVELS.find((l) => l.key === lvl)?.label ?? course.level;
+
+  return (
+    <article
+      className={`gr-card course-card gr-reveal${highlight ? " highlight" : ""}`}
+      data-delay={String(delay)}
+      data-level={lvl}
+    >
       <div className="course-head">
         <div>
-          <span className="gr-mono-note">
-            {course.audience.toUpperCase()} · {course.level.toUpperCase()} · {total} LESSON{total === 1 ? "" : "S"}
+          <span className="course-badges">
+            <span className="level-badge" data-level={lvl}>
+              {levelLabel}
+            </span>
+            <span className="gr-mono-note">
+              {course.audience.toUpperCase()} · {p.total} LESSON{p.total === 1 ? "" : "S"}
+            </span>
           </span>
           <h3>{course.title}</h3>
         </div>
-        {done === total && total > 0 ? (
+        {p.complete ? (
           <span className="course-complete-chip">Complete ✓</span>
         ) : (
-          next && (
-            <a className="gr-btn gr-btn-primary gr-btn-small" href={`/lab?lab=${encodeURIComponent(next.labId)}`}>
-              {done === 0 ? "Start course" : "Continue"}
+          p.next && (
+            <a
+              className="gr-btn gr-btn-primary gr-btn-small"
+              href={`/lab?lab=${encodeURIComponent(p.next.labId)}`}
+            >
+              {p.started ? "Continue" : "Start course"}
             </a>
           )
         )}
       </div>
       <p className="course-desc">{course.description}</p>
 
-      <div className="course-progress" role="img" aria-label={`${done} of ${total} lessons complete`}>
+      <div className="course-progress" role="img" aria-label={`${p.done} of ${p.total} lessons complete`}>
         <div className="bar">
-          <div className="fill" style={{ width: `${pct}%` }} />
+          <div className="fill" style={{ width: `${p.pct}%` }} />
         </div>
         <span className="gr-mono-note">
-          {done}/{total} · {pct}%
+          {p.done}/{p.total} · {p.pct}%
         </span>
       </div>
 
@@ -174,7 +382,7 @@ function CourseCard({ course, completed, delay }: { course: Course; completed: S
         {course.lessons.map((l, i) => {
           const s = scenarioByLabId.get(l.labId);
           const isDone = completed.has(l.labId);
-          const isNext = next?.labId === l.labId;
+          const isNext = p.next?.labId === l.labId;
           return (
             <li key={`${l.labId}-${i}`} className={isDone ? "done" : isNext ? "next" : ""}>
               <span className="mark" aria-hidden="true">
@@ -193,7 +401,44 @@ function CourseCard({ course, completed, delay }: { course: Course; completed: S
   );
 }
 
-/* ================= scenario library (marketplace) ================= */
+/* ================= playground (demoted: desk + free practice) ================= */
+
+function PlaygroundSection({ completed }: { completed: Set<string> }) {
+  return (
+    <section className="gr-section tight playground" style={{ paddingTop: 0 }}>
+      <div className="gr-container">
+        <hr className="gr-hairline" style={{ marginBottom: "clamp(40px, 5vw, 64px)" }} />
+        <div className="gr-section-head" style={{ marginBottom: "clamp(22px, 3vw, 36px)" }}>
+          <p className="gr-eyebrow">Playground</p>
+          <h2 style={{ fontSize: "clamp(1.7rem, 2.6vw, 2.3rem)" }}>
+            Or work <em className="copper">without the rails</em>
+          </h2>
+          <p className="gr-lede">
+            Already comfortable? Skip the guided path. Open a bare machine and experiment, or drop
+            straight into a single scenario — no course, no unlock order.
+          </p>
+        </div>
+
+        <a className="desk-card" href="/lab">
+          <img className="launch-rings" src="/brand/rings-watermark.svg" alt="" />
+          <div className="desk-copy">
+            <p className="gr-mono-note">VIRTUAL DESKTOP · FRESH SESSION</p>
+            <h3>Step up to the desk</h3>
+            <p>
+              A windowed machine with an editor, a terminal, and a guide at the next desk. Everything
+              you do in it is measured; nothing outside it is touched.
+            </p>
+          </div>
+          <span className="gr-btn gr-btn-ghost desk-cta">Launch the desktop →</span>
+        </a>
+
+        <ScenarioLibrary completed={completed} />
+      </div>
+    </section>
+  );
+}
+
+/* ================= scenario library (free practice) ================= */
 
 const LEVEL_LABEL: Record<string, string> = {
   beginner: "New to this",
@@ -219,66 +464,53 @@ function ScenarioLibrary({ completed }: { completed: Set<string> }) {
   const anyFilter = role !== null || tech !== null || level !== null;
 
   return (
-    <section className="gr-section tight" style={{ paddingTop: 0 }}>
-      <div className="gr-container">
-        <div className="gr-section-head" style={{ marginBottom: "clamp(20px, 3vw, 32px)" }}>
-          <p className="gr-eyebrow">Scenario library</p>
-          <h2 style={{ fontSize: "clamp(1.7rem, 2.6vw, 2.3rem)" }}>
-            Or start from a <em>scenario</em>
-          </h2>
-          <p className="gr-lede">
-            Each one opens the desktop with a situation already growing in it — a failing test, an
-            agent's unreviewed diff, an inbox that needs judgment.
-          </p>
-        </div>
-
-        <div className="scenario-filters">
-          <FilterGroup label="Role" options={allRoles} value={role} onChange={setRole} />
-          <FilterGroup
-            label="Technology"
-            options={allTechnologies}
-            value={tech}
-            onChange={setTech}
-          />
-          <FilterGroup
-            label="Experience"
-            options={allLevels}
-            display={(v) => LEVEL_LABEL[v] ?? v}
-            value={level}
-            onChange={setLevel}
-          />
-          <div className="filter-meta">
-            <span className="gr-mono-note">
-              {filtered.length} OF {scenarios.length} SCENARIOS
-            </span>
-            {anyFilter && (
-              <button
-                className="filter-clear"
-                onClick={() => {
-                  setRole(null);
-                  setTech(null);
-                  setLevel(null);
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-        </div>
-
-        {filtered.length === 0 ? (
-          <p className="library-empty">
-            Nothing on the shelf matches that combination yet — clear a filter or two.
-          </p>
-        ) : (
-          <div className="gr-grid gr-grid-3">
-            {filtered.map((s, i) => (
-              <ScenarioCard key={s.labId} scenario={s} done={completed.has(s.labId)} index={i} />
-            ))}
-          </div>
-        )}
+    <div className="scenario-shelf">
+      <div className="shelf-head">
+        <span className="gr-mono-note">FREE PRACTICE · {scenarios.length} SCENARIOS</span>
+        <p>Each one opens the desktop with a situation already growing in it — a failing test, an agent's unreviewed diff, an inbox that needs judgment.</p>
       </div>
-    </section>
+
+      <div className="scenario-filters">
+        <FilterGroup label="Role" options={allRoles} value={role} onChange={setRole} />
+        <FilterGroup label="Technology" options={allTechnologies} value={tech} onChange={setTech} />
+        <FilterGroup
+          label="Experience"
+          options={allLevels}
+          display={(v) => LEVEL_LABEL[v] ?? v}
+          value={level}
+          onChange={setLevel}
+        />
+        <div className="filter-meta">
+          <span className="gr-mono-note">
+            {filtered.length} OF {scenarios.length} SCENARIOS
+          </span>
+          {anyFilter && (
+            <button
+              className="filter-clear"
+              onClick={() => {
+                setRole(null);
+                setTech(null);
+                setLevel(null);
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="library-empty">
+          Nothing on the shelf matches that combination yet — clear a filter or two.
+        </p>
+      ) : (
+        <div className="gr-grid gr-grid-3">
+          {filtered.map((s, i) => (
+            <ScenarioCard key={s.labId} scenario={s} done={completed.has(s.labId)} index={i} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

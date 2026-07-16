@@ -92,7 +92,8 @@ export interface Course {
   description: string;
   /** Who it's for — matches the marketplace role labels (e.g. "QA & Testing"). */
   audience: string;
-  /** Experience level: beginner | intermediate | advanced. */
+  /** Level-ladder rung shown on /home: intro | beginner | advanced | expert
+   *  ("intermediate" is still accepted for older content and folds into advanced). */
   level: string;
   lessons: CourseLesson[];
   createdAt: string;

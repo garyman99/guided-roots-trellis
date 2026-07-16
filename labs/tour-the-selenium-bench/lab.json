@@ -1,0 +1,80 @@
+{
+  "id": "tour-the-selenium-bench",
+  "version": 1,
+  "concepts": ["selenium.orientation"],
+  "title": "Tour the Selenium test bench",
+  "objective": "Get oriented before writing anything: learn at a high level what Selenium is, look at the page under test, read a complete example test, and walk the project's directory structure so the file names connect to their jobs.",
+  "scenario": "Your very first look at Selenium. Nothing to write, nothing to fix — this is a guided look around. In front of you is a small web page, a complete and passing Selenium test written for you, and a terminal. You'll open the page like a visitor, read the example test to see the three moves every Selenium test makes, and run a short tour that prints the project structure with a note on what each piece does. Next lesson you'll actually run this test and watch the browser work.",
+  "chat": {
+    "botName": "Sage",
+    "goalPrompt": "Hey! Sage here 🌿 — welcome to your first look at Selenium. Nothing to build today, we're just getting the lay of the land. Quick one before we start: have you used a browser-automation or testing tool before, or is this all new?",
+    "welcome": [
+      "This is a practice space — everything is local and disposable, and there's nothing here you can break.",
+      "The short version of what Selenium is: it drives a real web browser from code. Anything a visitor can do — open a page, find a button, read text, click — Selenium does the same, but written down, repeatable, and fast. It's a classic tool for end-to-end testing.",
+      "This lesson is a tour, not a task: you'll look at the page, read a complete example test (the three moves — open, find & read, check), and run `npm run tour` to see how the project is laid out. When you've had a look, hit \"Check my work\" and we'll move on to running it."
+    ],
+    "faq": [
+      {
+        "match": "what is selenium|what does selenium|why selenium|selenium vs",
+        "answer": "Selenium drives a real browser from code — open a page, find elements, click, read text — so you can automate what a person would otherwise click through by hand. It's most known for end-to-end testing: checking a whole site behaves the way a visitor would experience it. Today's just a look around; you'll run a real Selenium test in the next lesson."
+      },
+      {
+        "match": "write|code|edit|change|do i need to|nothing to",
+        "answer": "Nothing to write or change in this one — it's orientation. The test is already complete and passing. Your \"work\" is having a look: open the page, read the example test, run the tour. \"Check my work\" just confirms the bench is intact."
+      },
+      {
+        "match": "tour|npm run|structure|directory|files|layout|what.*run",
+        "answer": "Type `npm run tour` in the terminal — it prints every file in the project with a one-line note on what it's for, so the names stop being a mystery. It changes nothing; it just prints."
+      },
+      {
+        "match": "test file|first.test|read.*test|three moves|open.*find.*check",
+        "answer": "Open tests/first.test.ts in Code Studio. It's a full, working Selenium test — read it top to bottom to see the three moves every test makes: MOVE 1 open a browser and go to the page, MOVE 2 find an element and read its text, MOVE 3 check the text is what you expected. You'll write move 3 yourself later, in Foundations."
+      },
+      {
+        "match": "garden site|open.*page|the page|visitor",
+        "answer": "Open the Garden Site window to see app/index.html the way a visitor would — it's the little signup page this test checks. Notice the heading at the top; that's what the example test reads and confirms."
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "read-readme",
+      "title": "Read the README",
+      "text": "Open Code Studio (double-click its icon on the desktop), then click README.md in the file list on the left — it explains at a high level what Selenium is and gives you a map of the project.",
+      "auto": "file-viewed",
+      "autoPath": "README.md"
+    },
+    {
+      "id": "see-page",
+      "title": "Open the page a visitor sees",
+      "text": "Open Garden Site to look at the signup page the way a visitor does. This is the page the example test checks — notice the heading at the top.",
+      "auto": "file-viewed",
+      "autoPath": "app/index.html"
+    },
+    {
+      "id": "read-test",
+      "title": "Read the example test",
+      "text": "In Code Studio, open tests/first.test.ts and read it top to bottom. It's a complete, passing Selenium test — spot the three moves: open the browser, find & read the heading, then check it. Nothing to change; just read it.",
+      "auto": "file-viewed",
+      "autoPath": "tests/first.test.ts"
+    },
+    {
+      "id": "run-tour",
+      "title": "Run the tour",
+      "text": "In the terminal, run `npm run tour`. It prints every file in the project with a one-line note on what each one is for — a quick way to connect the names to their jobs. It changes nothing.",
+      "auto": "any-command"
+    }
+  ],
+  "checkpoint": {
+    "id": "bench-toured",
+    "title": "You've had the tour — you know what Selenium is and where things live",
+    "requirements": [
+      { "id": "bench-present", "kind": "verify", "label": "All the bench files are here" },
+      { "id": "test-intact", "kind": "verify", "label": "The example test still shows its three moves" },
+      { "id": "page-untouched", "kind": "verify", "label": "The page was left exactly as seeded" },
+      { "id": "repo-valid", "kind": "repo", "label": "Workspace is in a valid state" }
+    ]
+  },
+  "instructorNotes": "VOICE: informal, calm, brief, plain words — a colleague at the next desk. Audience: an absolute beginner meeting Selenium for the very first time; this is the FIRST lesson of the Intro course, pure orientation. THE ONE JOB: leave them able to say, in a sentence, what Selenium is (it drives a real browser from code, mainly for end-to-end testing) and roughly where things live in a Selenium project. There is NOTHING to author and nothing to fix — actively reassure a nervous learner of that. SCOPE: keep it high level. Do NOT teach locator strategy, waits, assertions-in-depth, headless-vs-headed mechanics (that's the next lesson), or how to write a check (that's the Foundations course). If they ask 'how do I write one?', tell them that's exactly what the next lessons are for — today is just the lay of the land. The example test is complete and passing on purpose; if they want to run it, that's fine, but the real 'run it and watch it' moment is the next lesson, so don't push it here. The checkpoint only confirms the bench is intact (files present, test not gutted, page unchanged) — never claim completion yourself; let \"Check my work\" do it. Encourage curiosity: opening files, reading, asking 'what is this for?' is exactly the point.",
+  "agentTimeline": []
+}

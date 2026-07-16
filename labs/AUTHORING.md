@@ -37,7 +37,15 @@ A lesson is a directory under `labs/<id>/` (`id` must match `^[a-z0-9-]+$`).
 | `verify/checkpoint.mjs` | The lesson's **custom** checkpoint logic (see §3). Prints one line of JSON: `{checks:[{id,ok,detail}]}`. |
 | `scripts/apply-ai-change.mjs` | *(agent-review labs only)* Runs once at session start to simulate an AI edit, leaving it uncommitted so `git diff` shows it. |
 | `blueprint.json` | *(adaptive labs only)* Sibling file (NOT part of `lab.json`) declaring tiers/variants; see `packages/lab-runtime/src/variants.ts`. |
-| `Dockerfile` | Builds the container image (Playwright/Chromium baked in; `COPY scripts/` only if the lab has one). |
+| `Dockerfile` | Builds the container image (the browser stack baked in; `COPY scripts/` only if the lab has one). |
+
+**The test stack is pluggable.** Playwright labs use `tests/*.spec.js` +
+`playwright.config.js`; but the framework only cares about the *contract*, not the
+tool. A lab can use any stack (e.g. Selenium + TypeScript via `tsx`, see
+`run-your-first-selenium-test`) as long as `scripts/test.mjs` still (a) exits 0 on
+pass / non-0 on fail and (b) writes `{passed,failed,total}` to `TRELLIS_RESULTS_FILE`.
+Bake whatever browser/driver the stack needs into the `Dockerfile` at build time
+(the runtime is `--network none`) and pin driver paths so nothing phones home.
 
 ---
 

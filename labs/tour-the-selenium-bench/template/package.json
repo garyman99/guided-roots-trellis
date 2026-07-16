@@ -1,0 +1,14 @@
+{
+  "name": "selenium-bench-tour",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "tour": "node scripts/tour.mjs"
+  },
+  "devDependencies": {
+    "@types/selenium-webdriver": "^4.1.28",
+    "selenium-webdriver": "^4.28.1",
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Community Garden signup — the tiny app under test in this lab.
+     Self-contained on purpose: tests open it straight from disk (file://),
+     so there is no server to start and nothing to install. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Community Garden Signup</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 3rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 0.75rem; font-weight: 600; }
+    input, select { display: block; margin-top: 0.25rem; padding: 0.4rem; width: 100%; box-sizing: border-box; }
+    button { margin-top: 1rem; margin-right: 0.5rem; padding: 0.5rem 1rem; }
+    .error { color: #b00020; }
+    #confirmation { color: #1b5e20; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Community Garden Signup</h1>
+  <p>Reserve your plot for the growing season.</p>
+
+  <form id="signup">
+    <label for="name">Your name</label>
+    <input id="name" name="name" type="text" />
+
+    <label for="plot">Plot size</label>
+    <select id="plot" name="plot">
+      <option value="small">Small</option>
+      <option value="medium">Medium</option>
+      <option value="large">Large</option>
+    </select>
+
+    <button type="submit">Sign up</button>
+    <button type="button" id="clear">Clear</button>
+  </form>
+
+  <div id="messages" aria-live="polite"></div>
+
+  <script>
+    const form = document.getElementById("signup");
+    const messages = document.getElementById("messages");
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const name = document.getElementById("name").value.trim();
+      const plot = document.getElementById("plot").value;
+      if (!name) {
+        messages.innerHTML = '<p class="error" role="alert">Please enter your name.</p>';
+        return;
+      }
+      messages.innerHTML =
+        '<p id="confirmation">Welcome to the garden, ' + name + "! Your " + plot + " plot is reserved.</p>";
+    });
+
+    document.getElementById("clear").addEventListener("click", () => {
+      form.reset();
+      messages.innerHTML = "";
+    });
+  </script>
+</body>
+</html>
