@@ -31,8 +31,9 @@ function harness(responder: MockResponder = defaultMockResponder) {
   const artifactsFor = (runId: string) => new RunArtifacts(join(runsDir, runId));
   const store = createStore({ TRELLIS_PERSISTENCE: "off" } as NodeJS.ProcessEnv) as EventStore;
   const materialized: MaterializeResult[] = [];
+  const invoker = new MockRoleInvoker(responder);
   const executor = createExecutor({
-    roles: new MockRoleInvoker(responder),
+    rolesFor: () => invoker,
     artifactsFor,
     availableCapabilities: CAPS,
     materialize: async ({ lessons }) => {

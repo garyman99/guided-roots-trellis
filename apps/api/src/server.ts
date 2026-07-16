@@ -91,6 +91,7 @@ import {
   type GapDisposition,
   type Materializer,
   type RoleInvoker,
+  type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests } from "./capabilityRequests.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
@@ -219,20 +220,80 @@ const materialize: Materializer = async ({ run, lessons }) => {
 };
 
 /**
- * Role provider: the deterministic mock unless COURSE_GEN_PROVIDER selects a
- * live model (same posture as the Guide's mock-by-default). The offline mock
- * produces a small, coherent, gap-free course so the pipeline is demoable and
- * testable without keys.
+ * Model provider selection. The mock is the offline default; a run may instead
+ * pick a live model (Claude / OpenAI-compatible) in the UI. The API KEY always
+ * comes from the server environment (ANTHROPIC_API_KEY / OPENAI_API_KEY /
+ * COURSE_GEN_API_KEY) — never from the client.
  */
-const courseGenRoles: RoleInvoker =
-  resolveCourseGenConfig("architect").provider === "mock"
-    ? new MockRoleInvoker(defaultMockResponder)
-    : new LiveRoleInvoker();
+const mockCourseGenInvoker = new MockRoleInvoker(defaultMockResponder);
+
+/** Suggested Claude models offered in the UI (latest, most capable first). */
+const ANTHROPIC_MODELS = [
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+  { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+  { id: "claude-fable-5", label: "Fable 5" },
+];
+
+function anthropicKey(): string | undefined {
+  return process.env.COURSE_GEN_API_KEY ?? process.env.ANTHROPIC_API_KEY;
+}
+function openaiKey(): string | undefined {
+  return process.env.COURSE_GEN_API_KEY ?? process.env.OPENAI_API_KEY;
+}
+
+/** What the Course studio start form offers, and whether each is usable now. */
+function courseGenProviders() {
+  const envDefault = resolveCourseGenConfig("architect").provider;
+  return {
+    defaultProvider: envDefault,
+    defaultModel: process.env.COURSE_GEN_MODEL ?? null,
+    providers: [
+      { id: "mock", label: "Mock (offline, deterministic)", available: true },
+      { id: "anthropic", label: "Claude (Anthropic)", available: !!anthropicKey(), keyEnv: "ANTHROPIC_API_KEY", models: ANTHROPIC_MODELS },
+      { id: "openai-compatible", label: "OpenAI-compatible", available: true, keyEnv: "OPENAI_API_KEY", needsBaseUrl: true, note: "Local endpoints (LM Studio/Ollama) may omit the key." },
+    ],
+  };
+}
+
+/** Resolve the invoker for a run from its chosen provider (validated at create). */
+function rolesForRun(run: CourseRun): RoleInvoker {
+  const cfg = run.request.providerConfig;
+  const provider = cfg?.provider ?? resolveCourseGenConfig("architect").provider;
+  if (provider === "mock") return mockCourseGenInvoker;
+  const model = cfg?.model ?? process.env.COURSE_GEN_MODEL;
+  if (!model) throw new Error(`the ${provider} provider requires a model`);
+  return new LiveRoleInvoker({
+    provider,
+    model,
+    baseUrl: cfg?.baseUrl ?? process.env.COURSE_GEN_BASE_URL,
+    apiKey: provider === "anthropic" ? anthropicKey() : openaiKey(),
+  });
+}
+
+/** Validate a provider choice at create time; returns an error string or null. */
+function validateProviderConfig(cfg: RunProviderConfig | undefined): string | null {
+  if (!cfg || cfg.provider === "mock") return null;
+  if (cfg.provider === "anthropic") {
+    if (!cfg.model) return "Claude provider requires a model";
+    if (!anthropicKey()) return "Claude provider needs ANTHROPIC_API_KEY set in the server environment";
+    return null;
+  }
+  if (cfg.provider === "openai-compatible") {
+    if (!cfg.model) return "OpenAI-compatible provider requires a model";
+    if (!cfg.baseUrl) return "OpenAI-compatible provider requires a base URL";
+    if (!openaiKey() && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/.test(cfg.baseUrl)) {
+      return "OpenAI-compatible provider with a non-local base URL needs OPENAI_API_KEY set in the server environment";
+    }
+    return null;
+  }
+  return `unknown provider "${String((cfg as { provider?: string }).provider)}"`;
+}
 
 export const courseRuns = new CourseRunScheduler(
   store,
   createExecutor({
-    roles: courseGenRoles,
+    rolesFor: rolesForRun,
     artifactsFor: runArtifactsFor,
     availableCapabilities: capabilityIdSet(),
     materialize,
@@ -345,6 +406,19 @@ function pickStrings(body: Record<string, unknown>, keys: string[]): Record<stri
   return out;
 }
 
+/** Parse the run's chosen model provider from the create body (no api key). */
+function parseProviderConfig(raw: unknown): RunProviderConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const provider = o.provider;
+  if (provider !== "mock" && provider !== "anthropic" && provider !== "openai-compatible") return undefined;
+  return {
+    provider,
+    ...(typeof o.model === "string" && o.model.trim() ? { model: o.model.trim().slice(0, 120) } : {}),
+    ...(typeof o.baseUrl === "string" && o.baseUrl.trim() ? { baseUrl: o.baseUrl.trim().slice(0, 300) } : {}),
+  };
+}
+
 /** Coerce request-changes notes into the structured GateNote[] the run stores. */
 function parseGateNotes(raw: unknown): GateNote[] | null {
   if (!Array.isArray(raw)) return null;
@@ -366,12 +440,15 @@ function parseGateNotes(raw: unknown): GateNote[] | null {
 function courseRunSummary(run: CourseRun) {
   const gates = store.courseRunGates(run.runId);
   const pendingGate = gates.find((g) => g.decidedAt === null)?.gateId ?? null;
+  const pc = run.request.providerConfig;
   return {
     runId: run.runId,
     status: run.status,
     technology: run.request.technology,
     title: run.request.title ?? null,
     pendingGate,
+    provider: pc?.provider ?? resolveCourseGenConfig("architect").provider,
+    model: pc?.model ?? (process.env.COURSE_GEN_MODEL || null),
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     lastError: run.lastError ?? null,
@@ -746,14 +823,22 @@ export const server = createServer(async (req, res) => {
           if (req.method === "GET" && parts.length === 3) {
             return json(res, 200, { runs: store.listCourseRuns().map(courseRunSummary) });
           }
+          // GET provider options (mock / claude / openai-compatible + availability)
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "providers") {
+            return json(res, 200, courseGenProviders());
+          }
           // POST create
           if (req.method === "POST" && parts.length === 3) {
             const body = await readBody(req);
             const technology = typeof body.technology === "string" ? body.technology.trim() : "";
             if (!technology) return json(res, 400, { error: "technology is required" });
+            const providerConfig = parseProviderConfig(body.providerConfig);
+            const providerError = validateProviderConfig(providerConfig);
+            if (providerError) return json(res, 400, { error: providerError });
             const run = courseRuns.create({
               technology: technology.slice(0, 80),
               ...pickStrings(body, ["title", "targetLearner", "learnerStartingExperience", "outcome", "inScope", "outOfScope", "breadth", "depth", "ecosystem"]),
+              ...(providerConfig ? { providerConfig } : {}),
             });
             return json(res, 201, { run: courseRunDetail(run.runId) });
           }

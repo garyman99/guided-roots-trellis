@@ -18,6 +18,8 @@ import {
   type GapDisposition,
   type GateId,
   type GateNote,
+  type ProviderConfig,
+  type ProvidersPayload,
   type RunStatus,
 } from "../api.ts";
 
@@ -114,10 +116,34 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
   const [form, setForm] = useState<Record<string, string>>({ technology: "", title: "", targetLearner: "", outcome: "", inScope: "", outOfScope: "" });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  // Model provider selection (mock / Claude / OpenAI-compatible).
+  const [providers, setProviders] = useState<ProvidersPayload | null>(null);
+  const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  useEffect(() => {
+    if (open && !providers) {
+      courseRunApi.providers().then((p) => {
+        setProviders(p);
+        // Default to the deployment default provider if it's usable.
+        const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
+        if (def) {
+          setProvider(def.id);
+          if (def.models?.length) setModel(def.models[0].id);
+        }
+      }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
+    }
+  }, [open, providers]);
+  const chosen = providers?.providers.find((p) => p.id === provider);
+
   const submit = () => {
     setBusy(true);
     setError(null);
-    const body = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
+    const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
+    body.providerConfig =
+      provider === "mock"
+        ? { provider: "mock" }
+        : { provider, model: model.trim(), ...(provider === "openai-compatible" ? { baseUrl: baseUrl.trim() } : {}) };
     courseRunApi.create(body)
       .then((run) => { setBusy(false); setOpen(false); onStarted(run); })
       .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
@@ -161,9 +187,48 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
           <input id="cg-out" value={form.outOfScope} onChange={(e) => set("outOfScope", e.target.value)} />
         </div>
       </div>
+      <h4 className="admin-subhead">Model provider</h4>
+      <div className="admin-editor-grid">
+        <div className="gr-field">
+          <label htmlFor="cg-provider">Provider</label>
+          <select id="cg-provider" value={provider} onChange={(e) => {
+            const id = e.target.value as ProviderConfig["provider"];
+            setProvider(id);
+            const p = providers?.providers.find((x) => x.id === id);
+            setModel(p?.models?.[0]?.id ?? "");
+          }}>
+            {(providers?.providers ?? [{ id: "mock", label: "Mock", available: true }]).map((p) => (
+              <option key={p.id} value={p.id} disabled={!p.available}>
+                {p.label}{p.available ? "" : ` — set ${p.keyEnv} to enable`}
+              </option>
+            ))}
+          </select>
+        </div>
+        {provider !== "mock" && (
+          <div className="gr-field">
+            <label htmlFor="cg-model">Model</label>
+            {chosen?.models?.length ? (
+              <select id="cg-model" value={model} onChange={(e) => setModel(e.target.value)}>
+                {chosen.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            ) : (
+              <input id="cg-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="model id" />
+            )}
+          </div>
+        )}
+        {provider === "openai-compatible" && (
+          <div className="gr-field">
+            <label htmlFor="cg-baseurl">Base URL</label>
+            <input id="cg-baseurl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:1234/v1" />
+          </div>
+        )}
+      </div>
+      {provider === "mock" && <p className="gr-mono-note">Mock is deterministic and offline — great for trying the flow. Pick Claude or an OpenAI-compatible endpoint for the real thing (the API key is read from the server environment).</p>}
+      {chosen?.note && provider !== "mock" && <p className="gr-mono-note">{chosen.note}</p>}
+
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-editor-actions">
-        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim()}>
+        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || (provider !== "mock" && !model.trim())}>
           {busy ? "Starting…" : "Start run"}
         </button>
         <button className="gr-btn gr-btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
@@ -280,7 +345,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
         <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={onBack}>← All runs</button>
         <div>
           <h3>{run.title ?? run.technology}</h3>
-          <p className="gr-mono-note">{run.runId} · {run.technology} · <StatusChip status={run.status} /></p>
+          <p className="gr-mono-note">{run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : ""} · <StatusChip status={run.status} /></p>
         </div>
       </div>
 

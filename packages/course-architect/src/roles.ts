@@ -110,28 +110,41 @@ export function resolveCourseGenConfig(role: CourseGenRole, env: Record<string, 
   return { provider, model, baseUrl, apiKey };
 }
 
-/** Live invoker over model-runtime's fetch clients; one config per role. */
+export interface LiveRoleOptions {
+  provider: "anthropic" | "openai-compatible";
+  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+  maxTokens?: number;
+  /** Test seam — inject a fetch to exercise the live path without a network. */
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Live invoker over model-runtime's fetch clients. Built with ONE explicit
+ * config used for every role (the run-wide provider/model the operator picked),
+ * so provider selection is per-run, not per-boot. The API key is passed in from
+ * the server's environment — never from the client.
+ */
 export class LiveRoleInvoker implements RoleInvoker {
-  private readonly env: Record<string, string | undefined>;
-  private readonly maxTokens: number;
-  constructor(opts: { env?: Record<string, string | undefined>; maxTokens?: number } = {}) {
-    this.env = opts.env ?? process.env;
-    this.maxTokens = opts.maxTokens ?? 4096;
+  private readonly opts: LiveRoleOptions;
+  constructor(opts: LiveRoleOptions) {
+    if (!opts.model) throw new Error(`course-gen ${opts.provider} provider requires a model`);
+    this.opts = opts;
   }
   async invoke(role: CourseGenRole, prompt: RolePrompt): Promise<RoleResult> {
-    const cfg = resolveCourseGenConfig(role, this.env);
-    if (cfg.provider === "mock") throw new Error(`role "${role}" resolved to mock — use MockRoleInvoker for offline runs`);
-    if (!cfg.model) throw new Error(`COURSE_GEN provider for "${role}" requires a model (set COURSE_GEN_MODEL)`);
+    const o = this.opts;
     const req = {
-      baseUrl: cfg.baseUrl ?? (cfg.provider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"),
-      apiKey: cfg.apiKey,
-      model: cfg.model,
+      baseUrl: o.baseUrl ?? (o.provider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"),
+      apiKey: o.apiKey,
+      model: o.model,
       system: prompt.system,
       user: prompt.user,
-      maxTokens: this.maxTokens,
+      maxTokens: o.maxTokens ?? 4096,
       requestId: `cg-${role}-${prompt.task}`,
+      fetchImpl: o.fetchImpl,
     };
-    const result = cfg.provider === "anthropic" ? await anthropicGenerateText(req) : await openaiGenerateText(req);
+    const result = o.provider === "anthropic" ? await anthropicGenerateText(req) : await openaiGenerateText(req);
     return { text: result.text, model: result.model, usage: result.usage };
   }
 }

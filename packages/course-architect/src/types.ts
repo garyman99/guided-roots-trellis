@@ -65,6 +65,15 @@ export function isTerminal(status: RunStatus): boolean {
   return status === "approved" || status === "archived" || status === "failed";
 }
 
+/** The model provider a run uses (chosen per-run in the UI). */
+export interface RunProviderConfig {
+  provider: "mock" | "anthropic" | "openai-compatible";
+  /** Required for anthropic / openai-compatible; ignored for mock. */
+  model?: string;
+  /** openai-compatible only (e.g. a local LM Studio / Ollama endpoint). */
+  baseUrl?: string;
+}
+
 /** Phase-1 request form (plan §6.1) — sparse by design; the architect fills gaps. */
 export interface CourseRunRequest {
   technology: string;
@@ -77,6 +86,8 @@ export interface CourseRunRequest {
   breadth?: string;
   depth?: string;
   ecosystem?: string;
+  /** Model provider for this run. Absent → the deployment default (env/mock). */
+  providerConfig?: RunProviderConfig;
 }
 
 /** Structured request-changes comment; the exact text an executor must address. */

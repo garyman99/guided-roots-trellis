@@ -62,12 +62,16 @@ export interface MaterializeResult {
 export type Materializer = (input: MaterializeInput) => Promise<MaterializeResult>;
 
 export interface ExecutorDeps {
-  roles: RoleInvoker;
+  /** Resolve the model provider for a run — selected per-run (mock/live). */
+  rolesFor: (run: CourseRun) => RoleInvoker;
   artifactsFor: (runId: string) => RunArtifacts;
   /** Flat set of registry capability ids (apps, auto-rules, checkpoint kinds…). */
   availableCapabilities: Set<string>;
   materialize: Materializer;
 }
+
+/** ExecutorDeps with the run's provider resolved — what phase functions receive. */
+type RunDeps = Omit<ExecutorDeps, "rolesFor"> & { roles: RoleInvoker };
 
 const SYSTEM: Record<CourseGenRole, string> = {
   architect: "You are the Course Architect. Design a cohesive technology course; output strict JSON only.",
@@ -130,7 +134,7 @@ function renderCourseRequestMd(doc: CourseRequestDoc): string {
 
 /* ── the phases ── */
 
-async function runFraming(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifacts): Promise<void> {
+async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const doc = await invokeValidated(
     deps.roles,
     "architect",
@@ -142,7 +146,7 @@ async function runFraming(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifa
   ctx.emit("artifact.written", { path: "course-request.md" });
 }
 
-async function runDesigning(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifacts): Promise<void> {
+async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const bp = await invokeValidated(
     deps.roles,
     "architect",
@@ -172,7 +176,7 @@ function writeBlueprint(arts: RunArtifacts, bp: Blueprint): void {
   arts.write("lesson-inventory.json", JSON.stringify(bp.lessonInventory, null, 2));
 }
 
-async function runAuthoring(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifacts): Promise<void> {
+async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
   const report = parseJson<CapabilityGapReport>(arts.read("capability-gaps.json") ?? '{"available":[],"gaps":[]}');
   const blocked = lessonsBlockedByGaps(report);
@@ -241,7 +245,7 @@ function writeReviewArtifacts(arts: RunArtifacts, lessonId: string, o: ReviewOut
   arts.write(`reviews/${lessonId}.cohesion.md`, renderVerdictMd("Cohesion review", o.cohesion.verdict, o.cohesion.issues));
 }
 
-async function runMaterializing(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifacts): Promise<void> {
+async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
   // Only ship lessons that PASSED review — a needs-revision lesson has a
   // lessons/<id>/lesson.md too, but it must not reach learners.
@@ -291,15 +295,18 @@ function coverageMatrix(inventory: LessonInventoryEntry[], authored: string[], n
 export function createExecutor(deps: ExecutorDeps): PhaseExecutor {
   return async (ctx: PhaseContext): Promise<void> => {
     const arts = deps.artifactsFor(ctx.run.runId);
+    // Resolve the model provider for THIS run (mock or a live model the operator
+    // picked). Phase functions read `deps.roles`, so hand them a resolved deps.
+    const runDeps: RunDeps = { ...deps, roles: deps.rolesFor(ctx.run) };
     switch (ctx.phase) {
       case "framing":
-        return runFraming(ctx, deps, arts);
+        return runFraming(ctx, runDeps, arts);
       case "designing":
-        return runDesigning(ctx, deps, arts);
+        return runDesigning(ctx, runDeps, arts);
       case "authoring":
-        return runAuthoring(ctx, deps, arts);
+        return runAuthoring(ctx, runDeps, arts);
       case "materializing":
-        return runMaterializing(ctx, deps, arts);
+        return runMaterializing(ctx, runDeps, arts);
     }
   };
 }

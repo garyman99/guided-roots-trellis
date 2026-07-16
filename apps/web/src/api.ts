@@ -479,9 +479,31 @@ export interface CourseRunSummary {
   technology: string;
   title: string | null;
   pendingGate: GateId | null;
+  provider?: string;
+  model?: string | null;
   createdAt: string;
   updatedAt: string;
   lastError: string | null;
+}
+
+export interface ProviderOption {
+  id: "mock" | "anthropic" | "openai-compatible";
+  label: string;
+  available: boolean;
+  keyEnv?: string;
+  models?: Array<{ id: string; label: string }>;
+  needsBaseUrl?: boolean;
+  note?: string;
+}
+export interface ProvidersPayload {
+  defaultProvider: string;
+  defaultModel: string | null;
+  providers: ProviderOption[];
+}
+export interface ProviderConfig {
+  provider: "mock" | "anthropic" | "openai-compatible";
+  model?: string;
+  baseUrl?: string;
 }
 
 export interface CourseRunDetail extends CourseRunSummary {
@@ -512,8 +534,9 @@ export interface GapDecision {
 
 export const courseRunApi = {
   list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
+  providers: () => adminGet<ProvidersPayload>("/api/admin/course-runs/providers"),
   get: (runId: string) => adminGet<{ run: CourseRunDetail }>(`/api/admin/course-runs/${encodeURIComponent(runId)}`).then((r) => r.run),
-  create: (body: Record<string, string>) =>
+  create: (body: Record<string, unknown>) =>
     adminSend<{ run: CourseRunDetail }>("POST", "/api/admin/course-runs", body).then((r) => r.run),
   artifact: (runId: string, path: string) =>
     adminGet<{ path: string; content: string }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/artifacts/${path.split("/").map(encodeURIComponent).join("/")}`),
