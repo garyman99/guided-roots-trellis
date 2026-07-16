@@ -47,6 +47,10 @@ export interface MaterializeInput {
   lessons: Array<{ lessonId: string; level: Level; title: string; lab: LessonPlanDoc["lab"] }>;
   artifacts: RunArtifacts;
 }
+
+interface Brief extends LessonInventoryEntry {
+  lab?: LessonPlanDoc["lab"];
+}
 export interface MaterializeResult {
   courseId: string;
   labIds: string[];
@@ -182,8 +186,6 @@ async function runAuthoring(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArti
       ctx.emit("lesson.blocked", { lessonId: lesson.lessonId, reason: "capability-gap" });
       continue;
     }
-    arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify(lesson, null, 2));
-
     // Author → 3 reviews → if it fails the bar, re-author ONCE with the review
     // feedback, then re-review. A real lesson-author improves; the mock is
     // deterministic, so a genuinely failing lesson lands in needs-revision.
@@ -198,6 +200,9 @@ async function runAuthoring(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArti
         ctx.emit,
       );
       arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
+      // The brief carries the inventory entry PLUS the authored lab spec, so
+      // materializing knows which real lab (lab.kind) to build.
+      arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify({ ...lesson, lab: plan.lab }, null, 2));
 
       const technical = await invokeValidated(deps.roles, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview, ctx.emit);
       const pedagogy = await invokeValidated(deps.roles, "pedagogy-reviewer", prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validatePedagogyReview, ctx.emit);
@@ -245,14 +250,11 @@ async function runMaterializing(ctx: PhaseContext, deps: ExecutorDeps, arts: Run
   const lessons: MaterializeInput["lessons"] = [];
   for (const lesson of inventory) {
     if (!passed.has(lesson.lessonId)) continue; // blocked, unauthored, or needs-revision
-    // A minimal lab spec derived from the brief. Richer lab specs (a full
-    // lab.json authored per lesson) grow behind this seam in a later slice.
-    lessons.push({
-      lessonId: lesson.lessonId,
-      level: lesson.level,
-      title: lesson.title,
-      lab: { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities[0] ?? "any-command" },
-    });
+    // Prefer the authored lab spec (carries lab.kind → a real lab); fall back to
+    // a minimal stub spec derived from the inventory.
+    const brief = parseJson<Brief>(arts.read(`briefs/${lesson.lessonId}.json`) ?? "{}");
+    const lab = brief.lab ?? { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities[0] ?? "any-command" };
+    lessons.push({ lessonId: lesson.lessonId, level: lesson.level, title: lesson.title, lab });
   }
   const result = await deps.materialize({ run: ctx.run, courseRequestMarkdown: arts.read("course-request.md") ?? "", lessons, artifacts: arts });
   arts.write("manifest.json", JSON.stringify({ ...result, generatedAt: null, lessons: lessons.map((l) => l.lessonId) }, null, 2));

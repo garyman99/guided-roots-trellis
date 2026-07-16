@@ -57,7 +57,7 @@ async function driveToApproved(h: ReturnType<typeof harness>, technology: string
 
 test("default mock: a run produces a validated, gap-free two-lesson course", async () => {
   const h = harness();
-  const runId = await driveToApproved(h, "Git");
+  const runId = await driveToApproved(h, "Widgets"); // a non-pack tech → the generic mock
   assert.equal(h.store.getCourseRun(runId)!.status, "approved");
 
   const arts = h.artifactsFor(runId);
@@ -67,10 +67,25 @@ test("default mock: a run produces a validated, gap-free two-lesson course", asy
   // capability-gaps.json is present and empty (mock uses base capabilities only).
   assert.deepEqual(JSON.parse(arts.read("capability-gaps.json")!).gaps, []);
   // Both lessons authored + reviewed; materializer invoked with both.
-  assert.ok(arts.exists("lessons/git-101/lesson.md"));
-  assert.ok(arts.exists("reviews/git-101.pedagogy.json"));
+  assert.ok(arts.exists("lessons/widgets-101/lesson.md"));
+  assert.ok(arts.exists("reviews/widgets-101.pedagogy.json"));
   assert.ok(arts.exists("reviews/quality-gates.json"));
   assert.equal(h.materialized.at(-1)!.labIds.length, 2);
+});
+
+test("the Git pack yields a real, playable Git course through the pipeline", async () => {
+  const h = harness();
+  const runId = await driveToApproved(h, "Git");
+  const arts = h.artifactsFor(runId);
+  const request = arts.read("course-request.md")!;
+  assert.match(request, /Git Fundamentals/);
+  const inventory = JSON.parse(arts.read("lesson-inventory.json")!) as LessonInventoryEntry[];
+  assert.deepEqual(inventory.map((l) => l.lessonId), ["git-101", "git-102"]);
+  // The authored briefs carry the real lab kinds the materializer will build.
+  assert.equal(JSON.parse(arts.read("briefs/git-101.json")!).lab.kind, "git-commit");
+  assert.equal(JSON.parse(arts.read("briefs/git-102.json")!).lab.kind, "git-discard");
+  // Both passed review and were handed to the materializer.
+  assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
 });
 
 test("a malformed role output is retried once, then interrupts the run", async () => {

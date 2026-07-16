@@ -121,6 +121,19 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   const first = generated[0].labId;
   const started = await api("POST", "/api/sessions", { labId: first });
   assert.equal(started.status, 201, "a generated lab can start a session");
+  const sess = started.body as { sessionId: string; token: string };
+
+  // The generated lab's checkpoint EVALUATES for a real learner: broken as
+  // shipped (not passed), and the "verify" requirement resolves to the
+  // verifier's check by id (a real ok:false — not "did not report this check",
+  // which is the id-mismatch bug Phase E surfaced).
+  const evald = await api("POST", `/api/sessions/${sess.sessionId}/checkpoint/evaluate`, undefined, sess.token);
+  assert.equal(evald.status, 200);
+  const cp = evald.body as { passed: boolean; requirements: Array<{ id: string; ok: boolean; detail?: string }> };
+  assert.equal(cp.passed, false, "broken as shipped");
+  const req = cp.requirements[0];
+  assert.equal(req.ok, false);
+  assert.ok(!/did not report/i.test(req.detail ?? ""), `the verify requirement resolves to a real check (got: ${req.detail})`);
 });
 
 test("changes requires notes; the state machine rejects out-of-order and unknown decisions", async () => {

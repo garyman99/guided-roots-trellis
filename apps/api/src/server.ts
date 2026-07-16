@@ -70,6 +70,7 @@ import { createStore, type Course, type CourseLesson, type LearnerMeta, type Tok
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
 import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab } from "./generatedLab.ts";
+import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
 import {
   CourseRunScheduler,
@@ -169,7 +170,12 @@ const materialize: Materializer = async ({ run, lessons }) => {
       throw new Error(`lab id collision: "${labId}" is a hand-authored lab in this build`);
     }
 
-    const files = buildGeneratedLabFiles({ lessonId: labId, title: lesson.title, objective: lesson.lab.objective }, run.runId);
+    // A lesson-specific real lab (lab.kind) when the generator asked for one;
+    // otherwise the generic "complete the stub" lab.
+    const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
+    const files = isGitLabKind(lesson.lab.kind)
+      ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId)
+      : buildGeneratedLabFiles(labLesson, run.runId);
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {

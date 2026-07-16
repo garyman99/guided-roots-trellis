@@ -176,8 +176,9 @@ export function findCycle(graph: PrerequisiteGraph): string[] | null {
 export interface LessonPlanDoc {
   lessonId: string;
   markdown: string;
-  /** The lab spec this lesson materializes into (kept minimal at this stage). */
-  lab: { objective: string; primaryAuto: string };
+  /** The lab spec this lesson materializes into. `kind` selects a real lab
+   *  builder (e.g. "git-commit"); absent → the generic "complete the stub" lab. */
+  lab: { objective: string; primaryAuto: string; kind?: string };
 }
 
 export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlanDoc {
