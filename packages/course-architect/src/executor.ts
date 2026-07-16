@@ -31,6 +31,15 @@ import {
   type LessonPlanDoc,
 } from "./schemas.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, type CapabilityGapReport } from "./gaps.ts";
+import {
+  evaluateReviews,
+  validateTechnicalReview,
+  validatePedagogyReview,
+  validateCohesionReview,
+  REVISION_THRESHOLD,
+  type ReviewOutcome,
+  type Verdict,
+} from "./reviews.ts";
 
 export interface MaterializeInput {
   run: CourseRun;
@@ -165,44 +174,77 @@ async function runAuthoring(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArti
   const blocked = lessonsBlockedByGaps(report);
 
   const authored: string[] = [];
+  const needsRevision: string[] = [];
+  const summary: ReviewOutcome[] = [];
+
   for (const lesson of inventory) {
     if (blocked.has(lesson.lessonId)) {
       ctx.emit("lesson.blocked", { lessonId: lesson.lessonId, reason: "capability-gap" });
       continue;
     }
-    const plan = await invokeValidated(
-      deps.roles,
-      "lesson-author",
-      prompt(`lesson:${lesson.lessonId}`, { lesson, request: ctx.run.request }),
-      (parsed) => validateLessonPlan(parsed, lesson.lessonId),
-      ctx.emit,
-    );
     arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify(lesson, null, 2));
-    arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
-    // Three review stages (verdicts are recorded; deep scoring can grow here).
-    for (const [role, path] of [
-      ["technical-reviewer", `reviews/${lesson.lessonId}.technical.md`],
-      ["pedagogy-reviewer", `reviews/${lesson.lessonId}.pedagogy.json`],
-      ["cohesion-editor", `reviews/${lesson.lessonId}.cohesion.md`],
-    ] as const) {
-      const review = await deps.roles.invoke(role, { ...prompt(`review:${role}:${lesson.lessonId}`, { lesson }), system: SYSTEM[role] });
-      arts.write(path, review.text);
+
+    // Author → 3 reviews → if it fails the bar, re-author ONCE with the review
+    // feedback, then re-review. A real lesson-author improves; the mock is
+    // deterministic, so a genuinely failing lesson lands in needs-revision.
+    let outcome: ReviewOutcome | null = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const feedback = outcome?.blockers ?? null;
+      const plan = await invokeValidated(
+        deps.roles,
+        "lesson-author",
+        prompt(`lesson:${lesson.lessonId}`, { lesson, request: ctx.run.request, reviewFeedback: feedback ?? undefined }),
+        (parsed) => validateLessonPlan(parsed, lesson.lessonId),
+        ctx.emit,
+      );
+      arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
+
+      const technical = await invokeValidated(deps.roles, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview, ctx.emit);
+      const pedagogy = await invokeValidated(deps.roles, "pedagogy-reviewer", prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validatePedagogyReview, ctx.emit);
+      const cohesion = await invokeValidated(deps.roles, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview, ctx.emit);
+
+      outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion);
+      writeReviewArtifacts(arts, lesson.lessonId, outcome);
+      ctx.emit("lesson.reviewed", { lessonId: lesson.lessonId, attempt, passed: outcome.passed, scores: pedagogy.scores, blockers: outcome.blockers });
+      if (outcome.passed) break;
+      if (attempt < 2) ctx.emit("lesson.revising", { lessonId: lesson.lessonId, blockers: outcome.blockers });
     }
-    authored.push(lesson.lessonId);
-    ctx.emit("lesson.authored", { lessonId: lesson.lessonId });
+
+    summary.push(outcome!);
+    if (outcome!.passed) {
+      authored.push(lesson.lessonId);
+      ctx.emit("lesson.authored", { lessonId: lesson.lessonId });
+    } else {
+      needsRevision.push(lesson.lessonId);
+      ctx.emit("lesson.needs-revision", { lessonId: lesson.lessonId, blockers: outcome!.blockers });
+    }
   }
 
-  const gates = qualityGates(inventory, authored, blocked);
-  arts.write("reviews/quality-gates.json", JSON.stringify(gates, null, 2));
-  arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, blocked));
-  if (authored.length === 0) throw new ValidationError(["no lessons could be authored — every lesson is blocked on a capability gap"]);
+  arts.write("reviews/summary.json", JSON.stringify(summary, null, 2));
+  arts.write("reviews/quality-gates.json", JSON.stringify(qualityGates(inventory, authored, needsRevision, blocked, summary), null, 2));
+  arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, needsRevision, blocked));
+  if (authored.length === 0) throw new ValidationError(["no lessons passed review — every lesson is blocked on a capability gap or needs revision"]);
+}
+
+function renderVerdictMd(title: string, verdict: Verdict, issues?: string[]): string {
+  return [`# ${title}`, ``, `**Verdict:** ${verdict}`, ``, ...(issues && issues.length ? ["## Issues", ...issues.map((i) => `- ${i}`)] : ["_No issues raised._"]), ``].join("\n");
+}
+
+function writeReviewArtifacts(arts: RunArtifacts, lessonId: string, o: ReviewOutcome): void {
+  arts.write(`reviews/${lessonId}.technical.md`, renderVerdictMd("Technical review", o.technical.verdict, o.technical.issues));
+  arts.write(`reviews/${lessonId}.pedagogy.json`, JSON.stringify(o.pedagogy, null, 2));
+  arts.write(`reviews/${lessonId}.cohesion.md`, renderVerdictMd("Cohesion review", o.cohesion.verdict, o.cohesion.issues));
 }
 
 async function runMaterializing(ctx: PhaseContext, deps: ExecutorDeps, arts: RunArtifacts): Promise<void> {
   const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
+  // Only ship lessons that PASSED review — a needs-revision lesson has a
+  // lessons/<id>/lesson.md too, but it must not reach learners.
+  const summary = parseJson<ReviewOutcome[]>(arts.read("reviews/summary.json") ?? "[]");
+  const passed = new Set(summary.filter((o) => o.passed).map((o) => o.lessonId));
   const lessons: MaterializeInput["lessons"] = [];
   for (const lesson of inventory) {
-    if (!arts.exists(`lessons/${lesson.lessonId}/lesson.md`)) continue; // blocked/unauthored
+    if (!passed.has(lesson.lessonId)) continue; // blocked, unauthored, or needs-revision
     // A minimal lab spec derived from the brief. Richer lab specs (a full
     // lab.json authored per lesson) grow behind this seam in a later slice.
     lessons.push({
@@ -217,21 +259,27 @@ async function runMaterializing(ctx: PhaseContext, deps: ExecutorDeps, arts: Run
   ctx.emit("materialized", { ...result });
 }
 
-function qualityGates(inventory: LessonInventoryEntry[], authored: string[], blocked: Set<string>) {
-  const authoredSet = new Set(authored);
+function qualityGates(inventory: LessonInventoryEntry[], authored: string[], needsRevision: string[], blocked: Set<string>, summary: ReviewOutcome[]) {
+  const passed = new Set(authored);
   return {
+    // A representative subset of the strategy doc's course-level gates, scored
+    // from the real review outcomes.
     coverage: inventory.length > 0,
     everyLevelPresent: new Set(inventory.map((l) => l.level)).size >= 1,
+    everyLessonReviewed: summary.length === inventory.length - blocked.size,
+    activeLearning: summary.every((o) => o.pedagogy.scores.activeLearning >= REVISION_THRESHOLD),
+    allShippedPassedReview: authored.every((id) => passed.has(id)),
     authoredCount: authored.length,
+    needsRevisionCount: needsRevision.length,
     blockedCount: blocked.size,
-    allAuthoredOrBlocked: inventory.every((l) => authoredSet.has(l.lessonId) || blocked.has(l.lessonId)),
   };
 }
 
-function coverageMatrix(inventory: LessonInventoryEntry[], authored: string[], blocked: Set<string>): string {
+function coverageMatrix(inventory: LessonInventoryEntry[], authored: string[], needsRevision: string[], blocked: Set<string>): string {
   const authoredSet = new Set(authored);
+  const revisionSet = new Set(needsRevision);
   const rows = inventory.map((l) => {
-    const state = authoredSet.has(l.lessonId) ? "authored" : blocked.has(l.lessonId) ? "blocked" : "pending";
+    const state = authoredSet.has(l.lessonId) ? "authored" : revisionSet.has(l.lessonId) ? "needs-revision" : blocked.has(l.lessonId) ? "blocked" : "pending";
     return `| ${l.sequence} | ${l.level} | ${l.lessonId} | ${l.primaryCapability} | ${state} |`;
   });
   return ["# Coverage matrix", "", "| Seq | Level | Lesson | Capability | State |", "|---|---|---|---|---|", ...rows, ""].join("\n");

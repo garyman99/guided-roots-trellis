@@ -4,5 +4,6 @@ export * from "./scheduler.ts";
 export * from "./roles.ts";
 export * from "./schemas.ts";
 export * from "./gaps.ts";
+export * from "./reviews.ts";
 export * from "./executor.ts";
 export * from "./mockCourse.ts";

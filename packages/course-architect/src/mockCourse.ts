@@ -120,10 +120,9 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
   if (prompt.task === "course-request") return JSON.stringify(mockCourseRequest(ctx));
   if (prompt.task === "blueprint") return JSON.stringify(mockBlueprint(ctx));
   if (prompt.task.startsWith("lesson:")) return JSON.stringify(mockLessonPlan(ctx));
-  if (prompt.task.startsWith("review:")) {
-    // Reviews are prose/JSON verdicts; a passing verdict keeps the pipeline moving.
-    if (role === "pedagogy-reviewer") return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
-    return `# Review (${role})\n\nApproved: technically sound and consistent with the course conventions.`;
-  }
+  // Reviews are structured; a passing verdict keeps the default course moving.
+  if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
+  if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [] });
+  if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [] });
   return "{}";
 };

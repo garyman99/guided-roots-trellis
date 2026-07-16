@@ -118,6 +118,30 @@ test("a capability gap blocks its lessons from authoring", async () => {
   assert.equal(h.materialized.at(-1)!.labIds.length, 1);
 });
 
+test("a lesson that fails pedagogy review lands in needs-revision and is not shipped", async () => {
+  // The pedagogy reviewer scores the SECOND lesson below threshold, unjustified.
+  const harshReviewer: MockResponder = (role, prompt) => {
+    if (prompt.task === "review:pedagogy:git-102") {
+      return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 2, feedback: 5, mastery: 5 }, verdict: "revise" });
+    }
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(harshReviewer);
+  const runId = await driveToApproved(h, "Git");
+
+  const arts = h.artifactsFor(runId);
+  const summary = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean; failingCategories: string[] }>;
+  const l102 = summary.find((o) => o.lessonId === "git-102")!;
+  assert.equal(l102.passed, false);
+  assert.deepEqual(l102.failingCategories, ["activeLearning"]);
+  // git-101 passed and shipped; git-102 did NOT (only one lab materialized).
+  assert.equal(h.materialized.at(-1)!.labIds.length, 1);
+  assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101"]);
+  // The pedagogy scores are on disk for the lesson board's heat strip.
+  const ped = JSON.parse(arts.read("reviews/git-102.pedagogy.json")!);
+  assert.equal(ped.scores.activeLearning, 2);
+});
+
 test("blueprint validation rejects a cyclic prerequisite graph and unknown prereqs", () => {
   assert.throws(
     () =>

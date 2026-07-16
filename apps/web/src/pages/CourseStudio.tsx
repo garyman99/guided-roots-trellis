@@ -298,6 +298,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       {run.status === "approved" && <GoLive run={run} onCoursesChanged={onCoursesChanged} />}
 
       <LessonBoard run={run} />
+      <QualityGates run={run} />
       <ArtifactViewer run={run} />
       <ActivityFeed events={run.events} />
 
@@ -517,40 +518,102 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
   );
 }
 
-/* ---------- lesson board ---------- */
+/* ---------- lesson board (with pedagogy scores) ---------- */
 
 interface InventoryEntry { lessonId: string; level: string; sequence: number; title: string; primaryCapability: string }
+interface ReviewOutcome {
+  lessonId: string;
+  passed: boolean;
+  pedagogy: { scores: Record<string, number> };
+  technical: { verdict: string };
+  cohesion: { verdict: string };
+  failingCategories: string[];
+}
+const PED_ORDER = ["priorKnowledge", "mentalModel", "activeLearning", "feedback", "mastery"];
+const PED_SHORT: Record<string, string> = { priorKnowledge: "PK", mentalModel: "MM", activeLearning: "AL", feedback: "FB", mastery: "MA" };
 
 function LessonBoard({ run }: { run: CourseRunDetail }) {
   const [inv, setInv] = useState<InventoryEntry[] | null>(null);
+  const [reviews, setReviews] = useState<Record<string, ReviewOutcome>>({});
   useEffect(() => {
     if (run.artifacts.includes("lesson-inventory.json")) {
       courseRunApi.artifact(run.runId, "lesson-inventory.json").then((a) => setInv(JSON.parse(a.content))).catch(() => setInv([]));
+    }
+    if (run.artifacts.includes("reviews/summary.json")) {
+      courseRunApi.artifact(run.runId, "reviews/summary.json")
+        .then((a) => setReviews(Object.fromEntries((JSON.parse(a.content) as ReviewOutcome[]).map((o) => [o.lessonId, o]))))
+        .catch(() => setReviews({}));
     }
   }, [run]);
   if (!inv || inv.length === 0) return null;
 
   const authored = new Set(run.events.filter((e) => e.type === "lesson.authored").map((e) => (e.payload as { lessonId: string }).lessonId));
   const blocked = new Set(run.events.filter((e) => e.type === "lesson.blocked").map((e) => (e.payload as { lessonId: string }).lessonId));
-  const stateOf = (id: string) => (authored.has(id) ? "authored" : blocked.has(id) ? "blocked" : "pending");
+  const needsRevision = new Set(run.events.filter((e) => e.type === "lesson.needs-revision").map((e) => (e.payload as { lessonId: string }).lessonId));
+  const stateOf = (id: string) => (authored.has(id) ? "authored" : needsRevision.has(id) ? "needs-revision" : blocked.has(id) ? "blocked" : "pending");
+  const stateClass = (s: string) => (s === "authored" ? "status-mastered" : s === "blocked" || s === "needs-revision" ? "status-abandoned" : "");
+  const hasReviews = Object.keys(reviews).length > 0;
 
   return (
     <div className="gr-card">
       <h3>Lessons</h3>
       <table className="admin-table">
-        <thead><tr><th>#</th><th>Level</th><th>Lesson</th><th>Capability</th><th>State</th></tr></thead>
+        <thead>
+          <tr><th>#</th><th>Level</th><th>Lesson</th><th>State</th>{hasReviews && <th>Pedagogy (1–5)</th>}{hasReviews && <th>Tech / Cohesion</th>}</tr>
+        </thead>
         <tbody>
-          {[...inv].sort((a, b) => a.sequence - b.sequence).map((l) => (
-            <tr key={l.lessonId}>
-              <td>{l.sequence}</td>
-              <td><span className="admin-chip">{l.level}</span></td>
-              <td>{l.title} <code className="gr-mono-note">{l.lessonId}</code></td>
-              <td>{l.primaryCapability}</td>
-              <td><span className={`admin-chip ${stateOf(l.lessonId) === "authored" ? "status-mastered" : stateOf(l.lessonId) === "blocked" ? "status-abandoned" : ""}`}>{stateOf(l.lessonId)}</span></td>
-            </tr>
-          ))}
+          {[...inv].sort((a, b) => a.sequence - b.sequence).map((l) => {
+            const state = stateOf(l.lessonId);
+            const o = reviews[l.lessonId];
+            return (
+              <tr key={l.lessonId}>
+                <td>{l.sequence}</td>
+                <td><span className="admin-chip">{l.level}</span></td>
+                <td>{l.title} <code className="gr-mono-note">{l.lessonId}</code></td>
+                <td><span className={`admin-chip ${stateClass(state)}`}>{state}</span></td>
+                {hasReviews && (
+                  <td>
+                    {o ? (
+                      <span className="cg-heat">
+                        {PED_ORDER.map((cat) => {
+                          const s = o.pedagogy.scores[cat];
+                          return <span key={cat} className={`cg-heat-cell${s < 4 ? " low" : ""}`} title={`${cat}: ${s}`}>{PED_SHORT[cat]}<b>{s}</b></span>;
+                        })}
+                      </span>
+                    ) : "—"}
+                  </td>
+                )}
+                {hasReviews && <td>{o ? <span className="gr-mono-note">{o.technical.verdict} / {o.cohesion.verdict}</span> : "—"}</td>}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ---------- quality gates ---------- */
+
+function QualityGates({ run }: { run: CourseRunDetail }) {
+  const [gates, setGates] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    if (run.artifacts.includes("reviews/quality-gates.json")) {
+      courseRunApi.artifact(run.runId, "reviews/quality-gates.json").then((a) => setGates(JSON.parse(a.content))).catch(() => setGates(null));
+    }
+  }, [run]);
+  if (!gates) return null;
+  return (
+    <div className="gr-card">
+      <h3>Quality gates</h3>
+      <ul className="admin-claims">
+        {Object.entries(gates).map(([k, v]) => (
+          <li key={k}>
+            {typeof v === "boolean" ? <span className={`admin-chip ${v ? "status-mastered" : "status-abandoned"}`}>{v ? "pass" : "fail"}</span> : <span className="admin-chip">{String(v)}</span>}
+            <code>{k}</code>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
