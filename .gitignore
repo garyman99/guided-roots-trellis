@@ -7,4 +7,6 @@ dist/
 scenarios/recordings/
 tools/recorder/node_modules/
 artifacts/
+curriculum/runs/
+curriculum/published/
 .env

@@ -1,0 +1,247 @@
+/**
+ * CourseRunScheduler — drives runs through the phase/gate state machine.
+ *
+ * Responsibilities (plan Phase B):
+ *   • Single active run (D7): at most one run executes a phase at a time; others
+ *     wait in `queued`. Runs parked at a gate do not occupy the slot.
+ *   • Gates (D4): after each phase the run parks awaiting a human decision;
+ *     approve advances, changes re-runs the phase with the notes, reject archives.
+ *   • Interrupt/resume (D8): a run caught mid-phase on construction (server boot)
+ *     is marked `interrupted`; the operator resumes it and it re-enters the queue.
+ *   • Bounded execution: a per-phase invocation cap and wall-clock cap stand in
+ *     for budgets (D5) — correctness rails against loops, not cost accounting.
+ *
+ * Execution itself is an injected PhaseExecutor, so Phase B tests use a fake and
+ * Phase C plugs in the real role pipeline. All mutations go through the store.
+ */
+import { randomBytes } from "node:crypto";
+import {
+  type CourseRun,
+  type CourseRunRequest,
+  type CourseRunStore,
+  type GateDecision,
+  type GateId,
+  type GateNote,
+  type Phase,
+  type PhaseExecutor,
+  GATE_OF_PHASE,
+  NEXT_PHASE_AFTER_GATE,
+  PHASE_OF_GATE,
+  RunStateError,
+  awaitingGate,
+  isActive,
+} from "./types.ts";
+
+export interface SchedulerOptions {
+  /** Injected clock — defaults to Date.now via new Date(); tests pass a stub. */
+  now?: () => string;
+  /** Deterministic id suffix for tests. */
+  idSuffix?: () => string;
+  /** Wall-clock cap per phase execution (ms). Exceeding it interrupts the run. */
+  phaseTimeoutMs?: number;
+}
+
+export class CourseRunScheduler {
+  private readonly store: CourseRunStore;
+  private readonly executor: PhaseExecutor;
+  private readonly now: () => string;
+  private readonly idSuffix: () => string;
+  private readonly phaseTimeoutMs: number;
+
+  /** In-flight execution, tracked so tests can await settle() and pump() serializes. */
+  private running: Promise<void> | null = null;
+
+  constructor(store: CourseRunStore, executor: PhaseExecutor, opts: SchedulerOptions = {}) {
+    this.store = store;
+    this.executor = executor;
+    this.now = opts.now ?? (() => new Date().toISOString());
+    this.idSuffix = opts.idSuffix ?? (() => randomBytes(3).toString("hex"));
+    this.phaseTimeoutMs = opts.phaseTimeoutMs ?? 10 * 60 * 1000;
+    this.recoverInterrupted();
+    this.pump();
+  }
+
+  /** Any run left mid-phase (a prior process died) becomes `interrupted` (D8). */
+  private recoverInterrupted(): void {
+    for (const run of this.store.listCourseRuns()) {
+      if (isActive(run.status)) {
+        const phase = run.status as Phase;
+        this.patch(run, { status: "interrupted", pendingPhase: phase, lastError: "interrupted by restart" });
+        this.emit(run.runId, "run.interrupted", { phase });
+      }
+    }
+  }
+
+  // ── public API ────────────────────────────────────────────────────────────
+
+  /** Create a run from a request. Starts framing when a slot is free, else queues. */
+  create(request: CourseRunRequest): CourseRun {
+    if (!request.technology || !request.technology.trim()) throw new RunStateError("technology is required");
+    const at = this.now();
+    const run: CourseRun = {
+      runId: this.newRunId(request),
+      status: "queued",
+      request,
+      pendingPhase: "framing",
+      pendingChangeNotes: null,
+      lastError: null,
+      createdAt: at,
+      updatedAt: at,
+    };
+    this.store.createCourseRun(run);
+    this.emit(run.runId, "run.queued", { pendingPhase: "framing" });
+    this.pump();
+    return this.store.getCourseRun(run.runId)!;
+  }
+
+  /** Record a gate decision and advance the run. Throws if the gate isn't pending. */
+  decideGate(runId: string, gateId: GateId, decision: GateDecision, notes: GateNote[] | null, by: string | null): CourseRun {
+    const run = this.require(runId);
+    if (run.status !== awaitingGate(gateId)) {
+      throw new RunStateError(`gate "${gateId}" is not awaiting a decision for run ${runId} (status: ${run.status})`);
+    }
+    this.store.decideCourseRunGate(runId, gateId, decision, by, notes ?? null, this.now());
+    this.emit(runId, "gate.decided", { gateId, decision, by: by ?? undefined, noteCount: notes?.length ?? 0 });
+
+    if (decision === "rejected") {
+      this.patch(run, { status: "archived", pendingPhase: null, pendingChangeNotes: null });
+    } else if (decision === "changes") {
+      // Re-run the phase that produced this gate, handing it the notes.
+      this.patch(run, { status: "queued", pendingPhase: PHASE_OF_GATE[gateId], pendingChangeNotes: notes ?? null });
+      this.emit(runId, "run.queued", { pendingPhase: PHASE_OF_GATE[gateId], reason: "changes-requested" });
+    } else {
+      const next = NEXT_PHASE_AFTER_GATE[gateId];
+      if (next === null) {
+        // publish approved — the course now exists as a draft (materialization
+        // wrote it in Phase C). The run is done; Go-live is a separate action.
+        this.patch(run, { status: "approved", pendingPhase: null, pendingChangeNotes: null });
+        this.emit(runId, "run.approved", {});
+      } else {
+        this.patch(run, { status: "queued", pendingPhase: next, pendingChangeNotes: null });
+        this.emit(runId, "run.queued", { pendingPhase: next });
+      }
+    }
+    this.pump();
+    return this.store.getCourseRun(runId)!;
+  }
+
+  /** Resume an interrupted run (D8) — it re-enters the queue at its dead phase. */
+  resume(runId: string): CourseRun {
+    const run = this.require(runId);
+    if (run.status !== "interrupted") throw new RunStateError(`run ${runId} is not interrupted (status: ${run.status})`);
+    if (!run.pendingPhase) throw new RunStateError(`interrupted run ${runId} has no phase to resume`);
+    this.patch(run, { status: "queued", lastError: null });
+    this.emit(runId, "run.resumed", { pendingPhase: run.pendingPhase });
+    this.pump();
+    return this.store.getCourseRun(runId)!;
+  }
+
+  /** Abandon a run. Allowed unless it's mid-phase (let it park or interrupt first). */
+  archive(runId: string): CourseRun {
+    const run = this.require(runId);
+    if (isActive(run.status)) throw new RunStateError(`run ${runId} is executing (${run.status}); cannot archive mid-phase`);
+    this.patch(run, { status: "archived", pendingPhase: null, pendingChangeNotes: null });
+    this.emit(runId, "run.archived", {});
+    this.pump();
+    return this.store.getCourseRun(runId)!;
+  }
+
+  /** Test/shutdown helper: resolve when no phase execution is in flight. */
+  async settle(): Promise<void> {
+    while (this.running) await this.running;
+  }
+
+  // ── scheduling core ─────────────────────────────────────────────────────────
+
+  /** If the slot is free, pick the oldest queued run and execute its pending phase. */
+  private pump(): void {
+    if (this.running) return; // slot occupied
+    const next = this.store
+      .listCourseRuns()
+      .filter((r) => r.status === "queued" && r.pendingPhase)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    if (!next) return;
+    this.running = this.runPhase(next).finally(() => {
+      this.running = null;
+      this.pump(); // a slot freed — promote the next queued run
+    });
+  }
+
+  private async runPhase(run: CourseRun): Promise<void> {
+    const phase = run.pendingPhase!;
+    const changeNotes = run.pendingChangeNotes ?? null;
+    this.patch(run, { status: phase, pendingChangeNotes: null });
+    this.emit(run.runId, "phase.started", { phase, reRun: changeNotes !== null });
+
+    try {
+      await this.withTimeout(
+        this.executor({
+          run: this.store.getCourseRun(run.runId)!,
+          phase,
+          changeNotes,
+          emit: (type, payload) => this.emit(run.runId, type, payload),
+        }),
+        phase,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Preserve pendingPhase so the operator can resume exactly here (D8).
+      this.patch(run, { status: "interrupted", pendingPhase: phase, lastError: message });
+      this.emit(run.runId, "error", { phase, message });
+      this.emit(run.runId, "run.interrupted", { phase });
+      return;
+    }
+
+    this.emit(run.runId, "phase.completed", { phase });
+    this.requestGate(run.runId, GATE_OF_PHASE[phase]);
+  }
+
+  private requestGate(runId: string, gateId: GateId): void {
+    this.store.requestCourseRunGate(runId, gateId, this.now());
+    const run = this.store.getCourseRun(runId)!;
+    this.patch(run, { status: awaitingGate(gateId), pendingPhase: null });
+    this.emit(runId, "gate.requested", { gateId });
+  }
+
+  private async withTimeout(work: Promise<void>, phase: Phase): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const guard = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`phase "${phase}" exceeded ${this.phaseTimeoutMs}ms`)), this.phaseTimeoutMs);
+      // Don't let the cap timer alone keep the process alive (a hung executor
+      // from a crashed prior run shouldn't pin the event loop for 10 minutes).
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([work, guard]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // ── helpers ─────────────────────────────────────────────────────────────────
+
+  private require(runId: string): CourseRun {
+    const run = this.store.getCourseRun(runId);
+    if (!run) throw new RunStateError(`run not found: ${runId}`);
+    return run;
+  }
+
+  private patch(run: CourseRun, fields: Partial<CourseRun>): void {
+    const updated = { ...run, ...fields, updatedAt: this.now() };
+    this.store.updateCourseRun(updated);
+    Object.assign(run, updated); // keep the caller's reference current
+  }
+
+  private emit(runId: string, type: string, payload?: Record<string, unknown>): void {
+    this.store.appendCourseRunEvent({ runId, at: this.now(), type, payload });
+  }
+
+  private newRunId(request: CourseRunRequest): string {
+    const slug = request.technology
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32) || "course";
+    return `cg-${slug}-${this.idSuffix()}`;
+  }
+}

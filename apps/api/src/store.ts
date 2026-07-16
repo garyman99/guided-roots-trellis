@@ -18,6 +18,14 @@ import { stampVersion, upcastEvent } from "../../../packages/session-events/src/
 import type { EvidenceEvent, StoredEvidence } from "../../../packages/learner-model/src/evidence.ts";
 import type { Reflection } from "../../../packages/learner-model/src/reflection.ts";
 import type { Scenario } from "../../../packages/shared/src/scenarios.ts";
+import type {
+  CourseRun,
+  CourseRunEvent,
+  CourseRunGate,
+  GateDecision,
+  GateId,
+  GateNote,
+} from "../../../packages/course-architect/src/types.ts";
 
 export interface SessionMeta {
   sessionId: string;
@@ -52,6 +60,8 @@ export interface LearnerMeta {
 export interface TokenUsageRecord {
   learnerId: string;
   sessionId: string;
+  /** Set when the spend belongs to a course-generation run (not a learner session). */
+  runId?: string;
   model: string;
   promptTokens: number;
   completionTokens: number;
@@ -137,6 +147,24 @@ export interface EventStore {
   listScenarioEntries(): Scenario[];
   saveScenarioEntry(scenario: Scenario): void; // insert-or-replace by labId
   deleteScenarioEntry(labId: string): void;
+  // course-generation runs (CourseRunStore contract; the scheduler drives these)
+  createCourseRun(run: CourseRun): void;
+  getCourseRun(runId: string): CourseRun | null;
+  listCourseRuns(): CourseRun[];
+  updateCourseRun(run: CourseRun): void;
+  deleteCourseRun(runId: string): void;
+  appendCourseRunEvent(event: CourseRunEvent): CourseRunEvent;
+  courseRunEvents(runId: string): CourseRunEvent[];
+  requestCourseRunGate(runId: string, gateId: GateId, requestedAt: string): void;
+  decideCourseRunGate(
+    runId: string,
+    gateId: GateId,
+    decision: GateDecision,
+    decidedBy: string | null,
+    notes: GateNote[] | null,
+    decidedAt: string,
+  ): void;
+  courseRunGates(runId: string): CourseRunGate[];
   sessionsForLearner(learnerId: string): string[];
   /** Every stored session (admin history view); newest last. */
   listSessions(): SessionMeta[];
@@ -152,6 +180,40 @@ export interface EventStore {
   snapshotFor(sessionId: string, kind: "files" | "workspace"): SessionSnapshot | null;
   deleteSession(sessionId: string): void;
   close(): void;
+}
+
+/* ── course-run row (de)serialization ── */
+
+interface CourseRunRow {
+  run_id: string;
+  status: string;
+  payload: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The JSON blob half of a course-run row (everything not in a column). */
+function courseRunPayload(run: CourseRun): Record<string, unknown> {
+  return {
+    request: run.request,
+    pendingPhase: run.pendingPhase,
+    pendingChangeNotes: run.pendingChangeNotes ?? null,
+    lastError: run.lastError ?? null,
+  };
+}
+
+function rowToCourseRun(row: CourseRunRow): CourseRun {
+  const p = JSON.parse(row.payload) as Partial<CourseRun>;
+  return {
+    runId: row.run_id,
+    status: row.status as CourseRun["status"],
+    request: p.request ?? ({ technology: "" } as CourseRun["request"]),
+    pendingPhase: p.pendingPhase ?? null,
+    pendingChangeNotes: p.pendingChangeNotes ?? null,
+    lastError: p.lastError ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 class SqliteStore implements EventStore {
@@ -248,6 +310,31 @@ class SqliteStore implements EventStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS course_runs (
+        run_id     TEXT PRIMARY KEY,
+        status     TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS course_run_events (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id  TEXT NOT NULL,
+        at      TEXT NOT NULL,
+        type    TEXT NOT NULL,
+        payload TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_run_events ON course_run_events(run_id, id);
+      CREATE TABLE IF NOT EXISTS course_run_gates (
+        run_id       TEXT NOT NULL,
+        gate_id      TEXT NOT NULL,
+        requested_at TEXT NOT NULL,
+        decided_at   TEXT,
+        decision     TEXT,
+        decided_by   TEXT,
+        notes        TEXT,
+        PRIMARY KEY (run_id, gate_id, requested_at)
+      );
     `);
     // Older DBs predate the identity/cost columns; ALTERs are idempotent-by-
     // failure (SQLite has no IF NOT EXISTS for columns). Fresh DBs get them
@@ -259,6 +346,7 @@ class SqliteStore implements EventStore {
       "ALTER TABLE token_usage ADD COLUMN cache_write_tokens INTEGER",
       "ALTER TABLE token_usage ADD COLUMN estimated_cost_usd REAL",
       "ALTER TABLE token_usage ADD COLUMN pricing_version INTEGER",
+      "ALTER TABLE token_usage ADD COLUMN run_id TEXT",
       "ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
       "ALTER TABLE sessions ADD COLUMN ended_at TEXT",
     ]) {
@@ -450,11 +538,12 @@ class SqliteStore implements EventStore {
   recordTokenUsage(rec: TokenUsageRecord): void {
     this.db
       .prepare(
-        "INSERT INTO token_usage (learner_id, session_id, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, estimated_cost_usd, pricing_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO token_usage (learner_id, session_id, run_id, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, estimated_cost_usd, pricing_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         rec.learnerId,
         rec.sessionId,
+        rec.runId ?? null,
         rec.model,
         rec.promptTokens,
         rec.completionTokens,
@@ -472,12 +561,13 @@ class SqliteStore implements EventStore {
         ? this.db.prepare("SELECT * FROM token_usage WHERE learner_id = ? ORDER BY id ASC").all(learnerId)
         : this.db.prepare("SELECT * FROM token_usage ORDER BY id ASC").all()
     ) as Array<{
-      learner_id: string; session_id: string; model: string; prompt_tokens: number; completion_tokens: number;
+      learner_id: string; session_id: string; run_id: string | null; model: string; prompt_tokens: number; completion_tokens: number;
       cache_read_tokens: number | null; cache_write_tokens: number | null; estimated_cost_usd: number | null; pricing_version: number | null; created_at: string;
     }>;
     return rows.map((r) => ({
       learnerId: r.learner_id,
       sessionId: r.session_id,
+      ...(r.run_id !== null ? { runId: r.run_id } : {}),
       model: r.model,
       promptTokens: r.prompt_tokens,
       completionTokens: r.completion_tokens,
@@ -532,6 +622,89 @@ class SqliteStore implements EventStore {
     this.db.prepare("DELETE FROM scenarios WHERE lab_id = ?").run(labId);
   }
 
+  // ── course-generation runs ──
+  createCourseRun(run: CourseRun): void {
+    this.db
+      .prepare("INSERT INTO course_runs (run_id, status, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+      .run(run.runId, run.status, JSON.stringify(courseRunPayload(run)), run.createdAt, run.updatedAt);
+  }
+
+  getCourseRun(runId: string): CourseRun | null {
+    const row = this.db.prepare("SELECT * FROM course_runs WHERE run_id = ?").get(runId) as CourseRunRow | undefined;
+    return row ? rowToCourseRun(row) : null;
+  }
+
+  listCourseRuns(): CourseRun[] {
+    return (this.db.prepare("SELECT * FROM course_runs ORDER BY created_at ASC").all() as CourseRunRow[]).map(rowToCourseRun);
+  }
+
+  updateCourseRun(run: CourseRun): void {
+    this.db
+      .prepare("UPDATE course_runs SET status = ?, payload = ?, updated_at = ? WHERE run_id = ?")
+      .run(run.status, JSON.stringify(courseRunPayload(run)), run.updatedAt, run.runId);
+  }
+
+  deleteCourseRun(runId: string): void {
+    this.db.prepare("DELETE FROM course_runs WHERE run_id = ?").run(runId);
+    this.db.prepare("DELETE FROM course_run_events WHERE run_id = ?").run(runId);
+    this.db.prepare("DELETE FROM course_run_gates WHERE run_id = ?").run(runId);
+  }
+
+  appendCourseRunEvent(event: CourseRunEvent): CourseRunEvent {
+    const res = this.db
+      .prepare("INSERT INTO course_run_events (run_id, at, type, payload) VALUES (?, ?, ?, ?)")
+      .run(event.runId, event.at, event.type, event.payload ? JSON.stringify(event.payload) : null);
+    return { ...event, id: Number(res.lastInsertRowid) };
+  }
+
+  courseRunEvents(runId: string): CourseRunEvent[] {
+    return (
+      this.db.prepare("SELECT * FROM course_run_events WHERE run_id = ? ORDER BY id ASC").all(runId) as Array<{
+        id: number; run_id: string; at: string; type: string; payload: string | null;
+      }>
+    ).map((r) => ({ id: r.id, runId: r.run_id, at: r.at, type: r.type, ...(r.payload ? { payload: JSON.parse(r.payload) } : {}) }));
+  }
+
+  requestCourseRunGate(runId: string, gateId: GateId, requestedAt: string): void {
+    this.db
+      .prepare("INSERT INTO course_run_gates (run_id, gate_id, requested_at) VALUES (?, ?, ?)")
+      .run(runId, gateId, requestedAt);
+  }
+
+  decideCourseRunGate(
+    runId: string,
+    gateId: GateId,
+    decision: GateDecision,
+    decidedBy: string | null,
+    notes: GateNote[] | null,
+    decidedAt: string,
+  ): void {
+    // Decide the single still-open row for this gate (a gate can be re-requested
+    // across a changes loop; only the latest is pending).
+    this.db
+      .prepare(
+        "UPDATE course_run_gates SET decision = ?, decided_by = ?, notes = ?, decided_at = ? " +
+          "WHERE run_id = ? AND gate_id = ? AND decided_at IS NULL",
+      )
+      .run(decision, decidedBy, notes ? JSON.stringify(notes) : null, decidedAt, runId, gateId);
+  }
+
+  courseRunGates(runId: string): CourseRunGate[] {
+    return (
+      this.db.prepare("SELECT * FROM course_run_gates WHERE run_id = ? ORDER BY requested_at ASC").all(runId) as Array<{
+        run_id: string; gate_id: string; requested_at: string; decided_at: string | null; decision: string | null; decided_by: string | null; notes: string | null;
+      }>
+    ).map((r) => ({
+      runId: r.run_id,
+      gateId: r.gate_id as GateId,
+      requestedAt: r.requested_at,
+      decidedAt: r.decided_at,
+      decision: (r.decision as GateDecision | null) ?? null,
+      decidedBy: r.decided_by,
+      notes: r.notes ? (JSON.parse(r.notes) as GateNote[]) : null,
+    }));
+  }
+
   listSessions(): SessionMeta[] {
     return (
       this.db.prepare("SELECT * FROM sessions ORDER BY created_at ASC").all() as Array<{
@@ -573,6 +746,10 @@ class MemoryStore implements EventStore {
   private usage: TokenUsageRecord[] = [];
   private courses = new Map<string, Course>();
   private scenarioEntries = new Map<string, Scenario>();
+  private courseRuns = new Map<string, CourseRun>();
+  private courseRunEventLog = new Map<string, CourseRunEvent[]>();
+  private courseRunGateRows = new Map<string, CourseRunGate[]>();
+  private courseRunEventSeq = 0;
 
   createLearner(meta: LearnerMeta): void { this.learners.set(meta.learnerId, meta); }
   learnerMeta(id: string): LearnerMeta | null { return this.learners.get(id) ?? null; }
@@ -616,6 +793,56 @@ class MemoryStore implements EventStore {
   listScenarioEntries(): Scenario[] { return [...this.scenarioEntries.values()]; }
   saveScenarioEntry(s: Scenario): void { this.scenarioEntries.set(s.labId, s); }
   deleteScenarioEntry(labId: string): void { this.scenarioEntries.delete(labId); }
+
+  createCourseRun(run: CourseRun): void { this.courseRuns.set(run.runId, structuredClone(run)); }
+  getCourseRun(runId: string): CourseRun | null {
+    const r = this.courseRuns.get(runId);
+    return r ? structuredClone(r) : null;
+  }
+  listCourseRuns(): CourseRun[] {
+    return [...this.courseRuns.values()].map((r) => structuredClone(r)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  updateCourseRun(run: CourseRun): void {
+    if (this.courseRuns.has(run.runId)) this.courseRuns.set(run.runId, structuredClone(run));
+  }
+  deleteCourseRun(runId: string): void {
+    this.courseRuns.delete(runId);
+    this.courseRunEventLog.delete(runId);
+    this.courseRunGateRows.delete(runId);
+  }
+  appendCourseRunEvent(event: CourseRunEvent): CourseRunEvent {
+    const stored = { ...event, id: ++this.courseRunEventSeq };
+    this.courseRunEventLog.set(event.runId, [...(this.courseRunEventLog.get(event.runId) ?? []), stored]);
+    return stored;
+  }
+  courseRunEvents(runId: string): CourseRunEvent[] {
+    return [...(this.courseRunEventLog.get(runId) ?? [])];
+  }
+  requestCourseRunGate(runId: string, gateId: GateId, requestedAt: string): void {
+    const rows = this.courseRunGateRows.get(runId) ?? [];
+    rows.push({ runId, gateId, requestedAt, decidedAt: null, decision: null, decidedBy: null, notes: null });
+    this.courseRunGateRows.set(runId, rows);
+  }
+  decideCourseRunGate(
+    runId: string,
+    gateId: GateId,
+    decision: GateDecision,
+    decidedBy: string | null,
+    notes: GateNote[] | null,
+    decidedAt: string,
+  ): void {
+    const row = (this.courseRunGateRows.get(runId) ?? []).find((g) => g.gateId === gateId && g.decidedAt === null);
+    if (row) {
+      row.decision = decision;
+      row.decidedBy = decidedBy;
+      row.notes = notes;
+      row.decidedAt = decidedAt;
+    }
+  }
+  courseRunGates(runId: string): CourseRunGate[] {
+    return (this.courseRunGateRows.get(runId) ?? []).map((g) => structuredClone(g));
+  }
+
   listSessions(): SessionMeta[] {
     return [...this.sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }

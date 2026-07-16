@@ -70,6 +70,16 @@ import { createStore, type Course, type CourseLesson, type LearnerMeta, type Tok
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY } from "./capabilities.ts";
 import { SCENARIO_SEED, mergeScenarios } from "../../../packages/shared/src/scenarios.ts";
+import {
+  CourseRunScheduler,
+  RunArtifacts,
+  RunStateError,
+  GATES,
+  type CourseRun,
+  type GateId,
+  type GateNote,
+  type PhaseContext,
+} from "../../../packages/course-architect/src/index.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -102,6 +112,37 @@ const store = createStore();
 export const manager = new SessionManager(store, join(repoRoot, "labs"), {
   publishedRoot: join(repoRoot, "curriculum", "published"),
 });
+
+// ── course-generation runs ──────────────────────────────────────────────────
+// Artifacts live under curriculum/runs/<runId>/; run STATE lives in the store.
+// The base dir is env-overridable so tests can isolate to a temp directory.
+const courseRunsDir = process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
+const runArtifactsFor = (runId: string): RunArtifacts => new RunArtifacts(join(courseRunsDir, runId));
+
+/**
+ * Phase-B placeholder executor. The real role pipeline arrives in Phase C; until
+ * then each phase writes a marker artifact and emits a beat, so the run entity,
+ * gates, scheduler, and Course studio can be exercised end to end without a
+ * model. It never produces a real course — a run reaching "approved" here just
+ * proves the governance machinery works.
+ */
+const placeholderExecutor = async (ctx: PhaseContext): Promise<void> => {
+  const marker: Record<string, string> = {
+    framing: "course-request.md",
+    designing: "lesson-inventory.json",
+    authoring: "reviews/coverage-matrix.md",
+    materializing: "manifest.json",
+  };
+  const path = marker[ctx.phase];
+  const note = ctx.changeNotes ? `revised per ${ctx.changeNotes.length} note(s)` : "initial";
+  runArtifactsFor(ctx.run.runId).write(
+    path,
+    `Phase-B placeholder for "${ctx.phase}" (${note}). Real generation lands in Phase C.\n`,
+  );
+  ctx.emit("placeholder.phase", { phase: ctx.phase });
+};
+
+export const courseRuns = new CourseRunScheduler(store, placeholderExecutor);
 
 /**
  * Curated-course seed: the catalog every deployment ships with. Each canonical
@@ -195,6 +236,64 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
     if (raw.length > 64 * 1024) throw new Error("body too large");
   }
   return raw ? JSON.parse(raw) : {};
+}
+
+/* ── course-run request/response helpers ── */
+
+/** Pull a whitelist of string fields off a body, trimmed and length-capped. */
+function pickStrings(body: Record<string, unknown>, keys: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = body[k];
+    if (typeof v === "string" && v.trim()) out[k] = v.trim().slice(0, 2000);
+  }
+  return out;
+}
+
+/** Coerce request-changes notes into the structured GateNote[] the run stores. */
+function parseGateNotes(raw: unknown): GateNote[] | null {
+  if (!Array.isArray(raw)) return null;
+  const notes: GateNote[] = [];
+  for (const r of raw.slice(0, 100)) {
+    const o = (r ?? {}) as Record<string, unknown>;
+    const comment = typeof o.comment === "string" ? o.comment.trim().slice(0, 2000) : "";
+    if (!comment) continue;
+    notes.push({
+      comment,
+      ...(typeof o.path === "string" && o.path.trim() ? { path: o.path.trim().slice(0, 200) } : {}),
+      ...(typeof o.lessonId === "string" && o.lessonId.trim() ? { lessonId: o.lessonId.trim().slice(0, 80) } : {}),
+    });
+  }
+  return notes.length ? notes : null;
+}
+
+/** List-row shape: enough for the runs table without the full event/gate log. */
+function courseRunSummary(run: CourseRun) {
+  const gates = store.courseRunGates(run.runId);
+  const pendingGate = gates.find((g) => g.decidedAt === null)?.gateId ?? null;
+  return {
+    runId: run.runId,
+    status: run.status,
+    technology: run.request.technology,
+    title: run.request.title ?? null,
+    pendingGate,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    lastError: run.lastError ?? null,
+  };
+}
+
+/** Full run: state + request + the event feed + gate history (for the detail view). */
+function courseRunDetail(runId: string) {
+  const run = store.getCourseRun(runId)!;
+  return {
+    ...courseRunSummary(run),
+    request: run.request,
+    pendingPhase: run.pendingPhase,
+    events: store.courseRunEvents(runId),
+    gates: store.courseRunGates(runId),
+    artifacts: runArtifactsFor(runId).list(),
+  };
 }
 
 function bearerToken(req: IncomingMessage, url: URL): string | null {
@@ -496,6 +595,78 @@ export const server = createServer(async (req, res) => {
       // required capabilities against this to find gaps at the blueprint gate.
       if (req.method === "GET" && parts[2] === "capabilities" && parts.length === 3) {
         return json(res, 200, CAPABILITY_REGISTRY);
+      }
+
+      // ── course-generation runs (Course studio) ──────────────────────────
+      if (parts[2] === "course-runs") {
+        try {
+          // GET list
+          if (req.method === "GET" && parts.length === 3) {
+            return json(res, 200, { runs: store.listCourseRuns().map(courseRunSummary) });
+          }
+          // POST create
+          if (req.method === "POST" && parts.length === 3) {
+            const body = await readBody(req);
+            const technology = typeof body.technology === "string" ? body.technology.trim() : "";
+            if (!technology) return json(res, 400, { error: "technology is required" });
+            const run = courseRuns.create({
+              technology: technology.slice(0, 80),
+              ...pickStrings(body, ["title", "targetLearner", "learnerStartingExperience", "outcome", "inScope", "outOfScope", "breadth", "depth", "ecosystem"]),
+            });
+            return json(res, 201, { run: courseRunDetail(run.runId) });
+          }
+          if (parts.length >= 4) {
+            const runId = parts[3];
+            const run = store.getCourseRun(runId);
+            if (!run) return json(res, 404, { error: "run not found" });
+
+            // GET detail
+            if (req.method === "GET" && parts.length === 4) {
+              return json(res, 200, { run: courseRunDetail(runId) });
+            }
+            // GET artifact content: /course-runs/:id/artifacts/<path...>
+            if (req.method === "GET" && parts.length >= 6 && parts[4] === "artifacts") {
+              const relPath = decodeURIComponent(parts.slice(5).join("/"));
+              let content: string | null;
+              try {
+                content = runArtifactsFor(runId).read(relPath);
+              } catch {
+                return json(res, 400, { error: "disallowed artifact path" });
+              }
+              if (content === null) return json(res, 404, { error: "artifact not found" });
+              return json(res, 200, { path: relPath, content });
+            }
+            // POST gate decision: /course-runs/:id/gates/:gateId/decision
+            if (req.method === "POST" && parts.length === 7 && parts[4] === "gates" && parts[6] === "decision") {
+              const gateId = parts[5] as GateId;
+              if (!GATES.includes(gateId)) return json(res, 400, { error: "unknown gate" });
+              const body = await readBody(req);
+              const decision = body.decision;
+              if (decision !== "approved" && decision !== "changes" && decision !== "rejected") {
+                return json(res, 400, { error: "decision must be approved|changes|rejected" });
+              }
+              if (decision === "changes" && (!Array.isArray(body.notes) || body.notes.length === 0)) {
+                return json(res, 400, { error: "changes requires at least one note" });
+              }
+              const notes = parseGateNotes(body.notes);
+              // No per-user identity behind the shared admin token; the web sends
+              // the signed-in operator's name as `by` (POC), else "operator".
+              const by = typeof body.by === "string" && body.by.trim() ? body.by.trim().slice(0, 80) : "operator";
+              await courseRuns.settle(); // don't decide while its phase is mid-flight
+              courseRuns.decideGate(runId, gateId, decision, notes, by);
+              return json(res, 200, { run: courseRunDetail(runId) });
+            }
+            // POST resume / archive
+            if (req.method === "POST" && parts.length === 5 && (parts[4] === "resume" || parts[4] === "archive")) {
+              if (parts[4] === "resume") courseRuns.resume(runId);
+              else courseRuns.archive(runId);
+              return json(res, 200, { run: courseRunDetail(runId) });
+            }
+          }
+        } catch (err) {
+          if (err instanceof RunStateError) return json(res, 409, { error: err.message });
+          throw err;
+        }
       }
 
       // GET /api/admin/agents — every configured agent/service + its prompts
