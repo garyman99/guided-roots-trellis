@@ -23,9 +23,18 @@ summary in Course studio, and the build-capability dev skill; verified live.
 Real 3-stage review scoring done (d53ba67) — technical/pedagogy/cohesion
 validated + scored 1–5, below-threshold fails the lesson (needs-revision, not
 shipped) unless justified, with a bounded re-author loop; lesson board shows the
-pedagogy heat strip + quality gates. Remaining: Phase E (first governed run: Git
-fundamentals), plus further Phase-C richness (batched multi-role authoring,
-prompts/course-gen/*, lesson-specific labs beyond the stub shape).
+pedagogy heat strip + quality gates.
+
+Phase E done (8d8279f) — a real Git Fundamentals course through the whole
+machine: a curated Git curriculum pack + real playable git labs (stage-and-
+commit, discard-a-change) that auto-solve and whose learner checkpoint evaluates
+real git state. Surfaced + fixed a requirement/check id mismatch. Verified live
+end to end (generate → 4 gates → auto-solve → go-live → launch → checkpoint).
+
+Remaining (optional richness): live-provider verification, batched multi-role
+authoring (domain-analyst/learner-advocate are still dead code), prompts/
+course-gen/* registry, real per-run token/cost accounting, resume-authoring for
+capability-unblocked lessons.
 
 This plan makes the multi-agent course-generation pipeline described in
 the strategy doc a **server-native, human-governed** feature of Trellis:
