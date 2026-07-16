@@ -309,6 +309,9 @@ export const courseRuns = new CourseRunScheduler(
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);
     },
+    // How many times to (re)send a model call before the phase interrupts; each
+    // retry feeds the validation errors back to the model.
+    maxAttempts: Number(process.env.COURSE_GEN_MAX_ATTEMPTS ?? 3),
   }),
   {
     // A phase may make many slow model calls (authoring a course of lessons);

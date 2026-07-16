@@ -22,6 +22,7 @@ import {
   ValidationError,
   camelizeKeys,
   parseJson,
+  validateWithUnwrap,
   validateBlueprint,
   validateCourseRequest,
   validateLessonPlan,
@@ -72,12 +73,16 @@ export interface ExecutorDeps {
   /** Real-time view: the current model call's streaming thinking/text (or null
    *  to clear). Held in memory by the host and polled by the UI. */
   onActivity?: (runId: string, activity: LiveActivity | null) => void;
+  /** Total attempts per model call before a phase interrupts (default 3). Each
+   *  retry re-sends the prompt with the validation errors appended. */
+  maxAttempts?: number;
 }
 
 /** ExecutorDeps with the run's provider resolved — what phase functions receive. */
 type RunDeps = Omit<ExecutorDeps, "rolesFor"> & { roles: RoleInvoker };
 
-const JSON_ONLY = " Return ONLY a single JSON object — no markdown, no code fences, no commentary — using EXACTLY the field names given.";
+const JSON_ONLY =
+  " Return ONLY a single JSON object — no markdown, no code fences, no commentary — using EXACTLY the field names given. Do NOT wrap it in another key, do NOT add comments, and do NOT leave trailing commas.";
 const SYSTEM: Record<CourseGenRole, string> = {
   architect: "You are the Course Architect. Design a cohesive technology course." + JSON_ONLY,
   "domain-analyst": "You map the technology into teachable capabilities." + JSON_ONLY,
@@ -171,7 +176,8 @@ async function invokeValidated<T>(
   validate: (parsed: unknown) => T,
 ): Promise<T> {
   let lastErr: unknown;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  const maxAttempts = Math.max(1, deps.maxAttempts ?? 3);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const sys = SYSTEM[role];
     // Accumulate streaming deltas into the run's live activity (if the host is
     // watching). Fresh buffer per call; the UI polls the latest.
@@ -187,11 +193,12 @@ async function invokeValidated<T>(
     const res = await deps.roles.invoke(role, { ...p, system: sys }, onDelta);
     ctx.emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0 });
     try {
-      // camelizeKeys tolerates a model that returns snake_case field names.
-      return validate(camelizeKeys(parseJson<unknown>(res.text)));
+      // camelizeKeys tolerates snake_case; validateWithUnwrap tolerates a
+      // single-key wrapper object.
+      return validateWithUnwrap(camelizeKeys(parseJson<unknown>(res.text)), validate);
     } catch (err) {
       lastErr = err;
-      if (attempt === 2) break;
+      if (attempt === maxAttempts) break;
       const errors = err instanceof ValidationError ? err.errors : [String(err)];
       p = { ...p, user: `${p.user}\n\nYour previous output was INVALID:\n- ${errors.join("\n- ")}\nReturn corrected JSON.` };
       ctx.emit("model.retry", { role, task: p.task, errors });

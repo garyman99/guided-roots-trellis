@@ -187,15 +187,31 @@ async function* sseData(body: ReadableStream<Uint8Array> | null): AsyncGenerator
 }
 
 async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RolePrompt, onDelta: RoleDelta): Promise<RoleResult> {
+  const anthropic = o.provider === "anthropic";
+  // Extended thinking is ON by default for Claude (opt out with
+  // COURSE_GEN_THINKING=0) — otherwise the model's reasoning streams as plain
+  // TEXT and lands in the output panel instead of a thinking panel.
+  const wantThinking = anthropic && process.env.COURSE_GEN_THINKING !== "0";
+  try {
+    return await streamOnce(o, prompt, onDelta, wantThinking);
+  } catch (err) {
+    // Some models/endpoints reject the thinking parameter — degrade gracefully
+    // to a normal streamed call rather than interrupting the run.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (wantThinking && /thinking|budget/i.test(msg)) return streamOnce(o, prompt, onDelta, false);
+    throw err;
+  }
+}
+
+async function streamOnce(o: LiveRoleOptions, prompt: RolePrompt, onDelta: RoleDelta, useThinking: boolean): Promise<RoleResult> {
   const fetchImpl = o.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), o.timeoutMs ?? 300_000);
   (timer as { unref?: () => void }).unref?.();
   const anthropic = o.provider === "anthropic";
   const baseUrl = (o.baseUrl ?? (anthropic ? "https://api.anthropic.com" : "https://api.openai.com/v1")).replace(/\/$/, "");
-  const thinking = anthropic && process.env.COURSE_GEN_THINKING === "1";
   const budget = Number(process.env.COURSE_GEN_THINKING_BUDGET ?? 4096);
-  const maxTokens = thinking ? Math.max(o.maxTokens ?? 8192, budget + 1024) : (o.maxTokens ?? 8192);
+  const maxTokens = useThinking ? Math.max(o.maxTokens ?? 8192, budget + 1024) : (o.maxTokens ?? 8192);
 
   const url = anthropic ? `${baseUrl}/v1/messages` : `${baseUrl}/chat/completions`;
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -206,7 +222,7 @@ async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RoleP
     headers.authorization = `Bearer ${o.apiKey}`;
   }
   const body = anthropic
-    ? { model: o.model, max_tokens: maxTokens, stream: true, ...(thinking ? { thinking: { type: "enabled", budget_tokens: budget } } : {}), system: prompt.system, messages: [{ role: "user", content: prompt.user }] }
+    ? { model: o.model, max_tokens: maxTokens, stream: true, ...(useThinking ? { thinking: { type: "enabled", budget_tokens: budget } } : {}), system: prompt.system, messages: [{ role: "user", content: prompt.user }] }
     : { model: o.model, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true }, messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }] };
 
   let text = "";
@@ -234,8 +250,11 @@ async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RoleP
           if (u?.output_tokens) usage.outputTokens = u.output_tokens;
         }
       } else {
-        const choice = (j.choices as Array<{ delta?: { content?: string } }> | undefined)?.[0];
+        const choice = (j.choices as Array<{ delta?: { content?: string; reasoning_content?: string } }> | undefined)?.[0];
         const chunk = choice?.delta?.content;
+        // Some OpenAI-compatible reasoning models stream their reasoning here.
+        const reason = choice?.delta?.reasoning_content;
+        if (reason) onDelta({ kind: "thinking", chunk: reason });
         if (chunk) { text += chunk; onDelta({ kind: "text", chunk }); }
         const u = j.usage as { completion_tokens?: number } | undefined;
         if (u?.completion_tokens) usage.outputTokens = u.completion_tokens;

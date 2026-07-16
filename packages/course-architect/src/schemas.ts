@@ -33,17 +33,53 @@ export function camelizeKeys(v: unknown): unknown {
   return v;
 }
 
-/** Parse JSON from a role's text, tolerating ```json fences and surrounding prose. */
+/** Remove trailing commas before } or ] — a common model slip that breaks JSON.parse. */
+function stripTrailingCommas(s: string): string {
+  return s.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/** JSON.parse, tolerating trailing commas; returns undefined on failure. */
+function tryParse(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* try harder */
+  }
+  try {
+    return JSON.parse(stripTrailingCommas(s));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse JSON from a role's text, tolerating ```json fences, prose, trailing commas. */
 export function parseJson<T>(text: string): T {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const body = (fenced ? fenced[1] : text).trim();
-  try {
-    return JSON.parse(body) as T;
-  } catch {
+  let out = tryParse(body);
+  if (out === undefined) {
     // Last resort: the first {...} or [...] span.
     const span = body.match(/[[{][\s\S]*[\]}]/);
-    if (span) return JSON.parse(span[0]) as T;
-    throw new ValidationError([`expected JSON, got: ${body.slice(0, 120)}…`]);
+    if (span) out = tryParse(span[0]);
+  }
+  if (out === undefined) throw new ValidationError([`expected JSON, got: ${body.slice(0, 120)}…`]);
+  return out as T;
+}
+
+/**
+ * Validate, tolerating a single-key WRAPPER object (a model returning
+ * `{ "courseRequest": {…} }` or `{ "blueprint": {…} }`). If the top-level fails
+ * and it has exactly one object-valued property, validate that instead.
+ */
+export function validateWithUnwrap<T>(parsed: unknown, validate: (v: unknown) => T): T {
+  try {
+    return validate(parsed);
+  } catch (err) {
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const values = Object.values(parsed as Record<string, unknown>);
+      if (values.length === 1 && values[0] && typeof values[0] === "object") return validate(values[0]);
+    }
+    throw err;
   }
 }
 

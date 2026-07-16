@@ -132,6 +132,44 @@ test("streaming deltas flow into the live-activity buffer and clear when the pha
   store.close();
 });
 
+function sseResponse(frames: string[]): Response {
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({ start(c) { for (const f of frames) c.enqueue(enc.encode(f)); c.close(); } });
+  return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+const OK_FRAMES = [
+  'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"ok\\":true}"}}\n\n',
+  "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+];
+
+test("Claude streaming enables extended thinking by default (opt out with COURSE_GEN_THINKING=0)", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const capture = (async (_url: string, init?: { body?: string }) => { bodies.push(JSON.parse(init?.body ?? "{}")); return sseResponse(OK_FRAMES); }) as unknown as typeof fetch;
+
+  delete process.env.COURSE_GEN_THINKING;
+  await new LiveRoleInvoker({ provider: "anthropic", model: "claude-opus-4-8", apiKey: "sk", fetchImpl: capture }).invoke("architect", { task: "t", context: {}, system: "s", user: "u" }, () => {});
+  assert.ok((bodies.at(-1) as { thinking?: unknown }).thinking, "thinking on by default");
+
+  process.env.COURSE_GEN_THINKING = "0";
+  await new LiveRoleInvoker({ provider: "anthropic", model: "claude-opus-4-8", apiKey: "sk", fetchImpl: capture }).invoke("architect", { task: "t", context: {}, system: "s", user: "u" }, () => {});
+  assert.equal((bodies.at(-1) as { thinking?: unknown }).thinking, undefined, "opted out");
+  delete process.env.COURSE_GEN_THINKING;
+});
+
+test("a model rejecting the thinking param falls back to a normal streamed call", async () => {
+  delete process.env.COURSE_GEN_THINKING;
+  let call = 0;
+  const flaky = (async (_url: string, init?: { body?: string }) => {
+    call++;
+    const b = JSON.parse(init?.body ?? "{}") as { thinking?: unknown };
+    if (b.thinking) return new Response("model does not support the thinking parameter", { status: 400 });
+    return sseResponse(OK_FRAMES);
+  }) as unknown as typeof fetch;
+  const res = await new LiveRoleInvoker({ provider: "anthropic", model: "old-model", apiKey: "sk", fetchImpl: flaky }).invoke("architect", { task: "t", context: {}, system: "s", user: "u" }, () => {});
+  assert.equal(call, 2, "retried without thinking");
+  assert.equal(res.text, '{"ok":true}');
+});
+
 test("a full run completes over the live provider path (fake Claude)", async () => {
   let tick = 0;
   const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();

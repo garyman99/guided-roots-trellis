@@ -89,7 +89,7 @@ test("the Git pack yields a real, playable Git course through the pipeline", asy
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
 });
 
-test("a malformed role output is retried once, then interrupts the run", async () => {
+test("a persistently malformed role output interrupts after the configured attempts", async () => {
   let calls = 0;
   const badFraming: MockResponder = (role, prompt) => {
     if (prompt.task === "course-request") {
@@ -102,8 +102,25 @@ test("a malformed role output is retried once, then interrupts the run", async (
   const run = h.sched.create({ technology: "Docker" });
   await h.sched.settle();
   assert.equal(h.store.getCourseRun(run.runId)!.status, "interrupted");
-  assert.equal(calls, 2, "one initial attempt + one retry");
+  assert.equal(calls, 3, "default of 3 attempts before interrupting");
   assert.ok(h.store.courseRunEvents(run.runId).some((e) => e.type === "model.retry"));
+});
+
+test("a model that self-corrects on a later attempt still completes the phase", async () => {
+  let n = 0;
+  const flaky: MockResponder = (role, prompt) => {
+    if (prompt.task === "course-request") {
+      n++;
+      if (n < 3) return "not json"; // fail the first two attempts
+      return JSON.stringify({ title: "T", technology: "Widgets", targetLearner: "x", startingPoint: "x", endingCapability: "x", assumptions: [], outOfScope: [] });
+    }
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(flaky);
+  const run = h.sched.create({ technology: "Widgets" });
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-frame", "the retry recovered the phase");
+  assert.equal(n, 3, "took three attempts");
 });
 
 test("a capability gap blocks its lessons from authoring", async () => {
