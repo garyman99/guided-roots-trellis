@@ -268,6 +268,9 @@ function rolesForRun(run: CourseRun): RoleInvoker {
     model,
     baseUrl: cfg?.baseUrl ?? process.env.COURSE_GEN_BASE_URL,
     apiKey: provider === "anthropic" ? anthropicKey() : openaiKey(),
+    // Generation calls are slow (a blueprint or a lesson can take minutes).
+    timeoutMs: Number(process.env.COURSE_GEN_TIMEOUT_MS ?? 300_000),
+    maxTokens: Number(process.env.COURSE_GEN_MAX_TOKENS ?? 8192),
   });
 }
 
@@ -298,6 +301,11 @@ export const courseRuns = new CourseRunScheduler(
     availableCapabilities: capabilityIdSet(),
     materialize,
   }),
+  {
+    // A phase may make many slow model calls (authoring a course of lessons);
+    // the wall-clock cap must be generous. Default 60 min, env-tunable.
+    phaseTimeoutMs: Number(process.env.COURSE_GEN_PHASE_TIMEOUT_MS ?? 60 * 60 * 1000),
+  },
 );
 
 /**

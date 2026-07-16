@@ -116,6 +116,9 @@ export interface LiveRoleOptions {
   baseUrl?: string;
   apiKey?: string;
   maxTokens?: number;
+  /** Per-request HTTP timeout (ms). Generation calls are slow — default 5 min,
+   *  NOT the transport's 30s. */
+  timeoutMs?: number;
   /** Test seam — inject a fetch to exercise the live path without a network. */
   fetchImpl?: typeof fetch;
 }
@@ -141,6 +144,7 @@ export class LiveRoleInvoker implements RoleInvoker {
       system: prompt.system,
       user: prompt.user,
       maxTokens: o.maxTokens ?? 4096,
+      timeoutMs: o.timeoutMs ?? 300_000,
       requestId: `cg-${role}-${prompt.task}`,
       fetchImpl: o.fetchImpl,
     };
