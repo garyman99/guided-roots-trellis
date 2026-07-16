@@ -514,6 +514,16 @@ export interface CourseRunDetail extends CourseRunSummary {
   artifacts: string[];
 }
 
+export interface LiveActivity {
+  runId: string;
+  phase: string;
+  role: string;
+  task: string;
+  thinking: string;
+  text: string;
+  updatedAt: string;
+}
+
 export type GapDisposition = "commission" | "defer" | "redesign";
 
 export interface CapabilityGap {
@@ -536,6 +546,7 @@ export const courseRunApi = {
   list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
   providers: () => adminGet<ProvidersPayload>("/api/admin/course-runs/providers"),
   get: (runId: string) => adminGet<{ run: CourseRunDetail }>(`/api/admin/course-runs/${encodeURIComponent(runId)}`).then((r) => r.run),
+  live: (runId: string) => adminGet<{ live: LiveActivity | null }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/live`).then((r) => r.live),
   create: (body: Record<string, unknown>) =>
     adminSend<{ run: CourseRunDetail }>("POST", "/api/admin/course-runs", body).then((r) => r.run),
   artifact: (runId: string, path: string) =>

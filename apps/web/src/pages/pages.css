@@ -541,3 +541,10 @@
 .cg-heat-cell { display: inline-flex; flex-direction: column; align-items: center; font-size: 0.55rem; line-height: 1; padding: 3px 4px; border-radius: 3px; background: rgba(107,165,95,0.18); color: var(--gr-ink, #cfe); min-width: 20px; }
 .cg-heat-cell b { font-size: 0.72rem; }
 .cg-heat-cell.low { background: rgba(201,128,58,0.28); }
+
+/* Course studio — live model activity */
+.cg-live { border-left: 3px solid #6ba55f; }
+.cg-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6ba55f; margin-left: 6px; animation: cg-blink 1s ease-in-out infinite; }
+@keyframes cg-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+.cg-live-think, .cg-live-out { margin: 0 0 10px; max-height: 240px; overflow: auto; background: rgba(0,0,0,0.25); padding: 10px; border-radius: 6px; font-size: 0.76rem; white-space: pre-wrap; word-break: break-word; }
+.cg-live-think { color: var(--gr-dim, #9fb4a6); font-style: italic; }

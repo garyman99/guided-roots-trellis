@@ -83,4 +83,9 @@ test("a mock-provider run still executes end to end (no keys needed)", async () 
   assert.equal((created.body as { run: { provider: string } }).run.provider, "mock");
   await courseRuns.settle();
   assert.equal(((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: { status: string } }).run.status, "awaiting-frame");
+
+  // The live-activity endpoint responds (null once the phase has parked).
+  const live = await admin("GET", `/api/admin/course-runs/${runId}/live`);
+  assert.equal(live.status, 200);
+  assert.equal((live.body as { live: unknown }).live, null);
 });

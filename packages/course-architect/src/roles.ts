@@ -53,8 +53,13 @@ export interface RoleResult {
   usage: NormalizedModelUsage;
 }
 
+/** Streaming delta: the model's thinking or its answer text, as it arrives. */
+export type RoleDelta = (d: { kind: "thinking" | "text"; chunk: string }) => void;
+
 export interface RoleInvoker {
-  invoke(role: CourseGenRole, prompt: RolePrompt): Promise<RoleResult>;
+  /** When `onDelta` is provided AND the provider supports it, the call streams
+   *  (thinking + text) while it runs; the resolved text is unchanged. */
+  invoke(role: CourseGenRole, prompt: RolePrompt, onDelta?: RoleDelta): Promise<RoleResult>;
 }
 
 /* ── mock invoker ── */
@@ -73,9 +78,10 @@ export class MockRoleInvoker implements RoleInvoker {
   constructor(responder: MockResponder) {
     this.responder = responder;
   }
-  async invoke(role: CourseGenRole, prompt: RolePrompt): Promise<RoleResult> {
+  async invoke(role: CourseGenRole, prompt: RolePrompt, onDelta?: RoleDelta): Promise<RoleResult> {
     const text = this.responder(role, prompt);
-    // Stub usage proportional to text so cost views have something non-trivial.
+    // Simulate a little streaming so the live view is exercised offline too.
+    if (onDelta) onDelta({ kind: "text", chunk: text });
     const outputTokens = Math.ceil(text.length / 4);
     const inputTokens = Math.ceil((prompt.system.length + prompt.user.length) / 4);
     return { text, model: "mock-course-gen", usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } };
@@ -135,8 +141,9 @@ export class LiveRoleInvoker implements RoleInvoker {
     if (!opts.model) throw new Error(`course-gen ${opts.provider} provider requires a model`);
     this.opts = opts;
   }
-  async invoke(role: CourseGenRole, prompt: RolePrompt): Promise<RoleResult> {
+  async invoke(role: CourseGenRole, prompt: RolePrompt, onDelta?: RoleDelta): Promise<RoleResult> {
     const o = this.opts;
+    if (onDelta) return streamChat(o, role, prompt, onDelta);
     const req = {
       baseUrl: o.baseUrl ?? (o.provider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"),
       apiKey: o.apiKey,
@@ -151,6 +158,95 @@ export class LiveRoleInvoker implements RoleInvoker {
     const result = o.provider === "anthropic" ? await anthropicGenerateText(req) : await openaiGenerateText(req);
     return { text: result.text, model: result.model, usage: result.usage };
   }
+}
+
+/* ── streaming (SSE) for real-time thinking + text ── */
+
+/** Yield the `data:` payloads of an SSE stream (ignores event: lines, [DONE]). */
+async function* sseData(body: ReadableStream<Uint8Array> | null): AsyncGenerator<string> {
+  if (!body) return;
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("data:")) {
+          const data = line.slice(5).trim();
+          if (data && data !== "[DONE]") yield data;
+        }
+      }
+    }
+  }
+}
+
+async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RolePrompt, onDelta: RoleDelta): Promise<RoleResult> {
+  const fetchImpl = o.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), o.timeoutMs ?? 300_000);
+  (timer as { unref?: () => void }).unref?.();
+  const anthropic = o.provider === "anthropic";
+  const baseUrl = (o.baseUrl ?? (anthropic ? "https://api.anthropic.com" : "https://api.openai.com/v1")).replace(/\/$/, "");
+  const thinking = anthropic && process.env.COURSE_GEN_THINKING === "1";
+  const budget = Number(process.env.COURSE_GEN_THINKING_BUDGET ?? 4096);
+  const maxTokens = thinking ? Math.max(o.maxTokens ?? 8192, budget + 1024) : (o.maxTokens ?? 8192);
+
+  const url = anthropic ? `${baseUrl}/v1/messages` : `${baseUrl}/chat/completions`;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (anthropic) {
+    if (o.apiKey) headers["x-api-key"] = o.apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else if (o.apiKey) {
+    headers.authorization = `Bearer ${o.apiKey}`;
+  }
+  const body = anthropic
+    ? { model: o.model, max_tokens: maxTokens, stream: true, ...(thinking ? { thinking: { type: "enabled", budget_tokens: budget } } : {}), system: prompt.system, messages: [{ role: "user", content: prompt.user }] }
+    : { model: o.model, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true }, messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }] };
+
+  let text = "";
+  let model = o.model;
+  const usage: NormalizedModelUsage = {};
+  try {
+    const res = await fetchImpl(url, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal });
+    if (!res.ok) throw new Error(`${o.provider} stream ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    for await (const data of sseData(res.body)) {
+      let j: Record<string, unknown>;
+      try {
+        j = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (anthropic) {
+        const type = j.type;
+        if (type === "message_start") model = ((j.message as { model?: string })?.model) ?? model;
+        else if (type === "content_block_delta") {
+          const delta = j.delta as { type?: string; text?: string; thinking?: string };
+          if (delta?.type === "text_delta" && delta.text) { text += delta.text; onDelta({ kind: "text", chunk: delta.text }); }
+          else if (delta?.type === "thinking_delta" && delta.thinking) onDelta({ kind: "thinking", chunk: delta.thinking });
+        } else if (type === "message_delta") {
+          const u = j.usage as { output_tokens?: number } | undefined;
+          if (u?.output_tokens) usage.outputTokens = u.output_tokens;
+        }
+      } else {
+        const choice = (j.choices as Array<{ delta?: { content?: string } }> | undefined)?.[0];
+        const chunk = choice?.delta?.content;
+        if (chunk) { text += chunk; onDelta({ kind: "text", chunk }); }
+        const u = j.usage as { completion_tokens?: number } | undefined;
+        if (u?.completion_tokens) usage.outputTokens = u.completion_tokens;
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!text.trim()) throw new Error(`${o.provider} stream returned no text`);
+  if (usage.outputTokens === undefined) usage.outputTokens = Math.ceil(text.length / 4);
+  return { text, model, usage };
 }
 
 export { ZERO_USAGE };

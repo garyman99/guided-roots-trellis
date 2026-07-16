@@ -14,6 +14,7 @@ import {
   type CapabilityRequest,
   type CourseRunDetail,
   type CourseRunSummary,
+  type LiveActivity,
   type GapDecision,
   type GapDisposition,
   type GateId,
@@ -357,6 +358,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       )}
 
       <PhaseRail run={run} />
+      <LivePanel run={run} />
       <RunEconomics events={run.events} />
 
       {gate && <GateBar run={run} gate={gate} onDecided={setRun} />}
@@ -410,6 +412,51 @@ function PhaseRail({ run }: { run: CourseRunDetail }) {
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/* ---------- live model activity (streaming thinking + output) ---------- */
+
+function LivePanel({ run }: { run: CourseRunDetail }) {
+  const [live, setLive] = useState<LiveActivity | null>(null);
+  const thinkRef = useRef<HTMLPreElement | null>(null);
+  const active = isActive(run.status) || run.status === "queued";
+
+  useEffect(() => {
+    if (!active) { setLive(null); return; }
+    let stop = false;
+    const tick = () => {
+      courseRunApi.live(run.runId).then((l) => { if (!stop) setLive(l); }).catch(() => {});
+    };
+    tick();
+    const t = setInterval(tick, 700);
+    return () => { stop = true; clearInterval(t); };
+  }, [run.runId, active, run.status]);
+
+  // Keep the thinking scrolled to the newest as it streams.
+  useEffect(() => { if (thinkRef.current) thinkRef.current.scrollTop = thinkRef.current.scrollHeight; }, [live?.thinking]);
+
+  if (!active) return null;
+  return (
+    <div className="gr-card cg-live">
+      <h3>
+        Live <span className="cg-live-dot" aria-hidden="true" />
+        {live ? <span className="gr-mono-note"> {live.role} · {live.task}</span> : <span className="gr-mono-note"> waiting for the model…</span>}
+      </h3>
+      {live?.thinking && (
+        <>
+          <p className="gr-mono-note">THINKING</p>
+          <pre className="cg-live-think" ref={thinkRef}>{live.thinking}</pre>
+        </>
+      )}
+      {live?.text && (
+        <>
+          <p className="gr-mono-note">OUTPUT</p>
+          <pre className="cg-live-out">{live.text.length > 4000 ? "…" + live.text.slice(-4000) : live.text}</pre>
+        </>
+      )}
+      {live && !live.thinking && !live.text && <p className="admin-empty">The model is working…</p>}
     </div>
   );
 }

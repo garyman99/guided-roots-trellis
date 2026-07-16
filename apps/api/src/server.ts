@@ -89,6 +89,7 @@ import {
   type GateId,
   type GateNote,
   type GapDisposition,
+  type LiveActivity,
   type Materializer,
   type RoleInvoker,
   type RunProviderConfig,
@@ -293,6 +294,10 @@ function validateProviderConfig(cfg: RunProviderConfig | undefined): string | nu
   return `unknown provider "${String((cfg as { provider?: string }).provider)}"`;
 }
 
+// Real-time view: the current model call's streaming thinking/text per run,
+// held in memory (not the event log) and polled by the UI while a phase runs.
+const liveActivity = new Map<string, LiveActivity>();
+
 export const courseRuns = new CourseRunScheduler(
   store,
   createExecutor({
@@ -300,6 +305,10 @@ export const courseRuns = new CourseRunScheduler(
     artifactsFor: runArtifactsFor,
     availableCapabilities: capabilityIdSet(),
     materialize,
+    onActivity: (runId, activity) => {
+      if (activity) liveActivity.set(runId, activity);
+      else liveActivity.delete(runId);
+    },
   }),
   {
     // A phase may make many slow model calls (authoring a course of lessons);
@@ -858,6 +867,10 @@ export const server = createServer(async (req, res) => {
             // GET detail
             if (req.method === "GET" && parts.length === 4) {
               return json(res, 200, { run: courseRunDetail(runId) });
+            }
+            // GET live activity — the current model call's streaming thinking/text
+            if (req.method === "GET" && parts.length === 5 && parts[4] === "live") {
+              return json(res, 200, { live: liveActivity.get(runId) ?? null });
             }
             // GET artifact content: /course-runs/:id/artifacts/<path...>
             if (req.method === "GET" && parts.length >= 6 && parts[4] === "artifacts") {

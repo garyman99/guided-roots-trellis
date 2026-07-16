@@ -179,6 +179,21 @@ export interface PhaseContext {
  */
 export type PhaseExecutor = (ctx: PhaseContext) => Promise<void>;
 
+/**
+ * Live activity for the current model call — the real-time view. Held in memory
+ * (not the event log) and polled by the UI while a phase runs; cleared when the
+ * phase parks. Surfaces the model's thinking as it streams.
+ */
+export interface LiveActivity {
+  runId: string;
+  phase: Phase;
+  role: string;
+  task: string;
+  thinking: string;
+  text: string;
+  updatedAt: string;
+}
+
 /** Raised by the scheduler for an illegal transition (maps to HTTP 409). */
 export class RunStateError extends Error {
   constructor(message: string) {

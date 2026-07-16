@@ -57,6 +57,72 @@ test("LiveRoleInvoker requires a model", () => {
   assert.throws(() => new LiveRoleInvoker({ provider: "anthropic", model: "" }), /requires a model/);
 });
 
+test("streaming surfaces thinking + text deltas and assembles the final text (Claude SSE)", async () => {
+  const frames = [
+    'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-opus-4-8"}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Rust is a systems language; "}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"I will frame it for backend devs."}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"technology\\":"}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"\\"Rust\\"}"}}\n\n',
+    'event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":42}}\n\n',
+    "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+  ];
+  const streamFetch = (async () => {
+    const enc = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(c) { for (const f of frames) c.enqueue(enc.encode(f)); c.close(); } });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }) as unknown as typeof fetch;
+
+  const inv = new LiveRoleInvoker({ provider: "anthropic", model: "claude-opus-4-8", apiKey: "sk-fake", fetchImpl: streamFetch });
+  const thinking: string[] = [];
+  const textChunks: string[] = [];
+  const res = await inv.invoke(
+    "architect",
+    { task: "course-request", context: {}, system: "s", user: "u" },
+    (d) => (d.kind === "thinking" ? thinking.push(d.chunk) : textChunks.push(d.chunk)),
+  );
+  assert.equal(thinking.join(""), "Rust is a systems language; I will frame it for backend devs.");
+  assert.equal(res.text, '{"technology":"Rust"}');
+  assert.deepEqual(JSON.parse(res.text), { technology: "Rust" });
+  assert.equal(res.usage.outputTokens, 42);
+  assert.equal(res.model, "claude-opus-4-8");
+});
+
+test("streaming deltas flow into the live-activity buffer and clear when the phase parks", async () => {
+  let tick = 0;
+  const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();
+  const runsDir = mkdtempSync(join(tmpdir(), "trellis-liveact-"));
+  const store = createStore({ TRELLIS_PERSISTENCE: "off" } as NodeJS.ProcessEnv) as EventStore;
+  // An invoker that streams a thinking chunk then the answer.
+  const streamingInvoker = {
+    async invoke(role: Parameters<import("../src/roles.ts").RoleInvoker["invoke"]>[0], prompt: import("../src/roles.ts").RolePrompt, onDelta?: import("../src/roles.ts").RoleDelta) {
+      const text = defaultMockResponder(role, prompt);
+      onDelta?.({ kind: "thinking", chunk: "considering the request… " });
+      onDelta?.({ kind: "text", chunk: text });
+      return { text, model: "m", usage: { outputTokens: 5 } };
+    },
+  };
+  const activity: Array<import("../src/types.ts").LiveActivity | null> = [];
+  const sched = new CourseRunScheduler(
+    store,
+    createExecutor({
+      rolesFor: () => streamingInvoker,
+      artifactsFor: (id) => new RunArtifacts(join(runsDir, id)),
+      availableCapabilities: new Set(["file-viewed", "tests-run", "diff-viewed", "code", "terminal", "any-command"]),
+      materialize: async () => ({ courseId: "c", labIds: [], scenarioCount: 0 }),
+      onActivity: (_runId, a) => activity.push(a),
+    }),
+    { now, idSuffix: () => "t0" },
+  );
+  const run = sched.create({ technology: "Git" });
+  await sched.settle(); // framing runs
+  // Some activity carried the streaming thinking + text…
+  assert.ok(activity.some((a) => a && a.thinking.includes("considering") && a.text.length > 0), "thinking + text streamed into the buffer");
+  // …and the buffer was cleared (null) once the phase parked.
+  assert.equal(activity.at(-1), null, "live buffer cleared at phase end");
+  store.close();
+});
+
 test("a full run completes over the live provider path (fake Claude)", async () => {
   let tick = 0;
   const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();

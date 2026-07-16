@@ -16,8 +16,8 @@
  *                   manifest.json records the outcome
  */
 import type { RunArtifacts } from "./artifacts.ts";
-import type { CourseRun, PhaseContext, PhaseExecutor } from "./types.ts";
-import type { CourseGenRole, RoleInvoker, RolePrompt } from "./roles.ts";
+import type { CourseRun, LiveActivity, PhaseContext, PhaseExecutor } from "./types.ts";
+import type { CourseGenRole, RoleDelta, RoleInvoker, RolePrompt } from "./roles.ts";
 import {
   ValidationError,
   parseJson,
@@ -68,6 +68,9 @@ export interface ExecutorDeps {
   /** Flat set of registry capability ids (apps, auto-rules, checkpoint kinds…). */
   availableCapabilities: Set<string>;
   materialize: Materializer;
+  /** Real-time view: the current model call's streaming thinking/text (or null
+   *  to clear). Held in memory by the host and polled by the UI. */
+  onActivity?: (runId: string, activity: LiveActivity | null) => void;
 }
 
 /** ExecutorDeps with the run's provider resolved — what phase functions receive. */
@@ -88,19 +91,31 @@ function prompt(task: string, context: Record<string, unknown>, extra = ""): Rol
   return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}Produce the "${task}" artifact as strict JSON.` };
 }
 
-/** Invoke a role, retrying ONCE with the validation errors appended (plan §4). */
+/** Invoke a role, retrying ONCE with the validation errors appended (plan §4).
+ *  Streams the model's thinking/text into the live buffer while it runs. */
 async function invokeValidated<T>(
-  roles: RoleInvoker,
+  deps: RunDeps,
+  ctx: PhaseContext,
   role: CourseGenRole,
   p: RolePrompt,
   validate: (parsed: unknown) => T,
-  emit: PhaseContext["emit"],
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const sys = SYSTEM[role];
-    const res = await roles.invoke(role, { ...p, system: sys });
-    emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0 });
+    // Accumulate streaming deltas into the run's live activity (if the host is
+    // watching). Fresh buffer per call; the UI polls the latest.
+    let thinking = "";
+    let text = "";
+    const onDelta: RoleDelta | undefined = deps.onActivity
+      ? (d) => {
+          if (d.kind === "thinking") thinking += d.chunk;
+          else text += d.chunk;
+          deps.onActivity!(ctx.run.runId, { runId: ctx.run.runId, phase: ctx.phase, role, task: p.task, thinking, text, updatedAt: new Date().toISOString() });
+        }
+      : undefined;
+    const res = await deps.roles.invoke(role, { ...p, system: sys }, onDelta);
+    ctx.emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0 });
     try {
       return validate(parseJson<unknown>(res.text));
     } catch (err) {
@@ -108,7 +123,7 @@ async function invokeValidated<T>(
       if (attempt === 2) break;
       const errors = err instanceof ValidationError ? err.errors : [String(err)];
       p = { ...p, user: `${p.user}\n\nYour previous output was INVALID:\n- ${errors.join("\n- ")}\nReturn corrected JSON.` };
-      emit("model.retry", { role, task: p.task, errors });
+      ctx.emit("model.retry", { role, task: p.task, errors });
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -136,11 +151,11 @@ function renderCourseRequestMd(doc: CourseRequestDoc): string {
 
 async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const doc = await invokeValidated(
-    deps.roles,
+    deps,
+    ctx,
     "architect",
     prompt("course-request", { request: ctx.run.request, changeNotes: ctx.changeNotes ?? undefined }),
     validateCourseRequest,
-    ctx.emit,
   );
   arts.write("course-request.md", renderCourseRequestMd(doc));
   ctx.emit("artifact.written", { path: "course-request.md" });
@@ -148,11 +163,11 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
 
 async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const bp = await invokeValidated(
-    deps.roles,
+    deps,
+    ctx,
     "architect",
     prompt("blueprint", { request: ctx.run.request, courseRequest: arts.read("course-request.md") ?? "", changeNotes: ctx.changeNotes ?? undefined }),
     validateBlueprint,
-    ctx.emit,
   );
   writeBlueprint(arts, bp);
 
@@ -197,20 +212,20 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     for (let attempt = 1; attempt <= 2; attempt++) {
       const feedback = outcome?.blockers ?? null;
       const plan = await invokeValidated(
-        deps.roles,
+        deps,
+        ctx,
         "lesson-author",
         prompt(`lesson:${lesson.lessonId}`, { lesson, request: ctx.run.request, reviewFeedback: feedback ?? undefined }),
         (parsed) => validateLessonPlan(parsed, lesson.lessonId),
-        ctx.emit,
       );
       arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
       // The brief carries the inventory entry PLUS the authored lab spec, so
       // materializing knows which real lab (lab.kind) to build.
       arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify({ ...lesson, lab: plan.lab }, null, 2));
 
-      const technical = await invokeValidated(deps.roles, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview, ctx.emit);
-      const pedagogy = await invokeValidated(deps.roles, "pedagogy-reviewer", prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validatePedagogyReview, ctx.emit);
-      const cohesion = await invokeValidated(deps.roles, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview, ctx.emit);
+      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview);
+      const pedagogy = await invokeValidated(deps, ctx, "pedagogy-reviewer", prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validatePedagogyReview);
+      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
 
       outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion);
       writeReviewArtifacts(arts, lesson.lessonId, outcome);
@@ -298,15 +313,20 @@ export function createExecutor(deps: ExecutorDeps): PhaseExecutor {
     // Resolve the model provider for THIS run (mock or a live model the operator
     // picked). Phase functions read `deps.roles`, so hand them a resolved deps.
     const runDeps: RunDeps = { ...deps, roles: deps.rolesFor(ctx.run) };
-    switch (ctx.phase) {
-      case "framing":
-        return runFraming(ctx, runDeps, arts);
-      case "designing":
-        return runDesigning(ctx, runDeps, arts);
-      case "authoring":
-        return runAuthoring(ctx, runDeps, arts);
-      case "materializing":
-        return runMaterializing(ctx, runDeps, arts);
+    try {
+      switch (ctx.phase) {
+        case "framing":
+          return await runFraming(ctx, runDeps, arts);
+        case "designing":
+          return await runDesigning(ctx, runDeps, arts);
+        case "authoring":
+          return await runAuthoring(ctx, runDeps, arts);
+        case "materializing":
+          return await runMaterializing(ctx, runDeps, arts);
+      }
+    } finally {
+      // The phase is done (or threw) — clear the live buffer.
+      deps.onActivity?.(ctx.run.runId, null);
     }
   };
 }
