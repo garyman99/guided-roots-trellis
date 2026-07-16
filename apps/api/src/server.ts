@@ -69,6 +69,7 @@ import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY } from "./capabilities.ts";
+import { SCENARIO_SEED, mergeScenarios } from "../../../packages/shared/src/scenarios.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -476,6 +477,14 @@ export const server = createServer(async (req, res) => {
     // Published only: a draft (generated, not yet gone live) is admin-only.
     if (req.method === "GET" && url.pathname === "/api/courses") {
       return json(res, 200, { courses: store.listCourses().filter((c) => c.status !== "draft") });
+    }
+
+    // GET /api/scenarios — the served catalog: hand-authored seed overlaid by
+    // runtime entries (added when a generated course is materialized). The web
+    // home page and admin course editor fetch this instead of a compiled-in
+    // module, so a new scenario needs no web rebuild (D2). Public read.
+    if (req.method === "GET" && url.pathname === "/api/scenarios") {
+      return json(res, 200, { scenarios: mergeScenarios(SCENARIO_SEED, store.listScenarioEntries()) });
     }
 
     // ── /api/admin — operator views: agents, users, token usage ──────────

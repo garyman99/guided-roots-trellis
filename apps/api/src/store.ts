@@ -17,6 +17,7 @@ import type { SessionEvent } from "../../../packages/session-events/src/events.t
 import { stampVersion, upcastEvent } from "../../../packages/session-events/src/schema.ts";
 import type { EvidenceEvent, StoredEvidence } from "../../../packages/learner-model/src/evidence.ts";
 import type { Reflection } from "../../../packages/learner-model/src/reflection.ts";
+import type { Scenario } from "../../../packages/shared/src/scenarios.ts";
 
 export interface SessionMeta {
   sessionId: string;
@@ -131,6 +132,11 @@ export interface EventStore {
   getCourse(courseId: string): Course | null;
   saveCourse(course: Course): void; // insert-or-replace by courseId
   deleteCourse(courseId: string): void;
+  // runtime scenario catalog entries (written at course-materialization; the
+  // served catalog is SCENARIO_SEED overlaid by these — see /api/scenarios)
+  listScenarioEntries(): Scenario[];
+  saveScenarioEntry(scenario: Scenario): void; // insert-or-replace by labId
+  deleteScenarioEntry(labId: string): void;
   sessionsForLearner(learnerId: string): string[];
   /** Every stored session (admin history view); newest last. */
   listSessions(): SessionMeta[];
@@ -232,6 +238,12 @@ class SqliteStore implements EventStore {
       );
       CREATE TABLE IF NOT EXISTS courses (
         course_id  TEXT PRIMARY KEY,
+        payload    TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS scenarios (
+        lab_id     TEXT PRIMARY KEY,
         payload    TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -499,6 +511,27 @@ class SqliteStore implements EventStore {
     this.db.prepare("DELETE FROM courses WHERE course_id = ?").run(courseId);
   }
 
+  // ── runtime scenario entries ──
+  listScenarioEntries(): Scenario[] {
+    return (this.db.prepare("SELECT payload FROM scenarios ORDER BY created_at ASC").all() as Array<{ payload: string }>).map(
+      (r) => JSON.parse(r.payload) as Scenario,
+    );
+  }
+
+  saveScenarioEntry(scenario: Scenario): void {
+    const at = new Date().toISOString();
+    this.db
+      .prepare(
+        "INSERT INTO scenarios (lab_id, payload, created_at, updated_at) VALUES (?, ?, ?, ?) " +
+          "ON CONFLICT(lab_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+      )
+      .run(scenario.labId, JSON.stringify(scenario), at, at);
+  }
+
+  deleteScenarioEntry(labId: string): void {
+    this.db.prepare("DELETE FROM scenarios WHERE lab_id = ?").run(labId);
+  }
+
   listSessions(): SessionMeta[] {
     return (
       this.db.prepare("SELECT * FROM sessions ORDER BY created_at ASC").all() as Array<{
@@ -539,6 +572,7 @@ class MemoryStore implements EventStore {
   private reflections = new Map<string, StoredReflection>();
   private usage: TokenUsageRecord[] = [];
   private courses = new Map<string, Course>();
+  private scenarioEntries = new Map<string, Scenario>();
 
   createLearner(meta: LearnerMeta): void { this.learners.set(meta.learnerId, meta); }
   learnerMeta(id: string): LearnerMeta | null { return this.learners.get(id) ?? null; }
@@ -579,6 +613,9 @@ class MemoryStore implements EventStore {
   getCourse(id: string): Course | null { return this.courses.get(id) ?? null; }
   saveCourse(course: Course): void { this.courses.set(course.courseId, course); }
   deleteCourse(id: string): void { this.courses.delete(id); }
+  listScenarioEntries(): Scenario[] { return [...this.scenarioEntries.values()]; }
+  saveScenarioEntry(s: Scenario): void { this.scenarioEntries.set(s.labId, s); }
+  deleteScenarioEntry(labId: string): void { this.scenarioEntries.delete(labId); }
   listSessions(): SessionMeta[] {
     return [...this.sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }

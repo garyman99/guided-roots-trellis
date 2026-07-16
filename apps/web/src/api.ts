@@ -1,5 +1,6 @@
 /** Thin typed client for the Trellis API. */
 import { getUser } from "./auth.ts";
+import type { Scenario } from "./scenarios.ts";
 
 export interface SessionCredentials {
   sessionId: string;
@@ -407,6 +408,14 @@ export async function fetchCourses(): Promise<Course[]> {
   if (!res.ok) throw new Error(`GET /api/courses → ${res.status}`);
   const body = (await res.json()) as { courses: Course[] };
   return body.courses;
+}
+
+/** Public scenario catalog (seed ∪ runtime entries) — home page + course editor. */
+export async function fetchScenarios(): Promise<Scenario[]> {
+  const res = await fetch("/api/scenarios");
+  if (!res.ok) throw new Error(`GET /api/scenarios → ${res.status}`);
+  const body = (await res.json()) as { scenarios: Scenario[] };
+  return body.scenarios;
 }
 
 export function terminalUrl(c: SessionCredentials): string {

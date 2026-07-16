@@ -17,7 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUser, logout } from "../auth.ts";
 import type { Course, CourseLesson } from "../api.ts";
-import { scenarioByLabId, scenarios } from "../scenarios.ts";
+import { fetchScenarios } from "../api.ts";
+import { scenarioMap, type Scenario } from "../scenarios.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
 
@@ -195,11 +196,15 @@ export function Admin() {
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [courses, setCourses] = useState<Course[] | null>(null);
   const [sessions, setSessions] = useState<AdminSessionSummary[] | null>(null);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [needsToken, setNeedsToken] = useState(false);
   const [tokenDraft, setTokenDraft] = useState("");
   const [reloadTick, setReloadTick] = useState(0);
   const reload = () => setReloadTick((t) => t + 1);
+  // labId → scenario, from the fetched catalog. Session tables and the course
+  // editor resolve presentation titles through this.
+  const scenarioByLabId = useMemo(() => scenarioMap(scenarios), [scenarios]);
 
   useEffect(() => {
     let stop = false;
@@ -210,14 +215,16 @@ export function Admin() {
       adminGet<UsagePayload>("/api/admin/usage"),
       adminGet<{ courses: Course[] }>("/api/courses"),
       adminGet<{ sessions: AdminSessionSummary[] }>("/api/admin/sessions"),
+      fetchScenarios(),
     ])
-      .then(([a, u, g, c, s]) => {
+      .then(([a, u, g, c, s, sc]) => {
         if (stop) return;
         setAgents(a.agents);
         setUsers(u.users);
         setUsage(g);
         setCourses(c.courses);
         setSessions(s.sessions);
+        setScenarios(sc);
         setNeedsToken(false);
       })
       .catch((err: { status?: number }) => {
@@ -320,10 +327,10 @@ export function Admin() {
           {!needsToken && !error && (
             <>
               {tab === "agents" && <AgentsView agents={agents} />}
-              {tab === "users" && <UsersView users={users} sessions={sessions} />}
+              {tab === "users" && <UsersView users={users} sessions={sessions} scenarioByLabId={scenarioByLabId} />}
               {tab === "usage" && <UsageView usage={usage} />}
-              {tab === "courses" && <CoursesView courses={courses} onChanged={reload} />}
-              {tab === "sessions" && <SessionsView sessions={sessions} />}
+              {tab === "courses" && <CoursesView courses={courses} onChanged={reload} scenarios={scenarios} scenarioByLabId={scenarioByLabId} />}
+              {tab === "sessions" && <SessionsView sessions={sessions} scenarioByLabId={scenarioByLabId} />}
             </>
           )}
         </div>
@@ -414,7 +421,15 @@ function AgentsView({ agents }: { agents: AdminAgent[] | null }) {
  * cost; drilling in gives ONE view per user — totals, per-model cost, and
  * every session with its replay (the deterministic recording).
  */
-function UsersView({ users, sessions }: { users: AdminUser[] | null; sessions: AdminSessionSummary[] | null }) {
+function UsersView({
+  users,
+  sessions,
+  scenarioByLabId,
+}: {
+  users: AdminUser[] | null;
+  sessions: AdminSessionSummary[] | null;
+  scenarioByLabId: Map<string, Scenario>;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   if (!users) return <p className="admin-loading">Loading users…</p>;
   if (users.length === 0)
@@ -431,6 +446,7 @@ function UsersView({ users, sessions }: { users: AdminUser[] | null; sessions: A
         user={open}
         sessions={(sessions ?? []).filter((s) => s.learnerId === open.learnerId)}
         onBack={() => setOpenId(null)}
+        scenarioByLabId={scenarioByLabId}
       />
     );
   }
@@ -481,10 +497,12 @@ function UserDetail({
   user: u,
   sessions,
   onBack,
+  scenarioByLabId,
 }: {
   user: AdminUser;
   sessions: AdminSessionSummary[];
   onBack: () => void;
+  scenarioByLabId: Map<string, Scenario>;
 }) {
   const [replayId, setReplayId] = useState<string | null>(null);
   if (replayId) return <ReplayView sessionId={replayId} onBack={() => setReplayId(null)} />;
@@ -874,7 +892,17 @@ const EMPTY_DRAFT: Omit<Course, "courseId" | "createdAt" | "updatedAt"> = {
   lessons: [],
 };
 
-function CoursesView({ courses, onChanged }: { courses: Course[] | null; onChanged: () => void }) {
+function CoursesView({
+  courses,
+  onChanged,
+  scenarios,
+  scenarioByLabId,
+}: {
+  courses: Course[] | null;
+  onChanged: () => void;
+  scenarios: Scenario[];
+  scenarioByLabId: Map<string, Scenario>;
+}) {
   // editing: null = closed, "new" = creating, otherwise the courseId being edited
   const [editing, setEditing] = useState<string | null>(null);
   if (!courses) return <p className="admin-loading">Loading courses…</p>;
@@ -895,6 +923,8 @@ function CoursesView({ courses, onChanged }: { courses: Course[] | null; onChang
             setEditing(null);
             if (changed) onChanged();
           }}
+          scenarios={scenarios}
+          scenarioByLabId={scenarioByLabId}
         />
       )}
       {courses.length === 0 && editing === null && (
@@ -944,7 +974,17 @@ function CoursesView({ courses, onChanged }: { courses: Course[] | null; onChang
   );
 }
 
-function CourseEditor({ initial, onDone }: { initial: Course | null; onDone: (changed: boolean) => void }) {
+function CourseEditor({
+  initial,
+  onDone,
+  scenarios,
+  scenarioByLabId,
+}: {
+  initial: Course | null;
+  onDone: (changed: boolean) => void;
+  scenarios: Scenario[];
+  scenarioByLabId: Map<string, Scenario>;
+}) {
   const [draft, setDraft] = useState(() => (initial ? { ...initial, lessons: [...initial.lessons] } : { ...EMPTY_DRAFT, lessons: [] as CourseLesson[] }));
   const [addLabId, setAddLabId] = useState(scenarios[0]?.labId ?? "");
   const [saving, setSaving] = useState(false);
@@ -1105,7 +1145,13 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function SessionsView({ sessions }: { sessions: AdminSessionSummary[] | null }) {
+function SessionsView({
+  sessions,
+  scenarioByLabId,
+}: {
+  sessions: AdminSessionSummary[] | null;
+  scenarioByLabId: Map<string, Scenario>;
+}) {
   const [learner, setLearner] = useState<string>("all");
   const [status, setStatus] = useState<"all" | "finished" | "in-progress">("all");
   const [replayId, setReplayId] = useState<string | null>(null);

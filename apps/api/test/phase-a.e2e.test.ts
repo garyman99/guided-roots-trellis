@@ -47,6 +47,17 @@ test("GET /api/admin/capabilities is admin-gated and returns the registry", asyn
   assert.deepEqual(reg.surfaces.map((s) => s.id).sort(), ["terminal", "workspace"]);
 });
 
+test("GET /api/scenarios serves the catalog publicly (seed present)", async () => {
+  const { status, body } = await api("GET", "/api/scenarios");
+  assert.equal(status, 200);
+  const scenarios = (body as { scenarios: Array<{ labId: string; title: string; level: string }> }).scenarios;
+  // The hand-authored seed is present and each entry carries its facets.
+  assert.ok(scenarios.length >= 6, "seed scenarios present");
+  const first = scenarios.find((s) => s.labId === "turn-heading-check-into-first-test");
+  assert.ok(first, "a known seed scenario is served");
+  assert.ok(first.title.length > 0 && first.level.length > 0);
+});
+
 test("a draft course is admin-visible but hidden from the public shelf until Go-live", async () => {
   // Create a course (created courses are published by default — absent status).
   const created = await admin("POST", "/api/admin/courses", {

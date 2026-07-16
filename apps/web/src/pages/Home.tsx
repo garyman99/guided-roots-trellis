@@ -14,13 +14,12 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { getUser, isAdmin, logout } from "../auth.ts";
-import { fetchCourses, savedLearner, learnerApi, type Course, type LearnerProgress } from "../api.ts";
+import { fetchCourses, fetchScenarios, savedLearner, learnerApi, type Course, type LearnerProgress } from "../api.ts";
 import {
-  allLevels,
-  allRoles,
-  allTechnologies,
-  scenarioByLabId,
-  scenarios,
+  ALL_LEVELS,
+  rolesOf,
+  technologiesOf,
+  scenarioMap,
   type Scenario,
 } from "../scenarios.ts";
 import { useReveal } from "./reveal.ts";
@@ -78,11 +77,16 @@ export function Home() {
 
   const [courses, setCourses] = useState<Course[] | null>(null);
   const [progress, setProgress] = useState<LearnerProgress | null>(null);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   useEffect(() => {
     fetchCourses().then(setCourses).catch(() => setCourses([]));
+    fetchScenarios().then(setScenarios).catch(() => setScenarios([]));
     const learner = savedLearner();
     if (learner) learnerApi.progress(learner).then(setProgress).catch(() => {});
   }, []);
+  // labId → scenario, rebuilt when the fetched catalog changes. Course lessons
+  // and the resume band look up presentation titles through this.
+  const scenarioByLabId = useMemo(() => scenarioMap(scenarios), [scenarios]);
   const completed = useMemo(() => new Set(progress?.completedLabIds ?? []), [progress]);
 
   // The course to resume: an in-progress course (0 < done < total), preferring the
@@ -140,7 +144,7 @@ export function Home() {
           </div>
 
           {resume ? (
-            <ResumeBand course={resume.course} p={resume.p} />
+            <ResumeBand course={resume.course} p={resume.p} scenarioByLabId={scenarioByLabId} />
           ) : (
             <p className="gr-lede" style={{ marginTop: "-12px" }}>
               Pick a course below and learn it by doing it — every step measured inside a real
@@ -150,9 +154,14 @@ export function Home() {
         </div>
       </header>
 
-      <CoursesSection courses={courses} completed={completed} resumeId={resume?.course.courseId ?? null} />
+      <CoursesSection
+        courses={courses}
+        completed={completed}
+        resumeId={resume?.course.courseId ?? null}
+        scenarioByLabId={scenarioByLabId}
+      />
 
-      <PlaygroundSection completed={completed} />
+      <PlaygroundSection completed={completed} scenarios={scenarios} />
 
       <footer className="gr-footer">
         <div className="gr-container">
@@ -169,7 +178,7 @@ export function Home() {
 
 /* ================= resume band ================= */
 
-function ResumeBand({ course, p }: { course: Course; p: CourseProgress }) {
+function ResumeBand({ course, p, scenarioByLabId }: { course: Course; p: CourseProgress; scenarioByLabId: Map<string, Scenario> }) {
   const next = p.next!;
   const s = scenarioByLabId.get(next.labId);
   const lvl = normalizeLevel(course.level);
@@ -207,10 +216,12 @@ function CoursesSection({
   courses,
   completed,
   resumeId,
+  scenarioByLabId,
 }: {
   courses: Course[] | null;
   completed: Set<string>;
   resumeId: string | null;
+  scenarioByLabId: Map<string, Scenario>;
 }) {
   const [level, setLevel] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -312,6 +323,7 @@ function CoursesSection({
                 completed={completed}
                 delay={i % 2}
                 highlight={c.courseId === resumeId}
+                scenarioByLabId={scenarioByLabId}
               />
             ))}
           </div>
@@ -326,11 +338,13 @@ function CourseCard({
   completed,
   delay,
   highlight,
+  scenarioByLabId,
 }: {
   course: Course;
   completed: Set<string>;
   delay: number;
   highlight: boolean;
+  scenarioByLabId: Map<string, Scenario>;
 }) {
   const p = courseProgress(course, completed);
   const lvl = normalizeLevel(course.level);
@@ -403,7 +417,7 @@ function CourseCard({
 
 /* ================= playground (demoted: desk + free practice) ================= */
 
-function PlaygroundSection({ completed }: { completed: Set<string> }) {
+function PlaygroundSection({ completed, scenarios }: { completed: Set<string>; scenarios: Scenario[] }) {
   return (
     <section className="gr-section tight playground" style={{ paddingTop: 0 }}>
       <div className="gr-container">
@@ -432,7 +446,7 @@ function PlaygroundSection({ completed }: { completed: Set<string> }) {
           <span className="gr-btn gr-btn-ghost desk-cta">Launch the desktop →</span>
         </a>
 
-        <ScenarioLibrary completed={completed} />
+        <ScenarioLibrary completed={completed} scenarios={scenarios} />
       </div>
     </section>
   );
@@ -446,10 +460,13 @@ const LEVEL_LABEL: Record<string, string> = {
   advanced: "Confident",
 };
 
-function ScenarioLibrary({ completed }: { completed: Set<string> }) {
+function ScenarioLibrary({ completed, scenarios }: { completed: Set<string>; scenarios: Scenario[] }) {
   const [role, setRole] = useState<string | null>(null);
   const [tech, setTech] = useState<string | null>(null);
   const [level, setLevel] = useState<string | null>(null);
+
+  const roles = useMemo(() => rolesOf(scenarios), [scenarios]);
+  const technologies = useMemo(() => technologiesOf(scenarios), [scenarios]);
 
   const filtered = useMemo(
     () =>
@@ -459,7 +476,7 @@ function ScenarioLibrary({ completed }: { completed: Set<string> }) {
           (tech === null || s.technologies.includes(tech)) &&
           (level === null || s.level === level),
       ),
-    [role, tech, level],
+    [scenarios, role, tech, level],
   );
   const anyFilter = role !== null || tech !== null || level !== null;
 
@@ -471,11 +488,11 @@ function ScenarioLibrary({ completed }: { completed: Set<string> }) {
       </div>
 
       <div className="scenario-filters">
-        <FilterGroup label="Role" options={allRoles} value={role} onChange={setRole} />
-        <FilterGroup label="Technology" options={allTechnologies} value={tech} onChange={setTech} />
+        <FilterGroup label="Role" options={roles} value={role} onChange={setRole} />
+        <FilterGroup label="Technology" options={technologies} value={tech} onChange={setTech} />
         <FilterGroup
           label="Experience"
-          options={allLevels}
+          options={ALL_LEVELS}
           display={(v) => LEVEL_LABEL[v] ?? v}
           value={level}
           onChange={setLevel}
