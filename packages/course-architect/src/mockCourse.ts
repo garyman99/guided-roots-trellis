@@ -22,9 +22,10 @@ function reqOf(context: Record<string, unknown> | undefined): Requestish {
   return { technology: r.technology ?? "the technology", title: r.title, targetLearner: r.targetLearner, outcome: r.outcome };
 }
 
-/** Course-scoped lesson id prefix, e.g. "git" → "git-101". */
+/** Course-scoped lesson id prefix from the technology's first word, e.g.
+ *  "Selenium with Python" → "selenium", "Git" → "git". */
 function slug(technology: string): string {
-  return technology.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 12) || "course";
+  return technology.toLowerCase().match(/[a-z0-9]+/)?.[0] ?? "course";
 }
 
 function mockCourseRequest(context?: Record<string, unknown>): CourseRequestDoc {
@@ -40,48 +41,55 @@ function mockCourseRequest(context?: Record<string, unknown>): CourseRequestDoc 
   };
 }
 
-/** A two-lesson course (intro + beginner) using only base-build capabilities. */
+/**
+ * A full course across the five-level progression, built from a fixed template
+ * so any technology gets a real ladder (not a two-lesson stub). Concepts chain
+ * so the prerequisite graph is acyclic, and every lesson uses only base-build
+ * capabilities. A live model would tailor this; the mock keeps the shape real.
+ */
+interface LessonTemplate {
+  level: LessonInventoryEntry["level"];
+  title: (tech: string) => string;
+  purpose: (tech: string) => string;
+  primaryCapability: string;
+  concept: string; // the concept this lesson introduces
+  requiredCapabilities: string[];
+}
+
+const COURSE_TEMPLATE: LessonTemplate[] = [
+  { level: "intro", title: (t) => `Meet ${t}`, purpose: (t) => `Build a first mental model of ${t} by reading a complete, working example.`, primaryCapability: "Recognize the core workflow and read a complete example.", concept: "mental-model", requiredCapabilities: ["file-viewed", "code"] },
+  { level: "beginner", title: (t) => `Your first ${t} task`, purpose: (t) => `Complete a small, guided ${t} task and prove the result.`, primaryCapability: "Complete a straightforward task using the course conventions.", concept: "core-workflow", requiredCapabilities: ["tests-run", "code"] },
+  { level: "beginner", title: () => `Read a failing result`, purpose: (t) => `Read a failing ${t} result calmly and extract the facts that matter.`, primaryCapability: "Interpret a failure report before changing anything.", concept: "reading-failures", requiredCapabilities: ["diff-viewed", "code"] },
+  { level: "intermediate", title: () => `Diagnose and repair`, purpose: (t) => `Find and fix a broken ${t} setup without changing what it protects.`, primaryCapability: "Diagnose a nontrivial failure and repair it surgically.", concept: "diagnosis", requiredCapabilities: ["any-command", "diff-viewed", "code"] },
+  { level: "advanced", title: () => `Design under constraints`, purpose: (t) => `Design a ${t} solution from an incomplete problem statement.`, primaryCapability: "Design a robust solution and justify the tradeoffs.", concept: "design", requiredCapabilities: ["file-viewed", "code"] },
+  { level: "expert", title: () => `Set the team conventions`, purpose: (t) => `Establish ${t} conventions others will follow, and defend them.`, primaryCapability: "Define standards and evaluate implementation quality.", concept: "governance", requiredCapabilities: ["file-viewed", "code"] },
+];
+
 function mockBlueprint(context?: Record<string, unknown>): Blueprint {
   const r = reqOf(context);
-  const s = slug(r.technology!);
-  const inventory: LessonInventoryEntry[] = [
-    {
-      lessonId: `${s}-101`,
-      level: "intro",
-      sequence: 1,
-      title: `Meet ${r.technology}`,
-      purpose: `Build a first mental model of ${r.technology} by reading a complete, working example.`,
-      primaryCapability: "Recognize the core workflow and read a complete example.",
-      conceptsIntroduced: ["core-workflow", "mental-model"],
-      conceptsReinforced: [],
-      prerequisites: [],
-      requiredCapabilities: ["file-viewed", "code"],
-    },
-    {
-      lessonId: `${s}-102`,
-      level: "beginner",
-      sequence: 2,
-      title: `Your first ${r.technology} task`,
-      purpose: `Complete a small, guided ${r.technology} task and prove the result.`,
-      primaryCapability: "Complete a straightforward task using the course conventions.",
-      conceptsIntroduced: ["first-task", "verification"],
-      conceptsReinforced: ["core-workflow"],
-      prerequisites: [`${s}-101`],
-      requiredCapabilities: ["tests-run", "code"],
-    },
-  ];
+  const tech = r.technology!;
+  const s = slug(tech);
+  const inventory: LessonInventoryEntry[] = COURSE_TEMPLATE.map((t, i) => ({
+    lessonId: `${s}-10${i + 1}`,
+    level: t.level,
+    sequence: i + 1,
+    title: t.title(tech),
+    purpose: t.purpose(tech),
+    primaryCapability: t.primaryCapability,
+    conceptsIntroduced: [t.concept],
+    conceptsReinforced: i > 0 ? [COURSE_TEMPLATE[i - 1].concept] : [],
+    prerequisites: i > 0 ? [`${s}-10${i}`] : [],
+    requiredCapabilities: t.requiredCapabilities,
+  }));
+  const concepts = COURSE_TEMPLATE.map((t) => t.concept);
   return {
-    domainMap: `# Domain map: ${r.technology}\n\nCapability areas: purpose & mental model, core operations, validation, failure handling.`,
-    progressionSpine: `# Progression spine\n\nIntro → Beginner: recognize the workflow, then complete a first task with proof.`,
+    domainMap: `# Domain map: ${tech}\n\nCapability areas: purpose & mental model, core operations, validation, failure handling, diagnosis, design, and governance.`,
+    progressionSpine: `# Progression spine\n\nIntro → Beginner → Intermediate → Advanced → Expert: recognize the workflow, complete and verify tasks, diagnose failures, design under constraints, then set conventions.`,
     conventions: `# Conventions\n\nOne terminal lab per lesson; tasks named by the observable action; failures are taught, not hidden.`,
-    planReview: `# Plan review\n\nCoverage, progression, and cohesion checked: two lessons, no forward references, autonomy increases.`,
+    planReview: `# Plan review\n\nCoverage across all five levels, prerequisites chain forward-only, autonomy and ambiguity increase per level.`,
     prerequisiteGraph: {
-      concepts: ["core-workflow", "mental-model", "first-task", "verification"],
-      edges: [
-        { from: "mental-model", to: "core-workflow" },
-        { from: "core-workflow", to: "first-task" },
-        { from: "first-task", to: "verification" },
-      ],
+      concepts,
+      edges: concepts.slice(1).map((c, i) => ({ from: concepts[i], to: c })),
     },
     lessonInventory: inventory,
   };

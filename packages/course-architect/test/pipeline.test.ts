@@ -20,7 +20,7 @@ import { defaultMockResponder } from "../src/mockCourse.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, applyDispositions, commissionedGaps, allGapsDispositioned } from "../src/gaps.ts";
 import { validateBlueprint, findCycle, ValidationError, type LessonInventoryEntry } from "../src/schemas.ts";
 
-const CAPS = new Set(["file-viewed", "tests-run", "code", "terminal", "any-command"]);
+const CAPS = new Set(["file-viewed", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
 
 function harness(responder: MockResponder = defaultMockResponder) {
   let tick = 0;
@@ -55,22 +55,22 @@ async function driveToApproved(h: ReturnType<typeof harness>, technology: string
   return run.runId;
 }
 
-test("default mock: a run produces a validated, gap-free two-lesson course", async () => {
+test("default mock: a run produces a validated, gap-free course across all five levels", async () => {
   const h = harness();
   const runId = await driveToApproved(h, "Widgets"); // a non-pack tech → the generic mock
   assert.equal(h.store.getCourseRun(runId)!.status, "approved");
 
   const arts = h.artifactsFor(runId);
   const inventory = JSON.parse(arts.read("lesson-inventory.json")!) as LessonInventoryEntry[];
-  assert.equal(inventory.length, 2);
-  assert.deepEqual(inventory.map((l) => l.level), ["intro", "beginner"]);
+  assert.equal(inventory.length, 6, "a full course, not a two-lesson stub");
+  assert.deepEqual([...new Set(inventory.map((l) => l.level))], ["intro", "beginner", "intermediate", "advanced", "expert"], "every level represented");
   // capability-gaps.json is present and empty (mock uses base capabilities only).
   assert.deepEqual(JSON.parse(arts.read("capability-gaps.json")!).gaps, []);
-  // Both lessons authored + reviewed; materializer invoked with both.
+  // Lessons authored + reviewed; materializer invoked with all of them.
   assert.ok(arts.exists("lessons/widgets-101/lesson.md"));
   assert.ok(arts.exists("reviews/widgets-101.pedagogy.json"));
   assert.ok(arts.exists("reviews/quality-gates.json"));
-  assert.equal(h.materialized.at(-1)!.labIds.length, 2);
+  assert.equal(h.materialized.at(-1)!.labIds.length, 6);
 });
 
 test("the Git pack yields a real, playable Git course through the pipeline", async () => {
