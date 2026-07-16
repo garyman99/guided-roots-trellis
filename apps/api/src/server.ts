@@ -68,6 +68,7 @@ import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
+import { CAPABILITY_REGISTRY } from "./capabilities.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -94,7 +95,12 @@ const guideBootConfig = (() => {
 })();
 
 const store = createStore();
-export const manager = new SessionManager(store, join(repoRoot, "labs"));
+// Two lab search paths: hand-authored labs ship in the repo (labs/); generated
+// labs published through the course-generation pipeline land in a server-owned
+// directory (curriculum/published/). loadManifest searches repo-first.
+export const manager = new SessionManager(store, join(repoRoot, "labs"), {
+  publishedRoot: join(repoRoot, "curriculum", "published"),
+});
 
 /**
  * Curated-course seed: the catalog every deployment ships with. Each canonical
@@ -139,10 +145,9 @@ function parseCourseBody(body: Record<string, unknown>): string | Omit<Course, "
   if (!title) return "title is required";
   const description = typeof body.description === "string" ? body.description.trim().slice(0, 1000) : "";
   const audience = typeof body.audience === "string" ? body.audience.trim().slice(0, 80) : "";
-  // The course-level ladder shown on /home: intro → beginner → advanced → expert.
-  // "intermediate" is still accepted for older payloads (the home ladder folds it
-  // into "advanced") so existing content keeps validating.
-  const levels = ["intro", "beginner", "advanced", "expert", "intermediate"];
+  // The five-level capability ladder shown on /home:
+  // intro → beginner → intermediate → advanced → expert.
+  const levels = ["intro", "beginner", "intermediate", "advanced", "expert"];
   const level = typeof body.level === "string" && levels.includes(body.level) ? body.level : "beginner";
   if (!Array.isArray(body.lessons) || body.lessons.length > 50) return "lessons must be an array (max 50)";
   const lessons: CourseLesson[] = [];
@@ -468,13 +473,21 @@ export const server = createServer(async (req, res) => {
     }
 
     // GET /api/courses — the public shelf of curated paths (home page).
+    // Published only: a draft (generated, not yet gone live) is admin-only.
     if (req.method === "GET" && url.pathname === "/api/courses") {
-      return json(res, 200, { courses: store.listCourses() });
+      return json(res, 200, { courses: store.listCourses().filter((c) => c.status !== "draft") });
     }
 
     // ── /api/admin — operator views: agents, users, token usage ──────────
     if (parts[0] === "api" && parts[1] === "admin") {
       if (!adminAuthed(req, res, url)) return;
+
+      // GET /api/admin/capabilities — the machine-readable capability registry
+      // of this build (twin of labs/AUTHORING.md). Course generation diffs its
+      // required capabilities against this to find gaps at the blueprint gate.
+      if (req.method === "GET" && parts[2] === "capabilities" && parts.length === 3) {
+        return json(res, 200, CAPABILITY_REGISTRY);
+      }
 
       // GET /api/admin/agents — every configured agent/service + its prompts
       if (req.method === "GET" && parts[2] === "agents" && parts.length === 3) {
@@ -605,6 +618,8 @@ export const server = createServer(async (req, res) => {
           if (req.method === "PUT") {
             const parsed = parseCourseBody(await readBody(req));
             if (typeof parsed === "string") return json(res, 400, { error: parsed });
+            // parseCourseBody never returns status/sourceRunId; the spread keeps
+            // the existing values so an edit can't accidentally publish a draft.
             const course: Course = { ...existing, ...parsed, updatedAt: new Date().toISOString() };
             store.saveCourse(course);
             return json(res, 200, { course });
@@ -613,6 +628,19 @@ export const server = createServer(async (req, res) => {
             store.deleteCourse(parts[3]);
             return json(res, 200, { deleted: true });
           }
+        }
+        // POST /api/admin/courses/:id/(publish|unpublish) — Go-live flip (D9).
+        // Separated from the publish GATE: this controls learner visibility.
+        if (req.method === "POST" && parts.length === 5 && (parts[4] === "publish" || parts[4] === "unpublish")) {
+          const existing = store.getCourse(parts[3]);
+          if (!existing) return json(res, 404, { error: "course not found" });
+          const course: Course = {
+            ...existing,
+            status: parts[4] === "publish" ? "published" : "draft",
+            updatedAt: new Date().toISOString(),
+          };
+          store.saveCourse(course);
+          return json(res, 200, { course });
         }
       }
 

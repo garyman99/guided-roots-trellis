@@ -8,7 +8,7 @@
  * refreshed tab replays recent history, and automatic shell respawn so a
  * reset (or a stray `exit`) feels like a scene change, not a crash.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
@@ -75,27 +75,45 @@ try {
   console.error("[model-runtime] pricing table unavailable — costs will be unestimated:", err);
 }
 
+/**
+ * The task auto-rule vocabulary the framework can observe today — the single
+ * runtime source of truth. The `LabTask.auto` type derives from it, and the
+ * capability registry (`capabilities.ts`) is tested for agreement against it,
+ * so a new observable action can't be advertised to course generation without
+ * `taskAutoDone()` actually implementing it. Grows additively (AUTHORING.md §13).
+ *
+ * Terminal labs: any-command, diff-viewed, tests-run, file-edited, file-viewed
+ *   (GUI editor only — `cat` in the terminal is NOT detected), tests-green.
+ * Workspace labs (simulated applications): artifact-opened, ai-consulted,
+ *   context-clean, draft-edited, reply-submitted.
+ */
+export const TASK_AUTO_RULES = [
+  "any-command",
+  "diff-viewed",
+  "tests-run",
+  "file-edited",
+  "file-viewed",
+  "tests-green",
+  "artifact-opened",
+  "ai-consulted",
+  "context-clean",
+  "draft-edited",
+  "reply-submitted",
+] as const;
+
+export type TaskAutoRule = (typeof TASK_AUTO_RULES)[number];
+
 export interface LabTask {
   id: string;
   /** Short display title — the checklist heading the guide renders. */
   title?: string;
   text: string;
-  /** How instrumentation recognizes this task as done (see taskStatuses). */
-  auto?:
-    | "any-command"
-    | "diff-viewed"
-    | "tests-run"
-    | "file-edited"
-    // Learner opened a workspace file in the GUI editor. KNOWN LIMITATION:
-    // reading the same file via `cat` in the terminal is not detected.
-    | "file-viewed"
-    | "tests-green"
-    // workspace labs (simulated applications):
-    | "artifact-opened"
-    | "ai-consulted"
-    | "context-clean"
-    | "draft-edited"
-    | "reply-submitted";
+  /**
+   * How instrumentation recognizes this task as done (see taskStatuses).
+   * KNOWN LIMITATION for `file-viewed`: reading the same file via `cat` in the
+   * terminal is not detected — only the GUI editor serving it counts.
+   */
+  auto?: TaskAutoRule;
   /** For auto "file-viewed": the workspace path that counts (any file when omitted). */
   autoPath?: string;
   /**
@@ -1253,13 +1271,20 @@ export class SessionManager {
   private readonly taskValidator = buildTaskValidator();
   private readonly store: EventStore;
   private readonly labsRoot: string;
+  /** Ordered lab search roots: repo labs first, then published (generated) labs. */
+  private readonly labRoots: string[];
   readonly driverKind: "local" | "docker";
   readonly learners: LearnerService;
 
-  constructor(store: EventStore, labsRoot: string, driverKind?: "local" | "docker") {
+  constructor(
+    store: EventStore,
+    labsRoot: string,
+    opts?: { publishedRoot?: string; driverKind?: "local" | "docker" },
+  ) {
     this.store = store;
     this.labsRoot = labsRoot;
-    this.driverKind = driverKind ?? ((process.env.LAB_DRIVER as "local" | "docker") ?? "local");
+    this.labRoots = opts?.publishedRoot ? [labsRoot, opts.publishedRoot] : [labsRoot];
+    this.driverKind = opts?.driverKind ?? ((process.env.LAB_DRIVER as "local" | "docker") ?? "local");
     // Container resource limits are env-tunable: browser labs (Playwright)
     // need more than the conservative defaults. Unset env keeps the defaults.
     this.driver = this.driverKind === "docker"
@@ -1272,9 +1297,22 @@ export class SessionManager {
     this.learners = new LearnerService(store, loadCurriculum(join(labsRoot, "..", "curriculum", "concepts.json")));
   }
 
-  loadManifest(labId: string): LabManifest {
+  /**
+   * Resolve a lab id to its on-disk directory, searching the roots in order
+   * (repo labs first, then published/generated labs). Throws for a bad id or
+   * a lab that ships in no root.
+   */
+  labDir(labId: string): string {
     if (!/^[a-z0-9-]+$/.test(labId)) throw new Error("invalid lab id");
-    const raw = readFileSync(join(this.labsRoot, labId, "lab.json"), "utf8");
+    for (const root of this.labRoots) {
+      const dir = join(root, labId);
+      if (existsSync(join(dir, "lab.json"))) return dir;
+    }
+    throw new Error(`unknown lab: ${labId}`);
+  }
+
+  loadManifest(labId: string): LabManifest {
+    const raw = readFileSync(join(this.labDir(labId), "lab.json"), "utf8");
     return JSON.parse(raw) as LabManifest;
   }
 
@@ -1328,7 +1366,7 @@ export class SessionManager {
     guideProviderId?: string,
   ): Promise<Session> {
     const manifest = this.loadManifest(labId);
-    const labDir = join(this.labsRoot, labId);
+    const labDir = this.labDir(labId);
     const learner = learnerId ?? newLearnerId();
 
     // ── Adaptive labs: deterministic variant selection with hysteresis ──
@@ -1454,7 +1492,7 @@ export class SessionManager {
     } catch (err) {
       throw new ResumeError("lab-changed", err instanceof Error ? err.message : String(err));
     }
-    const labDir = join(this.labsRoot, meta.labId);
+    const labDir = this.labDir(meta.labId);
 
     const events = this.store.eventsFor(sessionId);
     const startedEvent = events.find(

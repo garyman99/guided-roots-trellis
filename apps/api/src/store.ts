@@ -92,10 +92,18 @@ export interface Course {
   description: string;
   /** Who it's for — matches the marketplace role labels (e.g. "QA & Testing"). */
   audience: string;
-  /** Level-ladder rung shown on /home: intro | beginner | advanced | expert
-   *  ("intermediate" is still accepted for older content and folds into advanced). */
+  /** Level-ladder rung shown on /home: intro | beginner | intermediate | advanced | expert. */
   level: string;
   lessons: CourseLesson[];
+  /**
+   * Learner visibility. Absent = published (backward compatible: every course
+   * that predates the field is live). A generated course sits in "draft" after
+   * its publish gate until an operator flips it live (Go-live). Only published
+   * courses appear on /api/courses; admin sees both.
+   */
+  status?: "draft" | "published";
+  /** Provenance: the course-generation run that produced this course, if any. */
+  sourceRunId?: string;
   createdAt: string;
   updatedAt: string;
 }

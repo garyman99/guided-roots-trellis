@@ -999,6 +999,7 @@ function CourseEditor({ initial, onDone }: { initial: Course | null; onDone: (ch
           <select id="course-level" value={draft.level} onChange={(e) => set({ level: e.target.value })}>
             <option value="intro">intro</option>
             <option value="beginner">beginner</option>
+            <option value="intermediate">intermediate</option>
             <option value="advanced">advanced</option>
             <option value="expert">expert</option>
           </select>

@@ -36,16 +36,16 @@ interface LevelMeta {
 const COURSE_LEVELS: LevelMeta[] = [
   { key: "intro", label: "Intro", hint: "No experience assumed" },
   { key: "beginner", label: "Beginner", hint: "You've met the basics" },
-  { key: "advanced", label: "Advanced", hint: "You work in this" },
+  { key: "intermediate", label: "Intermediate", hint: "You can work independently" },
+  { key: "advanced", label: "Advanced", hint: "You design under ambiguity" },
   { key: "expert", label: "Expert", hint: "Sharpening mastery" },
 ];
 const LEVEL_RANK: Record<string, number> = Object.fromEntries(
   COURSE_LEVELS.map((l, i) => [l.key, i]),
 );
-/** Normalize a course's free-form level onto a ladder rung (intermediate ≈ advanced). */
+/** Normalize a course's free-form level onto a ladder rung; unknown → beginner. */
 function normalizeLevel(level: string): string {
   const l = level.toLowerCase();
-  if (l === "intermediate") return "advanced";
   return LEVEL_RANK[l] !== undefined ? l : "beginner";
 }
 

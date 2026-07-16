@@ -108,6 +108,10 @@ export interface Course {
   audience: string;
   level: string;
   lessons: CourseLesson[];
+  /** Learner visibility; absent = published. /api/courses returns published only. */
+  status?: "draft" | "published";
+  /** Provenance: the course-generation run that produced this course, if any. */
+  sourceRunId?: string;
   createdAt: string;
   updatedAt: string;
 }
