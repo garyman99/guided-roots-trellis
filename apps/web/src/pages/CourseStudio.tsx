@@ -421,6 +421,7 @@ function PhaseRail({ run }: { run: CourseRunDetail }) {
 function LivePanel({ run }: { run: CourseRunDetail }) {
   const [live, setLive] = useState<LiveActivity | null>(null);
   const thinkRef = useRef<HTMLPreElement | null>(null);
+  const outRef = useRef<HTMLPreElement | null>(null);
   const active = isActive(run.status) || run.status === "queued";
 
   useEffect(() => {
@@ -434,8 +435,9 @@ function LivePanel({ run }: { run: CourseRunDetail }) {
     return () => { stop = true; clearInterval(t); };
   }, [run.runId, active, run.status]);
 
-  // Keep the thinking scrolled to the newest as it streams.
+  // Keep the thinking + output panels tailing the newest text as it streams.
   useEffect(() => { if (thinkRef.current) thinkRef.current.scrollTop = thinkRef.current.scrollHeight; }, [live?.thinking]);
+  useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [live?.text]);
 
   if (!active) return null;
   return (
@@ -453,7 +455,7 @@ function LivePanel({ run }: { run: CourseRunDetail }) {
       {live?.text && (
         <>
           <p className="gr-mono-note">OUTPUT</p>
-          <pre className="cg-live-out">{live.text.length > 4000 ? "…" + live.text.slice(-4000) : live.text}</pre>
+          <pre className="cg-live-out" ref={outRef}>{live.text}</pre>
         </>
       )}
       {live && !live.thinking && !live.text && <p className="admin-empty">The model is working…</p>}
