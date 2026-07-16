@@ -12,10 +12,12 @@ course draft/publish, 5-level ladder, dynamic catalog. Phase B done (842fd8b)
 — run entity, state machine, four gates, scheduler, store, admin endpoints.
 Phase C done (ee90e25) — real role pipeline (roles/schemas/gaps/executor/mock),
 materializer producing a draft course; mock-driven and verified live end to
-end. Remaining: Phase D (Course studio UI), Phase D+ (capability dev skill),
-Phase E (first governed run: Git fundamentals), plus Phase-C richness (real
-Docker build + auto-solve materializer, full 3-stage review scoring, batched
-multi-role authoring, prompts/course-gen/*, commission outbox).
+end. Phase D done (7c60cc9) — Course studio admin tab (start/watch/gate/
+go-live), verified live against the mock pipeline. Remaining: Phase D+
+(capability dev skill), Phase E (first governed run: Git fundamentals), plus
+Phase-C richness (real Docker build + auto-solve materializer, full 3-stage
+review scoring, batched multi-role authoring, prompts/course-gen/*, commission
+outbox).
 
 This plan makes the multi-agent course-generation pipeline described in
 the strategy doc a **server-native, human-governed** feature of Trellis:
