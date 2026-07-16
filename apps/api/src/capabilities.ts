@@ -117,3 +117,18 @@ export const CAPABILITY_REGISTRY: CapabilityRegistry = {
     { id: "validate-criterion", label: "LLM correctness gate", description: "A task may declare validate:{reads,criterion}; after its coarse auto-rule fires, a model judges the learner's actual files against the plain-language criterion before the task advances. Offline mock auto-passes." },
   ],
 };
+
+/**
+ * The flat set of every capability id a lesson may reference (apps, auto-rules,
+ * checkpoint kinds, surfaces, evaluator features). Course generation diffs a
+ * lesson's requiredCapabilities against this to find gaps at the blueprint gate.
+ */
+export function capabilityIdSet(registry: CapabilityRegistry = CAPABILITY_REGISTRY): Set<string> {
+  return new Set<string>([
+    ...registry.surfaces.map((s) => s.id),
+    ...registry.apps.map((a) => a.id),
+    ...registry.autoRules.map((r) => r.id),
+    ...registry.checkpointKinds.map((k) => k.id),
+    ...registry.evaluator.map((e) => e.id),
+  ]);
+}

@@ -12,10 +12,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.TRELLIS_RUNS_DIR = mkdtempSync(join(tmpdir(), "trellis-runs-e2e-"));
+process.env.TRELLIS_PUBLISHED_DIR = mkdtempSync(join(tmpdir(), "trellis-published-e2e-"));
 
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { server, manager, courseRuns } from "../src/server.ts";
+import { server, manager, courseRuns, store } from "../src/server.ts";
 
 let base = "";
 before(async () => {
@@ -25,6 +26,11 @@ before(async () => {
   base = `http://127.0.0.1:${addr.port}`;
 });
 after(async () => {
+  // Good citizen under `npm test` (which runs against the real store): remove
+  // every run + generated course/scenario this file created.
+  for (const r of store.listCourseRuns()) store.deleteCourseRun(r.runId);
+  for (const c of store.listCourses()) if (c.sourceRunId) store.deleteCourse(c.courseId);
+  for (const s of store.listScenarioEntries()) store.deleteScenarioEntry(s.labId);
   await manager.destroyAll();
   server.close();
 });
@@ -66,10 +72,11 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   assert.equal(parked.pendingGate, "frame");
   assert.ok(parked.artifacts.includes("course-request.md"));
 
-  // Read the framing artifact through the allowlisted route.
+  // Read the framing artifact through the allowlisted route — a real course
+  // request produced by the mock role pipeline.
   const art = await admin("GET", `/api/admin/course-runs/${runId}/artifacts/course-request.md`);
   assert.equal(art.status, 200);
-  assert.match((art.body as { content: string }).content, /placeholder for "framing"/);
+  assert.match((art.body as { content: string }).content, /# Git Fundamentals[\s\S]*Technology:\*\* Git/);
   // A disallowed path is refused.
   assert.equal((await admin("GET", `/api/admin/course-runs/${runId}/artifacts/..%2Fsecret`)).status, 400);
 
@@ -89,6 +96,16 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   const final = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: RunDetail }).run;
   assert.equal(final.gates.filter((g) => g.decision === "approved").length, 4);
   assert.ok(final.gates.every((g) => g.decidedBy === "eva"));
+
+  // Materialization created a DRAFT course (hidden from the public shelf) plus
+  // runtime scenario entries for its lessons.
+  const publicCourses = (await api("GET", "/api/courses")).body as { courses: Array<{ sourceRunId?: string }> };
+  assert.ok(!publicCourses.courses.some((c) => c.sourceRunId === runId), "draft course is not public until Go-live");
+  const scenarios = (await api("GET", "/api/scenarios")).body as { scenarios: Array<{ labId: string; tag: string }> };
+  const generated = scenarios.scenarios.filter((s) => /GENERATED/.test(s.tag));
+  assert.ok(generated.length >= 2, "generated lessons registered as scenarios");
+  assert.ok(final.artifacts.includes("lesson-inventory.json"), "blueprint artifact present");
+  assert.ok(final.artifacts.some((p) => p.startsWith("lessons/") && p.endsWith("lesson.md")), "authored lesson present");
 });
 
 test("changes requires notes; the state machine rejects out-of-order and unknown decisions", async () => {

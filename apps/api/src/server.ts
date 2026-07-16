@@ -61,24 +61,30 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
-import { CAPABILITY_REGISTRY } from "./capabilities.ts";
-import { SCENARIO_SEED, mergeScenarios } from "../../../packages/shared/src/scenarios.ts";
+import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
+import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
 import {
   CourseRunScheduler,
   RunArtifacts,
   RunStateError,
   GATES,
+  MockRoleInvoker,
+  LiveRoleInvoker,
+  defaultMockResponder,
+  resolveCourseGenConfig,
+  createExecutor,
   type CourseRun,
   type GateId,
   type GateNote,
-  type PhaseContext,
+  type Materializer,
+  type RoleInvoker,
 } from "../../../packages/course-architect/src/index.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
@@ -105,44 +111,116 @@ const guideBootConfig = (() => {
   }
 })();
 
-const store = createStore();
+export const store = createStore();
+
+// Runtime dirs are read LAZILY (not at import) so a test can point them at a
+// temp directory from its body — ESM evaluates imported modules before the
+// importer's top-level code, so an import-time read would miss body-set env.
+const labsRoot = join(repoRoot, "labs");
+const publishedDir = (): string => process.env.TRELLIS_PUBLISHED_DIR ?? join(repoRoot, "curriculum", "published");
+const runsDir = (): string => process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
+
 // Two lab search paths: hand-authored labs ship in the repo (labs/); generated
-// labs published through the course-generation pipeline land in a server-owned
-// directory (curriculum/published/). loadManifest searches repo-first.
-export const manager = new SessionManager(store, join(repoRoot, "labs"), {
-  publishedRoot: join(repoRoot, "curriculum", "published"),
-});
+// labs published through the course-generation pipeline land in curriculum/
+// published/. loadManifest searches repo-first; the materializer writes there.
+export const manager = new SessionManager(store, labsRoot, { publishedRoot: publishedDir() });
 
 // ── course-generation runs ──────────────────────────────────────────────────
 // Artifacts live under curriculum/runs/<runId>/; run STATE lives in the store.
-// The base dir is env-overridable so tests can isolate to a temp directory.
-const courseRunsDir = process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
-const runArtifactsFor = (runId: string): RunArtifacts => new RunArtifacts(join(courseRunsDir, runId));
+const runArtifactsFor = (runId: string): RunArtifacts => new RunArtifacts(join(runsDir(), runId));
+
+/** Lesson level (5-rung) → scenario facet level (3-rung marketplace filter). */
+function scenarioLevelFor(level: string): ScenarioLevel {
+  if (level === "intro" || level === "beginner") return "beginner";
+  if (level === "expert" || level === "advanced") return "advanced";
+  return "intermediate";
+}
 
 /**
- * Phase-B placeholder executor. The real role pipeline arrives in Phase C; until
- * then each phase writes a marker artifact and emits a beat, so the run entity,
- * gates, scheduler, and Course studio can be exercised end to end without a
- * model. It never produces a real course — a run reaching "approved" here just
- * proves the governance machinery works.
+ * Materializer: turns an authored run into a DRAFT course. It writes a minimal
+ * lab manifest per lesson into curriculum/published/, registers a runtime
+ * scenario entry, and saves the course with status "draft" + sourceRunId. The
+ * Docker build + auto-solve proof is a documented seam for a later slice; a
+ * draft course never reaches learners until an operator runs Go-live (D9).
  */
-const placeholderExecutor = async (ctx: PhaseContext): Promise<void> => {
-  const marker: Record<string, string> = {
-    framing: "course-request.md",
-    designing: "lesson-inventory.json",
-    authoring: "reviews/coverage-matrix.md",
-    materializing: "manifest.json",
-  };
-  const path = marker[ctx.phase];
-  const note = ctx.changeNotes ? `revised per ${ctx.changeNotes.length} note(s)` : "initial";
-  runArtifactsFor(ctx.run.runId).write(
-    path,
-    `Phase-B placeholder for "${ctx.phase}" (${note}). Real generation lands in Phase C.\n`,
-  );
-  ctx.emit("placeholder.phase", { phase: ctx.phase });
+const materialize: Materializer = async ({ run, lessons }) => {
+  const tech = run.request.technology;
+  const published = publishedDir();
+  const labIds: string[] = [];
+  for (const lesson of lessons) {
+    const labId = lesson.lessonId; // already course-slugged, kebab-case
+    // A hand-authored REPO lab with this id is a hard collision. A generated
+    // lab in the published dir is overwritten — regeneration supersedes.
+    if (existsSync(join(labsRoot, labId, "lab.json"))) {
+      throw new Error(`lab id collision: "${labId}" is a hand-authored lab in this build`);
+    }
+
+    const auto = CAPABILITY_REGISTRY.autoRules.some((r) => r.id === lesson.lab.primaryAuto) ? lesson.lab.primaryAuto : "any-command";
+    const labJson = {
+      id: labId,
+      version: 1,
+      title: lesson.title,
+      objective: lesson.lab.objective,
+      scenario: `Generated lesson for the "${tech}" course (run ${run.runId}). Draft — pending build + auto-solve.`,
+      tasks: [{ id: "complete", title: "Complete the lesson task", text: lesson.lab.objective, auto }],
+      checkpoint: { id: "cp", title: "Lesson complete", requirements: [{ id: "did", kind: "session", label: "Completed the lesson's observable action" }] },
+      generated: { runId: run.runId, draft: true },
+    };
+    mkdirSync(join(published, labId), { recursive: true });
+    writeFileSync(join(published, labId, "lab.json"), JSON.stringify(labJson, null, 2));
+
+    const scenario: Scenario = {
+      labId,
+      title: lesson.title,
+      blurb: lesson.lab.objective,
+      tag: `${tech.toUpperCase()} · GENERATED`,
+      role: run.request.targetLearner ?? "QA & Testing",
+      technologies: [tech],
+      level: scenarioLevelFor(lesson.level),
+    };
+    store.saveScenarioEntry(scenario);
+    labIds.push(labId);
+  }
+
+  const at = new Date().toISOString();
+  // Reuse this run's existing draft course on a re-materialization; else mint one.
+  const prior = store.listCourses().find((c) => c.sourceRunId === run.runId);
+  const courseId = prior?.courseId ?? newCourseId(run.request.title ?? tech);
+  store.saveCourse({
+    courseId,
+    title: run.request.title ?? `${tech} course`,
+    description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
+    audience: run.request.targetLearner ?? "",
+    level: lessons[0]?.level ?? "beginner",
+    lessons: labIds.map((labId) => ({ labId })),
+    status: "draft",
+    sourceRunId: run.runId,
+    createdAt: prior?.createdAt ?? at,
+    updatedAt: at,
+  });
+  return { courseId, labIds, scenarioCount: labIds.length };
 };
 
-export const courseRuns = new CourseRunScheduler(store, placeholderExecutor);
+/**
+ * Role provider: the deterministic mock unless COURSE_GEN_PROVIDER selects a
+ * live model (same posture as the Guide's mock-by-default). The offline mock
+ * produces a small, coherent, gap-free course so the pipeline is demoable and
+ * testable without keys.
+ */
+const courseGenRoles: RoleInvoker =
+  resolveCourseGenConfig("architect").provider === "mock"
+    ? new MockRoleInvoker(defaultMockResponder)
+    : new LiveRoleInvoker();
+
+export const courseRuns = new CourseRunScheduler(
+  store,
+  createExecutor({
+    roles: courseGenRoles,
+    artifactsFor: runArtifactsFor,
+    availableCapabilities: capabilityIdSet(),
+    materialize,
+  }),
+);
 
 /**
  * Curated-course seed: the catalog every deployment ships with. Each canonical
