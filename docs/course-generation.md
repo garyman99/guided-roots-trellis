@@ -186,10 +186,23 @@ PR), after which the gap is satisfied automatically.
 - **Per-lesson levels are set at materialization**, so courses generated before
   that landed group under the scenario-facet fallback; re-materialize to fix.
 
+## Per-lesson go-live
+
+A materialized course ships as a **draft with every lesson hidden**
+(`CourseLesson.published: false`). In the Go-live panel an operator takes the
+**course** live, then reveals **lessons one at a time** — each row has a Read
+(lesson.md) preview, a Try-the-lab link (`/lab?lab=<id>`), and a Go live / Hide
+toggle. `/api/courses` hides lessons where `published === false`, so learners
+only ever see revealed lessons. (Absent `published` = visible, so hand-authored
+and seeded courses are unaffected.) Publishing a course with **zero** lessons is
+refused — an empty partial run can no longer masquerade as a real course. The
+operator view (`GET /api/admin/courses[/:id]`) returns drafts and hidden lessons;
+`/api/courses` does not.
+
 ## What's not built yet
 
-- **One-at-a-time** build/go-live (materialize per lesson; publish lessons
-  incrementally — the "partial publish", D12).
+- **One-at-a-time authoring/materialize** (build labs per lesson; the generation
+  side is still whole-course — only go-live is now incremental).
 - **Resume-authoring** of capability-unblocked lessons on an existing run.
 - Batched multi-role authoring (`domain-analyst` / `learner-advocate` are defined
   but not yet invoked), a `prompts/course-gen/*` registry, real per-run token/cost
