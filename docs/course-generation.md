@@ -166,6 +166,13 @@ PR), after which the gap is satisfied automatically.
   hand-authored labs, on the **local driver** (node + git, no Docker). The Git
   pack ships real git exercises (`git-commit`, `git-discard`); other courses use
   a generic "complete the stub" lab.
+- **Runtime under `LAB_DRIVER=docker`:** generated labs have no per-lab image, so
+  they run on a **shared base image** with their `template/`+`verify/` staged in
+  via `docker cp` at session start. Build it once:
+  `docker build -t trellis-lab-base docker/generated-lab-base` (tag overridable
+  via `TRELLIS_GENERATED_LAB_IMAGE`). Under the local driver (Unix) no image is
+  needed. On native Windows the local driver has no pty (`script(1)`), so docker
+  is the only path to a working lab terminal there.
 - **Requirement/verifier check ids must match** — the checkpoint evaluator maps a
   `verify` requirement to the verifier's emitted check id (a Phase-E bug).
 - **Courses span levels.** `CourseLesson` carries a per-lesson `level`

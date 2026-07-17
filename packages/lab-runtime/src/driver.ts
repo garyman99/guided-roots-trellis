@@ -51,6 +51,18 @@ export interface LabDefinition {
   labId: string;
   /** Adaptive labs: the resolved variant. Absent → the lab's default variant. */
   variant?: { defect: string };
+  /**
+   * Container image override (docker driver only). Absent → `trellis-lab-<labId>`
+   * (a per-lab image). Generated labs have no per-lab image, so they run on a
+   * shared base image and set this.
+   */
+  image?: string;
+  /**
+   * Host lab dir whose `template/` and `verify/` are staged into the container's
+   * /opt/lab at create time (docker driver only). Used with a shared base image
+   * that doesn't bake the lab's files. Absent → the image is assumed to bake them.
+   */
+  stageDir?: string;
 }
 
 export interface LabDriver {

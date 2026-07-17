@@ -21,6 +21,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExecResult, LabDefinition, LabDriver, LabHandle, TerminalAttachment } from "./driver.ts";
@@ -182,7 +183,9 @@ export class DockerDriver implements LabDriver {
 
   async create(def: LabDefinition, sessionId: string): Promise<LabHandle> {
     const container = `trellis-lab-${sessionId}`;
-    const image = IMAGE_PREFIX + def.labId;
+    // Generated labs run on a shared base image (def.image) and stage their files
+    // in at create time; hand-authored labs use their baked per-lab image.
+    const image = def.image ?? IMAGE_PREFIX + def.labId;
     // Idempotent create: on resume-after-restart the sessionId (and therefore
     // the container name) is REUSED, and a hard process kill skips the graceful
     // teardown — so a container by this name may already exist and would make
@@ -210,6 +213,21 @@ export class DockerDriver implements LabDriver {
     if (inst.exitCode !== 0) {
       await docker(["rm", "-f", container]);
       throw new Error(`failed to install instrumentation into ${container}: ${inst.stderr}`);
+    }
+    // Generated labs run on a shared base image that bakes no lab files: stage
+    // this lab's template/ and verify/ (and scripts/ if any) into /opt/lab, so
+    // initWorkspace's `cp -r /opt/lab/template/.` and the verifier at
+    // /opt/lab/verify/checkpoint.mjs resolve exactly as for a baked image.
+    if (def.stageDir) {
+      for (const sub of ["template", "verify", "scripts"]) {
+        const src = join(def.stageDir, sub);
+        if (!existsSync(src)) continue;
+        const cp = await docker(["cp", src, `${container}:/opt/lab/`]);
+        if (cp.exitCode !== 0) {
+          await docker(["rm", "-f", container]);
+          throw new Error(`failed to stage ${sub}/ into ${container}: ${cp.stderr}`);
+        }
+      }
     }
     const handle = new DockerLabHandle(sessionId, def.labId, container, def);
     await handle.initWorkspace();

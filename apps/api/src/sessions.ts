@@ -1261,8 +1261,6 @@ export class SessionManager {
   /** Concurrent resume() calls for the same session share one in-flight promise. */
   private resuming = new Map<string, Promise<Session>>();
   private driver: LabDriver;
-  /** Lazily built local driver for generated labs when the default is docker. */
-  private localDriver?: LabDriver;
   // Guide provider selection is per-session and swappable at runtime. The
   // catalog (what env makes available) is resolved once; built providers are
   // cached and shared across sessions — one mock, one live model.
@@ -1302,12 +1300,11 @@ export class SessionManager {
   }
 
   /**
-   * Generated/published labs are built and auto-solve-proven for the LOCAL
-   * driver — no Docker image is ever built for them (that's the whole point of
-   * the no-Docker generation pipeline). So a generated lab must run locally even
-   * when the deployment default is docker; a docker learner session would fail
-   * with "Unable to find image 'trellis-lab-<id>'". Hand-authored labs (labsRoot)
-   * keep using the configured driver.
+   * Generated/published labs (Course studio output) have no per-lab Docker image
+   * — they're built and auto-solve-proven for the local driver. Under the docker
+   * driver they'd 500 with "Unable to find image 'trellis-lab-<id>'". They run on
+   * a SHARED base image with their files staged in instead (see extra LabDefinition
+   * fields below). Hand-authored labs (labsRoot) keep their baked per-lab image.
    */
   private isGeneratedLab(labDir: string): boolean {
     const pub = this.resolvePublishedRoot();
@@ -1317,13 +1314,17 @@ export class SessionManager {
     return p === root || p.startsWith(root + sep);
   }
 
-  /** The driver (and its kind) to run a given lab under — see isGeneratedLab. */
-  private driverFor(labDir: string): { driver: LabDriver; kind: "local" | "docker" } {
+  /**
+   * Extra LabDefinition fields for a lab. A generated lab under the DOCKER driver
+   * runs on the shared base image (TRELLIS_GENERATED_LAB_IMAGE, default
+   * `trellis-lab-base`) with its template/verify staged in. Every other case
+   * (hand-authored labs, or any lab under the local driver) adds nothing.
+   */
+  private labRuntime(labDir: string): { image?: string; stageDir?: string } {
     if (this.driverKind === "docker" && this.isGeneratedLab(labDir)) {
-      this.localDriver ??= new LocalProcessDriver();
-      return { driver: this.localDriver, kind: "local" };
+      return { image: process.env.TRELLIS_GENERATED_LAB_IMAGE ?? "trellis-lab-base", stageDir: labDir };
     }
-    return { driver: this.driver, kind: this.driverKind };
+    return {};
   }
 
   /**
@@ -1425,14 +1426,16 @@ export class SessionManager {
         guideId = this.defaultGuideId;
       }
     }
-    const { driver, kind } = this.driverFor(labDir);
     const session = new Session(
-      manifest, labDir, kind, this.store, this.guideProvider(guideId),
+      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
       learner, this.learners, variant, lessonConcepts, this.taskValidator,
     );
     session.guideProviderId = guideId;
     if (!manifest.workspace) {
-      session.handle = await driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
+      session.handle = await this.driver.create(
+        { labDir, labId, variant: variant ? { defect: variant.defect } : undefined, ...this.labRuntime(labDir) },
+        session.id,
+      );
     }
     this.store.createSession({
       sessionId: session.id,
@@ -1556,17 +1559,16 @@ export class SessionManager {
         guideId = this.defaultGuideId;
       }
     }
-    const { driver, kind } = this.driverFor(labDir);
     const session = new Session(
-      manifest, labDir, kind, this.store, this.guideProvider(guideId),
+      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
       meta.learnerId, this.learners, variant, lessonConcepts, this.taskValidator,
       { id: meta.sessionId, createdAt: meta.createdAt },
     );
     session.guideProviderId = guideId;
 
     if (!manifest.workspace) {
-      session.handle = await driver.create(
-        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined },
+      session.handle = await this.driver.create(
+        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined, ...this.labRuntime(labDir) },
         session.id,
       );
       const filesSnapshot = this.store.snapshotFor(session.id, "files");
