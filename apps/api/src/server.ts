@@ -86,6 +86,7 @@ import {
   applyDispositions,
   commissionedGaps,
   isActive,
+  isTerminal,
   EXPERIENCE_ANALYST_SYSTEM,
   experienceReportInstruction,
   invokeValidatedJson,
@@ -107,7 +108,7 @@ import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequest
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
 import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
-import { newLearnerId, familyOf, versionOf } from "../../../packages/shared/src/ids.ts";
+import { newLearnerId, familyOf, versionOf, versionedLabId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
 import type { SessionDigest } from "../../../packages/learner-model/src/evidence.ts";
@@ -172,6 +173,58 @@ function deleteRunCascade(runId: string) {
     capabilityRequestsRemoved: [] as string[],
   };
 
+  // A REVISION run owns only the version(s) it produced (D5): delete those labs
+  // + catalog entries and revert the course pointer if it points at one — never
+  // the course itself or the family's other versions.
+  const revision = store.getCourseRun(runId)?.request.revision;
+  if (revision) {
+    let producedLabIds: string[] = [];
+    try {
+      const m = JSON.parse(runArtifactsFor(runId).read("manifest.json") ?? "null") as { labIds?: string[] } | null;
+      producedLabIds = m?.labIds ?? [];
+    } catch { /* never materialized — nothing produced */ }
+    for (const labId of producedLabIds) {
+      store.deleteScenarioEntry(labId);
+      summary.scenariosRemoved++;
+      try {
+        const dir = join(publishedDir(), labId);
+        if (existsSync(dir)) { rmSync(dir, { recursive: true, force: true }); summary.labsRemoved++; }
+      } catch { /* keep going */ }
+    }
+    const course = store.getCourse(revision.courseId);
+    if (course && producedLabIds.length) {
+      const produced = new Set(producedLabIds);
+      let reverted = false;
+      const lessons = course.lessons.map((l) => {
+        if (!produced.has(l.labId)) return l;
+        reverted = true;
+        return { labId: revision.fromLabId, title: l.title, level: l.level ?? revision.level, published: false, family: revision.family, version: revision.fromVersion };
+      });
+      if (reverted) {
+        summary.courseId = course.courseId;
+        // The prior version's catalog entry may have been swapped away at the
+        // deleted version's go-live — restore it so the lesson stays launchable.
+        if (!store.listScenarioEntries().some((s) => s.labId === revision.fromLabId)) {
+          const l = lessons.find((x) => x.labId === revision.fromLabId);
+          store.saveScenarioEntry({
+            labId: revision.fromLabId,
+            title: l?.title ?? revision.fromLabId,
+            blurb: l?.title ?? revision.fromLabId,
+            tag: "GENERATED",
+            role: course.audience || "QA & Testing",
+            technologies: [course.title],
+            level: scenarioLevelFor(l?.level ?? "beginner"),
+          });
+        }
+        store.saveCourse({ ...course, lessons, updatedAt: new Date().toISOString() });
+      }
+    }
+    store.deleteCourseRun(runId); // course_runs + events + gates
+    try { rmSync(join(runsDir(), runId), { recursive: true, force: true }); } catch { /* best-effort */ }
+    liveActivity.delete(runId);
+    return summary;
+  }
+
   const course = store.listCourses().find((c) => c.sourceRunId === runId);
   if (course) {
     summary.courseId = course.courseId;
@@ -225,6 +278,7 @@ function scenarioLevelFor(level: string): ScenarioLevel {
  * TRELLIS_SKIP_AUTOSOLVE=1 to skip the proof in environments without a shell.
  */
 const materialize: Materializer = async ({ run, lessons }) => {
+  if (run.request.revision) return materializeRevision(run, run.request.revision, lessons);
   const tech = run.request.technology;
   const published = publishedDir();
   const skipProof = process.env.TRELLIS_SKIP_AUTOSOLVE === "1";
@@ -307,6 +361,73 @@ const materialize: Materializer = async ({ run, lessons }) => {
   });
   return { courseId, labIds, scenarioCount: labIds.length, autoSolve: proofs };
 };
+
+/**
+ * Materialize a LESSON-REVISION run (versioning plan Phase D): build ONE new,
+ * immutable lab version `<family>-v<N>` (N resolved HERE from the course row —
+ * D4), prove it with auto-solve, and move the course's lesson pointer to it —
+ * HIDDEN (published:false) until the operator flips it live. The course keeps
+ * its original sourceRunId; this run's provenance lands in course.revisions.
+ */
+async function materializeRevision(
+  run: CourseRun,
+  revision: NonNullable<CourseRun["request"]["revision"]>,
+  lessons: Array<{ lessonId: string; level: string; title: string; lab: { objective: string; kind?: string; primaryAuto?: string } }>,
+): Promise<{ courseId: string; labIds: string[]; scenarioCount: number; autoSolve: Array<{ labId: string; ok: boolean; detail?: string }> }> {
+  const course = store.getCourse(revision.courseId);
+  if (!course) throw new Error(`revision target course not found: ${revision.courseId}`);
+  const slot = course.lessons.find((l) => (l.family ?? familyOf(l.labId)) === revision.family);
+  if (!slot) throw new Error(`course ${revision.courseId} has no lesson in family "${revision.family}"`);
+  const lesson = lessons[0];
+  if (!lesson) throw new Error("revision produced no shippable lesson (did it fail review?)");
+
+  const nextVersion = (slot.version ?? versionOf(slot.labId)) + 1;
+  const labId = versionedLabId(revision.family, nextVersion);
+  if (existsSync(join(labsRoot, labId, "lab.json"))) {
+    throw new Error(`lab id collision: "${labId}" is a hand-authored lab in this build`);
+  }
+
+  const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
+  const files = isGitLabKind(lesson.lab.kind)
+    ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId)
+    : buildGeneratedLabFiles(labLesson, run.runId);
+  const labDir = writeGeneratedLab(publishedDir(), labId, files);
+
+  const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];
+  if (process.env.TRELLIS_SKIP_AUTOSOLVE === "1") {
+    proofs.push({ labId, ok: true, detail: "auto-solve skipped (TRELLIS_SKIP_AUTOSOLVE)" });
+  } else {
+    const reports = await autoSolveGeneratedLab(labDir, labId);
+    const ok = reports.length > 0 && reports.every((r) => r.ok);
+    proofs.push({ labId, ok, ...(ok ? {} : { detail: reports.map((r) => r.detail).filter(Boolean).join("; ") || "auto-solve failed" }) });
+    // A revision that can't prove its lab must NOT move the pointer — interrupt.
+    if (!ok) throw new Error(`revised lab "${labId}" failed auto-solve: ${proofs[0].detail}`);
+  }
+
+  const tech = run.request.technology;
+  store.saveScenarioEntry({
+    labId,
+    title: lesson.title,
+    blurb: lesson.lab.objective,
+    tag: `${tech.toUpperCase()} · GENERATED`,
+    role: run.request.targetLearner ?? course.audience ?? "QA & Testing",
+    technologies: [tech],
+    level: scenarioLevelFor(lesson.level),
+  });
+
+  const at = new Date().toISOString();
+  store.saveCourse({
+    ...course,
+    lessons: course.lessons.map((l) =>
+      l === slot
+        ? { labId, title: lesson.title, level: lesson.level, published: false, family: revision.family, version: nextVersion }
+        : l,
+    ),
+    revisions: [...(course.revisions ?? []), { at, family: revision.family, fromLabId: slot.labId, toLabId: labId, runId: run.runId }],
+    updatedAt: at,
+  });
+  return { courseId: course.courseId, labIds: [labId], scenarioCount: 1, autoSolve: proofs };
+}
 
 /**
  * Model provider selection. The mock is the offline default; a run may instead
@@ -1176,19 +1297,85 @@ export const server = createServer(async (req, res) => {
           if (req.method === "GET" && parts.length === 4 && parts[3] === "providers") {
             return json(res, 200, courseGenProviders());
           }
-          // POST create
+          // POST create — a whole-course generation run, or (with `revision`)
+          // a lesson-scoped REVISION run (versioning plan Phase D).
           if (req.method === "POST" && parts.length === 3) {
             const body = await readBody(req);
-            const technology = typeof body.technology === "string" ? body.technology.trim() : "";
-            if (!technology) return json(res, 400, { error: "technology is required" });
             const providerConfig = parseProviderConfig(body.providerConfig);
             const providerError = validateProviderConfig(providerConfig);
             if (providerError) return json(res, 400, { error: providerError });
+
+            let revision: NonNullable<CourseRun["request"]["revision"]> | undefined;
+            if (body.revision && typeof body.revision === "object") {
+              const rv = body.revision as Record<string, unknown>;
+              const labId = typeof rv.labId === "string" ? rv.labId : "";
+              if (!/^[a-z0-9-]+$/.test(labId)) return json(res, 400, { error: "revision.labId is required" });
+              if (isHandAuthoredLab(labId)) {
+                return json(res, 400, { error: "hand-authored lessons are revised in the repo — use the dev handoff instead" });
+              }
+              const family = familyOf(labId);
+              const course = store.listCourses().find((c) => c.lessons.some((l) => (l.family ?? familyOf(l.labId)) === family));
+              if (!course) return json(res, 400, { error: `no course contains a lesson in family "${family}"` });
+              const slot = course.lessons.find((l) => (l.family ?? familyOf(l.labId)) === family)!;
+              // One active revision per family (D4).
+              if (store.listCourseRuns().some((r) => r.request.revision?.family === family && !isTerminal(r.status))) {
+                return json(res, 400, { error: `a revision for "${family}" is already in progress` });
+              }
+              // Embed the seeding report + the lesson as shipped (self-contained run).
+              let report: unknown;
+              let reportFile: string | undefined;
+              if (typeof rv.reportFile === "string" && rv.reportFile) {
+                if (!/^report-\d+\.json$/.test(rv.reportFile)) return json(res, 400, { error: "invalid revision.reportFile" });
+                const p = join(experienceDir(), family, rv.reportFile);
+                if (!existsSync(p)) return json(res, 404, { error: "report not found" });
+                report = JSON.parse(readFileSync(p, "utf8"));
+                reportFile = rv.reportFile;
+              }
+              let lessonContent = "";
+              try {
+                const dir = manager.labDir(slot.labId);
+                lessonContent = readFileSync(join(dir, "lab.json"), "utf8").slice(0, 4000);
+                const readme = join(dir, "template", "README.md");
+                if (existsSync(readme)) lessonContent += "\n--- template/README.md ---\n" + readFileSync(readme, "utf8").slice(0, 4000);
+              } catch { /* lab dir may be gone; the report/notes still seed the run */ }
+              revision = {
+                courseId: course.courseId,
+                family,
+                fromLabId: slot.labId,
+                fromVersion: slot.version ?? versionOf(slot.labId),
+                level: slot.level,
+                ...(reportFile ? { reportFile, report } : {}),
+                ...(typeof rv.notes === "string" && rv.notes.trim() ? { notes: rv.notes.trim().slice(0, 2000) } : {}),
+                lessonContent,
+              };
+            }
+
+            let technology = typeof body.technology === "string" ? body.technology.trim() : "";
+            if (!technology && revision) {
+              // Derive from the lesson's catalog entry / course — the UI needn't know.
+              const scenario = store.listScenarioEntries().find((s) => s.labId === revision!.fromLabId);
+              const course = store.getCourse(revision.courseId);
+              technology = scenario?.technologies?.[0] ?? course?.title ?? revision.family;
+            }
+            if (!technology) return json(res, 400, { error: "technology is required" });
+
             const run = courseRuns.create({
               technology: technology.slice(0, 80),
               ...pickStrings(body, ["title", "targetLearner", "learnerStartingExperience", "outcome", "inScope", "outOfScope", "breadth", "depth", "ecosystem"]),
+              ...(revision && typeof body.title !== "string"
+                ? { title: `Revision: ${revision.family} v${revision.fromVersion} → v${revision.fromVersion + 1}` }
+                : {}),
               ...(providerConfig ? { providerConfig } : {}),
+              ...(revision ? { revision } : {}),
             });
+            // Stamp the seeding report with the run that used it (D6).
+            if (revision?.reportFile) {
+              try {
+                const p = join(experienceDir(), revision.family, revision.reportFile);
+                const doc = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
+                writeFileSync(p, JSON.stringify({ ...doc, usedByRunId: run.runId }, null, 2));
+              } catch { /* stamping is best-effort */ }
+            }
             return json(res, 201, { run: courseRunDetail(run.runId) });
           }
           if (parts.length >= 4) {

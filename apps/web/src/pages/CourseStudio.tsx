@@ -384,6 +384,18 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
         </div>
       </div>
 
+      {run.request?.revision && (
+        <div className="gr-card">
+          <p>
+            <span className="admin-chip status-mastered">revision</span>{" "}
+            Revising lesson <code>{run.request.revision.family}</code> — v{run.request.revision.fromVersion} →
+            v{run.request.revision.fromVersion + 1} in course <code>{run.request.revision.courseId}</code>
+            {run.request.revision.reportFile && <> · seeded by <code>{run.request.revision.reportFile}</code></>}.
+            The new version ships hidden; flip it live per-lesson after the publish gate.
+          </p>
+        </div>
+      )}
+
       {run.status === "interrupted" && (
         <div className="gr-card">
           <p className="admin-error">Interrupted: {run.lastError ?? "unknown error"}</p>

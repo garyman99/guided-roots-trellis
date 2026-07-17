@@ -218,6 +218,41 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
   if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
   if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [] });
   if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [] });
+  // Lesson-revision runs: the goal (G1 artifact) and the improvement plan
+  // (G2 artifact — a 1-lesson inventory the normal authoring path consumes).
+  if (prompt.task === "revision-goal") {
+    return JSON.stringify({
+      goal: `Fix the orientation friction the experience report surfaced in ${String(ctx?.family ?? "the lesson")}: name the visible tools before the first task and give intermediate feedback.`,
+      successCriteria: [
+        "First-session learners no longer ask what the terminal/editor is",
+        "Completion rate rises above 60% with fewer than 2 hints per session",
+      ],
+    });
+  }
+  if (prompt.task === "improvement-plan") {
+    const family = String(ctx?.family ?? "lesson-101");
+    const level = String(ctx?.level ?? "intro");
+    return JSON.stringify({
+      changePlan: [
+        `# Change plan for ${family}`,
+        ``,
+        `1. Add an orientation paragraph naming Code Studio and the Trellis Guide before the first task (report finding 1).`,
+        `2. Split the single check into an early encouraging verification plus the final one (report finding 2).`,
+      ].join("\n"),
+      lesson: {
+        lessonId: family,
+        level,
+        sequence: 1,
+        title: `Revised: ${family}`,
+        purpose: "The same observable action, taught with an orientation-first opening.",
+        primaryCapability: "file-edited",
+        conceptsIntroduced: [],
+        conceptsReinforced: [],
+        prerequisites: [],
+        requiredCapabilities: ["file-edited"],
+      },
+    });
+  }
   // Experience analysis: a deterministic report echoing the metrics it was
   // shown, with one finding per area class so UIs/tests exercise the routing.
   if (prompt.task.startsWith("experience:")) {

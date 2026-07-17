@@ -210,6 +210,51 @@ export function validateBlueprint(doc: unknown): Blueprint {
   return doc as Blueprint;
 }
 
+/* ── Lesson-revision runs (versioning plan Phase D) ── */
+
+export interface RevisionGoalDoc {
+  /** What this revision sets out to fix, grounded in the report/notes. */
+  goal: string;
+  /** Observable outcomes that would prove the revision worked. */
+  successCriteria: string[];
+}
+
+export function validateRevisionGoal(doc: unknown): RevisionGoalDoc {
+  const e: string[] = [];
+  const d = (doc ?? {}) as Record<string, unknown>;
+  if (typeof d.goal !== "string" || !d.goal.trim()) e.push("revisionGoal.goal must be a non-empty string");
+  if (!Array.isArray(d.successCriteria) || d.successCriteria.length === 0 || !d.successCriteria.every((s) => typeof s === "string" && s.trim())) {
+    e.push("revisionGoal.successCriteria must be a non-empty string array");
+  }
+  if (e.length) throw new ValidationError(e);
+  return d as unknown as RevisionGoalDoc;
+}
+
+export interface ImprovementPlanDoc {
+  /** The change plan, markdown — WHAT changes and why, citing report findings. */
+  changePlan: string;
+  /** The revised lesson's inventory entry; lessonId MUST be the family id. */
+  lesson: LessonInventoryEntry;
+}
+
+export function validateImprovementPlan(doc: unknown, family: string): ImprovementPlanDoc {
+  const e: string[] = [];
+  const d = (doc ?? {}) as Record<string, unknown>;
+  if (typeof d.changePlan !== "string" || !d.changePlan.trim()) e.push("improvementPlan.changePlan must be a non-empty string (markdown)");
+  const l = (d.lesson ?? {}) as Record<string, unknown>;
+  if (l.lessonId !== family) e.push(`improvementPlan.lesson.lessonId must be "${family}" (the lesson family being revised)`);
+  if (typeof l.level !== "string" || !(LEVELS as readonly string[]).includes(l.level as string)) e.push(`improvementPlan.lesson.level must be one of ${LEVELS.join("|")}`);
+  if (typeof l.sequence !== "number") e.push("improvementPlan.lesson.sequence must be a number");
+  for (const k of ["title", "purpose", "primaryCapability"]) {
+    if (typeof l[k] !== "string" || !(l[k] as string).trim()) e.push(`improvementPlan.lesson.${k} must be a non-empty string`);
+  }
+  for (const k of ["conceptsIntroduced", "conceptsReinforced", "prerequisites", "requiredCapabilities"]) {
+    if (!Array.isArray(l[k])) e.push(`improvementPlan.lesson.${k} must be an array`);
+  }
+  if (e.length) throw new ValidationError(e);
+  return d as unknown as ImprovementPlanDoc;
+}
+
 /** Returns a cycle path if the prerequisite graph is cyclic, else null. */
 export function findCycle(graph: PrerequisiteGraph): string[] | null {
   const adj = new Map<string, string[]>();

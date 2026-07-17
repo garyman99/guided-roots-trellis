@@ -176,6 +176,23 @@ function AnalystSection({ labId }: { labId: string }) {
       .catch((e) => setError(String((e as Error).message)));
   };
 
+  const commission = (file: string) => {
+    setNotice(null);
+    setError(null);
+    const notes = window.prompt(
+      "Commission a revision of this lesson from this report.\n\nOptional operator notes (what you want changed beyond the report):",
+      "",
+    );
+    if (notes === null) return; // cancelled
+    const cfg: ProviderConfig =
+      provider === "mock" ? { provider: "mock" }
+      : provider === "anthropic" ? { provider, model }
+      : { provider, model, baseUrl };
+    courseRunApi.create({ revision: { labId, reportFile: file, ...(notes.trim() ? { notes: notes.trim() } : {}) }, providerConfig: cfg })
+      .then((run) => { setNotice(`Revision run started: ${run.runId} — approve its gates in Course studio.`); loadReports(); })
+      .catch((e) => setError(String((e as Error).message)));
+  };
+
   const anthropic = providers?.providers.find((p) => p.id === "anthropic");
 
   return (
@@ -247,6 +264,14 @@ function AnalystSection({ labId }: { labId: string }) {
                           {r.recommendations.map((rec, i) => <li key={i}>{rec.change} <span className="gr-mono-note">— {rec.rationale}</span></li>)}
                         </ul>
                       </>
+                    )}
+                    {revisable.length > 0 && !r.usedByRunId && (
+                      <div>
+                        <button className="gr-btn gr-btn-primary gr-btn-small" onClick={() => commission(r.file)}>
+                          Commission revision
+                        </button>{" "}
+                        <span className="gr-mono-note">authors v{r.version + 1} through the gated pipeline; you approve the plan before tokens are spent</span>
+                      </div>
                     )}
                     {other.length > 0 && (
                       <>

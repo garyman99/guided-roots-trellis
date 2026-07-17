@@ -516,7 +516,10 @@ export interface ProviderConfig {
 }
 
 export interface CourseRunDetail extends CourseRunSummary {
-  request: Record<string, string>;
+  request: Record<string, unknown> & {
+    /** Present ⇒ a lesson-revision run (versioning plan Phase D). */
+    revision?: { courseId: string; family: string; fromLabId: string; fromVersion: number; reportFile?: string; notes?: string };
+  };
   pendingPhase: string | null;
   events: CourseRunEvent[];
   gates: CourseRunGate[];

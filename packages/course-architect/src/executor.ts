@@ -25,7 +25,9 @@ import {
   validateWithUnwrap,
   validateBlueprint,
   validateCourseRequest,
+  validateImprovementPlan,
   validateLessonPlan,
+  validateRevisionGoal,
   type Blueprint,
   type CourseRequestDoc,
   type Level,
@@ -159,6 +161,34 @@ function taskInstruction(task: string): string {
   if (task.startsWith("review:")) {
     return 'Review the lesson. Return a JSON object with EXACTLY these keys: { "verdict": "approved" | "revise", "issues": string[] }.';
   }
+  if (task === "revision-goal") {
+    return [
+      'This is a LESSON REVISION run: CONTEXT carries the experience report, operator notes, and the lesson as shipped.',
+      'State what this revision must fix. Return a JSON object with EXACTLY these keys:',
+      '{ "goal": string, "successCriteria": string[] }',
+      'Ground the goal in the report findings (content/lab-design only — never platform issues) and the operator notes.',
+    ].join("\n");
+  }
+  if (task === "improvement-plan") {
+    return [
+      'Produce the improvement plan for the ONE lesson being revised. Return a JSON object with EXACTLY these keys:',
+      '{',
+      '  "changePlan": string,             // markdown: WHAT changes (instructions/lab/verifier) and WHY, citing report findings',
+      '  "lesson": {',
+      '    "lessonId": string,             // MUST equal CONTEXT.family',
+      '    "level": "intro" | "beginner" | "intermediate" | "advanced" | "expert", // keep CONTEXT.level unless the plan argues otherwise',
+      '    "sequence": 1,',
+      '    "title": string,',
+      '    "purpose": string,',
+      '    "primaryCapability": string,',
+      '    "conceptsIntroduced": string[],',
+      '    "conceptsReinforced": string[],',
+      '    "prerequisites": [],',
+      '    "requiredCapabilities": string[] // ids from CONTEXT.availableCapabilities; any id NOT there becomes a capability gap',
+      '  }',
+      '}',
+    ].join("\n");
+  }
   return `Produce the "${task}" artifact as strict JSON.`;
 }
 
@@ -238,6 +268,78 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
   );
   arts.write("course-request.md", renderCourseRequestMd(doc));
   ctx.emit("artifact.written", { path: "course-request.md" });
+}
+
+/* ── lesson-revision variants (versioning plan Phase D): the same machine,
+ *    scoped to ONE lesson. framing = the revision goal the operator approves at
+ *    G1; designing = the improvement plan (G2 approves WHAT changes before
+ *    authoring spends tokens); authoring/materializing reuse the normal paths
+ *    over the 1-entry inventory. ─────────────────────────────────────────── */
+
+async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  const rev = ctx.run.request.revision!;
+  const doc = await invokeValidated(
+    deps,
+    ctx,
+    "architect",
+    prompt("revision-goal", {
+      family: rev.family,
+      fromVersion: rev.fromVersion,
+      level: rev.level,
+      notes: rev.notes ?? "",
+      report: rev.report ?? null,
+      lessonContent: rev.lessonContent ?? "",
+      changeNotes: ctx.changeNotes ?? undefined,
+    }),
+    validateRevisionGoal,
+  );
+  arts.write(
+    "course-request.md",
+    [
+      `# Revision: \`${rev.family}\` v${rev.fromVersion} → v${rev.fromVersion + 1}`,
+      ``,
+      `**Course:** ${rev.courseId}`,
+      rev.reportFile ? `**Seeded by report:** \`${rev.reportFile}\`` : `**Seeded by operator notes**`,
+      ``,
+      `## Goal`,
+      ``,
+      doc.goal,
+      ``,
+      `## Success criteria`,
+      ...doc.successCriteria.map((s) => `- ${s}`),
+      ...(rev.notes ? [``, `## Operator notes`, ``, rev.notes] : []),
+      ``,
+    ].join("\n"),
+  );
+  ctx.emit("artifact.written", { path: "course-request.md" });
+}
+
+async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  const rev = ctx.run.request.revision!;
+  const plan = await invokeValidated(
+    deps,
+    ctx,
+    "architect",
+    prompt("improvement-plan", {
+      family: rev.family,
+      level: rev.level ?? "intro",
+      revisionGoal: arts.read("course-request.md") ?? "",
+      report: rev.report ?? null,
+      notes: rev.notes ?? "",
+      lessonContent: rev.lessonContent ?? "",
+      availableCapabilities: [...deps.availableCapabilities].sort(),
+      changeNotes: ctx.changeNotes ?? undefined,
+    }),
+    (parsed) => validateImprovementPlan(parsed, rev.family),
+  );
+  arts.write("plan-review.md", plan.changePlan);
+  arts.write("lesson-inventory.json", JSON.stringify([plan.lesson], null, 2));
+  const report = computeCapabilityGaps([plan.lesson], deps.availableCapabilities);
+  arts.write("capability-gaps.json", JSON.stringify(report, null, 2));
+  if (report.gaps.length > 0) {
+    ctx.emit("capability.gaps", { count: report.gaps.length, ids: report.gaps.map((g) => g.capabilityId) });
+  }
+  for (const path of ["plan-review.md", "lesson-inventory.json"]) ctx.emit("artifact.written", { path });
 }
 
 async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
@@ -398,15 +500,16 @@ export function createExecutor(deps: ExecutorDeps): PhaseExecutor {
     // picked). Phase functions read `deps.roles`, so hand them a resolved deps.
     const runDeps: RunDeps = { ...deps, roles: deps.rolesFor(ctx.run) };
     try {
+      const revision = !!ctx.run.request.revision;
       switch (ctx.phase) {
         case "framing":
-          return await runFraming(ctx, runDeps, arts);
+          return await (revision ? runRevisionFraming(ctx, runDeps, arts) : runFraming(ctx, runDeps, arts));
         case "designing":
-          return await runDesigning(ctx, runDeps, arts);
+          return await (revision ? runRevisionDesigning(ctx, runDeps, arts) : runDesigning(ctx, runDeps, arts));
         case "authoring":
-          return await runAuthoring(ctx, runDeps, arts);
+          return await runAuthoring(ctx, runDeps, arts); // 1-entry inventory for a revision
         case "materializing":
-          return await runMaterializing(ctx, runDeps, arts);
+          return await runMaterializing(ctx, runDeps, arts); // the injected materializer is revision-aware
       }
     } finally {
       // The phase is done (or threw) — clear the live buffer.

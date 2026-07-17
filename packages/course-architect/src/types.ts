@@ -74,6 +74,31 @@ export interface RunProviderConfig {
   baseUrl?: string;
 }
 
+/**
+ * A LESSON-REVISION run (versioning plan Phase D): the same 4-phase/4-gate
+ * machine, scoped to ONE lesson of an existing course. Self-contained by
+ * design — the report and current lesson content are EMBEDDED at create time
+ * (they ride the run payload + run.json mirror), so the run survives restarts
+ * and the deletion of whatever produced the original lesson.
+ */
+export interface RevisionRequest {
+  courseId: string;
+  /** The lesson family being revised (the version-less id). */
+  family: string;
+  /** The course's current pointer for that family. */
+  fromLabId: string;
+  fromVersion: number;
+  /** The current lesson's level — the revision keeps its rung by default. */
+  level?: string;
+  /** The experience report seeding this revision (D6; optional — notes alone can seed). */
+  reportFile?: string;
+  report?: unknown; // the parsed ExperienceReport, embedded verbatim
+  /** Operator notes ("what I want changed"), free text. */
+  notes?: string;
+  /** The lesson as currently shipped (bounded lab.json + README), for the prompts. */
+  lessonContent?: string;
+}
+
 /** Phase-1 request form (plan §6.1) — sparse by design; the architect fills gaps. */
 export interface CourseRunRequest {
   technology: string;
@@ -88,6 +113,8 @@ export interface CourseRunRequest {
   ecosystem?: string;
   /** Model provider for this run. Absent → the deployment default (env/mock). */
   providerConfig?: RunProviderConfig;
+  /** Present ⇒ this is a lesson-revision run, not a whole-course generation. */
+  revision?: RevisionRequest;
 }
 
 /** Structured request-changes comment; the exact text an executor must address. */

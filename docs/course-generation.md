@@ -206,10 +206,47 @@ refused — an empty partial run can no longer masquerade as a real course. The
 operator view (`GET /api/admin/courses[/:id]`) returns drafts and hidden lessons;
 `/api/courses` does not.
 
+## The improvement loop (experience → analysis → revision → versions)
+
+Closing the loop on recorded learner experience (design + grilled decisions
+D1–D11 in the improvement-loop plan):
+
+- **Experience metrics** (`apps/api/src/lessonExperience.ts`): every session's
+  event log folded into deterministic friction signals per lesson FAMILY —
+  completion/abandonment, hint pressure, stalls, blocking checkpoint
+  requirements, learners' own questions — with a stable per-session friction
+  score. `GET /api/admin/lessons/:labId/experience`; rendered in the Admin
+  Courses tab (every course, hand-authored included) and the studio Go-live
+  table.
+- **AI experience analyst** (`packages/course-architect/src/experience.ts`): a
+  lightweight in-process job (not a run; one per family) reads the metrics + the
+  most-frictional/most-recent transcripts and writes a classified report to
+  `curriculum/experience/<family>/` — findings are `content | lab-design |
+  guide-behavior | platform`; only the first two can seed a revision. Platform
+  findings (and whole reports for hand-authored lessons) route to the dev outbox
+  `curriculum/lesson-improvements/<family>/`.
+- **Lesson versions are immutable**: a revision ships as the NEW lab
+  `<family>-v<N>` (v1 keeps the bare id; the `-v<N>` id namespace is reserved by
+  blueprint validation). Sessions/replays/snapshots stay bound to the exact
+  version they ran; the course lesson POINTER moves; `course.revisions` is the
+  audit trail. Completing ANY version keeps course progress
+  (`completedFamilies`); /home shows an UPDATED badge for lessons completed at
+  an older version. Taking a version live swaps the family's Free-practice
+  catalog entry.
+- **Revision runs**: "Commission revision" from a report starts a run through
+  the SAME 4-gate machine, lesson-scoped — G1 approves the revision goal, **G2
+  approves the improvement plan before authoring spends tokens**, G3 reviews the
+  revised lesson, materializing mints the proven `<family>-v<N>` (version number
+  resolved from the course row) and moves the pointer HIDDEN; per-lesson go-live
+  flips it. One active revision per family; the seeding report is stamped
+  `usedByRunId`. Deleting a revision run removes only its version and reverts
+  the pointer; deleting the course-owning run removes every version.
+
 ## What's not built yet
 
-- **One-at-a-time authoring/materialize** (build labs per lesson; the generation
-  side is still whole-course — only go-live is now incremental).
+- **One-at-a-time authoring/materialize for INITIAL generation** (revision runs
+  regenerate a single lesson, but a course's first generation is still
+  whole-course).
 - **Resume-authoring** of capability-unblocked lessons on an existing run.
 - Batched multi-role authoring (`domain-analyst` / `learner-advocate` are defined
   but not yet invoked), a `prompts/course-gen/*` registry, real per-run token/cost
