@@ -61,7 +61,7 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -85,6 +85,7 @@ import {
   createExecutor,
   applyDispositions,
   commissionedGaps,
+  isActive,
   type CapabilityGapReport,
   type CourseRun,
   type GateId,
@@ -95,7 +96,7 @@ import {
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
-import { writeCapabilityRequest, listCapabilityRequests } from "./capabilityRequests.ts";
+import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
@@ -140,6 +141,52 @@ export const manager = new SessionManager(store, labsRoot, { publishedRoot: publ
 // ── course-generation runs ──────────────────────────────────────────────────
 // Artifacts live under curriculum/runs/<runId>/; run STATE lives in the store.
 const runArtifactsFor = (runId: string): RunArtifacts => new RunArtifacts(join(runsDir(), runId));
+
+/**
+ * Hard-delete a run and EVERYTHING it produced. A run owns more than its own
+ * row, so a delete cascades to:
+ *   • the draft course it materialized (+ that course's scenario-catalog entries
+ *     and the generated labs under curriculum/published/),
+ *   • the capability requests it commissioned (the outbox handoff), and
+ *   • its DB rows (events/gates) + on-disk artifacts (incl. the run.json mirror,
+ *     so boot-recovery can't resurrect it).
+ * Returns a summary of what was removed, for the operator's confirmation.
+ */
+function deleteRunCascade(runId: string) {
+  const summary = {
+    runId,
+    courseId: null as string | null,
+    coursePublished: false,
+    lessonsRemoved: 0,
+    scenariosRemoved: 0,
+    labsRemoved: 0,
+    capabilityRequestsRemoved: [] as string[],
+  };
+
+  const course = store.listCourses().find((c) => c.sourceRunId === runId);
+  if (course) {
+    summary.courseId = course.courseId;
+    summary.coursePublished = course.status === "published";
+    summary.lessonsRemoved = course.lessons.length;
+    for (const l of course.lessons) {
+      store.deleteScenarioEntry(l.labId);
+      summary.scenariosRemoved++;
+      const labDir = join(publishedDir(), l.labId); // generated labs only; never labsRoot
+      try {
+        if (existsSync(labDir)) { rmSync(labDir, { recursive: true, force: true }); summary.labsRemoved++; }
+      } catch { /* leave orphaned files rather than fail the delete */ }
+    }
+    store.deleteCourse(course.courseId);
+  }
+
+  summary.capabilityRequestsRemoved = deleteCapabilityRequestsForRun(capabilityRequestsDir(), runId);
+
+  store.deleteCourseRun(runId); // course_runs + events + gates
+  try { rmSync(join(runsDir(), runId), { recursive: true, force: true }); } catch { /* best-effort */ }
+  liveActivity.delete(runId);
+
+  return summary;
+}
 
 /** Lesson level (5-rung) → scenario facet level (3-rung marketplace filter). */
 function scenarioLevelFor(level: string): ScenarioLevel {
@@ -957,6 +1004,15 @@ export const server = createServer(async (req, res) => {
               if (parts[4] === "resume") courseRuns.resume(runId);
               else courseRuns.archive(runId);
               return json(res, 200, { run: courseRunDetail(runId) });
+            }
+            // DELETE a run and everything it produced (cascade). Refuse mid-phase.
+            if (req.method === "DELETE" && parts.length === 4) {
+              if (isActive(run.status)) {
+                return json(res, 409, { error: `run is ${run.status}; let it park at a gate or interrupt it before deleting` });
+              }
+              await courseRuns.settle(); // ensure no phase is mid-flight
+              const summary = deleteRunCascade(runId);
+              return json(res, 200, { deleted: true, ...summary });
             }
           }
         } catch (err) {

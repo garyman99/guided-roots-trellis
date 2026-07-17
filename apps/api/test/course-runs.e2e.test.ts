@@ -8,7 +8,7 @@ process.env.NODE_ENV = "test";
 process.env.TRELLIS_PERSISTENCE = "off";
 process.env.INSTRUCTOR_PROVIDER = "mock";
 process.env.TRELLIS_ADMIN_TOKEN = "test-admin-token";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const RUNS_DIR = mkdtempSync(join(tmpdir(), "trellis-runs-e2e-"));
@@ -134,6 +134,41 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   const req = cp.requirements[0];
   assert.equal(req.ok, false);
   assert.ok(!/did not report/i.test(req.detail ?? ""), `the verify requirement resolves to a real check (got: ${req.detail})`);
+});
+
+test("deleting a run cascades to its course, scenarios, and on-disk artifacts", async () => {
+  const created = await admin("POST", "/api/admin/course-runs", { technology: "Git", title: "Git Delete Demo" });
+  const runId = (created.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle();
+  for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
+    await admin("POST", `/api/admin/course-runs/${runId}/gates/${gate}/decision`, { decision: "approved", by: "eva" });
+    await courseRuns.settle();
+  }
+
+  // It produced a draft course + generated scenarios + an artifacts dir.
+  const course = store.listCourses().find((c) => c.sourceRunId === runId);
+  assert.ok(course, "run materialized a course");
+  const labIds = course.lessons.map((l) => l.labId);
+  assert.ok(labIds.length >= 2);
+  assert.ok(store.listScenarioEntries().some((s) => labIds.includes(s.labId)), "scenarios present before delete");
+  assert.ok(existsSync(join(RUNS_DIR, runId)), "artifacts dir present before delete");
+
+  // Delete cascades and reports what it removed.
+  const del = await admin("DELETE", `/api/admin/course-runs/${runId}`);
+  assert.equal(del.status, 200);
+  const sum = del.body as { deleted: boolean; courseId: string; lessonsRemoved: number; scenariosRemoved: number };
+  assert.equal(sum.deleted, true);
+  assert.equal(sum.courseId, course.courseId);
+  assert.equal(sum.lessonsRemoved, labIds.length);
+
+  // Run, course, scenarios, and artifacts are all gone.
+  assert.equal((await admin("GET", `/api/admin/course-runs/${runId}`)).status, 404, "run row removed");
+  assert.ok(!store.listCourses().some((c) => c.courseId === course.courseId), "course removed");
+  assert.ok(!store.listScenarioEntries().some((s) => labIds.includes(s.labId)), "scenarios removed");
+  assert.ok(!existsSync(join(RUNS_DIR, runId)), "artifacts dir removed (run.json can't resurrect it)");
+
+  // Deleting an unknown run → 404.
+  assert.equal((await admin("DELETE", "/api/admin/course-runs/cg-nope-000")).status, 404);
 });
 
 test("changes requires notes; the state machine rejects out-of-order and unknown decisions", async () => {

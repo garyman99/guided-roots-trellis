@@ -10,7 +10,7 @@
  * The generator never blocks on the code side, and the code side never blocks a
  * run's supported lessons: the outbox decouples them.
  */
-import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { CapabilityGap } from "../../../packages/course-architect/src/gaps.ts";
 
@@ -84,6 +84,32 @@ function renderRequestMd(r: CapabilityRequestRecord): string {
     `\`${r.gapId}\`) and the blocked lessons can be authored on the next run.`,
     ``,
   ].join("\n");
+}
+
+/**
+ * Remove every request this run commissioned (cascade when a run is deleted).
+ * Returns the gap ids that were removed. A request the dev side already picked up
+ * is still removed — deleting the run retracts its outstanding asks.
+ */
+export function deleteCapabilityRequestsForRun(outboxDir: string, runId: string): string[] {
+  if (!existsSync(outboxDir)) return [];
+  const removed: string[] = [];
+  for (const entry of readdirSync(outboxDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(outboxDir, entry.name);
+    const file = join(dir, "request.json");
+    if (!existsSync(file)) continue;
+    try {
+      const rec = JSON.parse(readFileSync(file, "utf8")) as CapabilityRequestRecord;
+      if (rec.runId === runId) {
+        rmSync(dir, { recursive: true, force: true });
+        removed.push(rec.gapId);
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return removed;
 }
 
 /** List open capability requests in the outbox (for an admin view / the dev skill). */

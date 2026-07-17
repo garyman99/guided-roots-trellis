@@ -12,7 +12,7 @@
  * The result: shut the app down mid-run, start it back up, and the run reappears
  * at its last point of progress even if the database was wiped underneath it.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   type CourseRun,
@@ -36,6 +36,15 @@ export function writeRunRecord(runDir: string, run: CourseRun): void {
   try {
     mkdirSync(runDir, { recursive: true });
     writeFileSync(join(runDir, RUN_RECORD_FILE), JSON.stringify(run, null, 2));
+  } catch {
+    /* durability aid only */
+  }
+}
+
+/** Remove the mirrored run record (best-effort) so a deleted run isn't resurrected. */
+export function removeRunRecord(runDir: string): void {
+  try {
+    rmSync(join(runDir, RUN_RECORD_FILE), { force: true });
   } catch {
     /* durability aid only */
   }
@@ -84,6 +93,7 @@ export class DiskMirroredCourseRunStore implements CourseRunStore {
   }
   deleteCourseRun(runId: string): void {
     this.inner.deleteCourseRun(runId);
+    removeRunRecord(this.runDirFor(runId));
   }
   appendCourseRunEvent(event: CourseRunEvent): CourseRunEvent {
     return this.inner.appendCourseRunEvent(event);

@@ -546,6 +546,16 @@ export interface GapDecision {
   disposition: GapDisposition;
 }
 
+export interface RunDeletionSummary {
+  deleted: boolean;
+  courseId: string | null;
+  coursePublished: boolean;
+  lessonsRemoved: number;
+  scenariosRemoved: number;
+  labsRemoved: number;
+  capabilityRequestsRemoved: string[];
+}
+
 export const courseRunApi = {
   list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
   providers: () => adminGet<ProvidersPayload>("/api/admin/course-runs/providers"),
@@ -559,6 +569,9 @@ export const courseRunApi = {
     adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by, ...(gaps && gaps.length ? { gaps } : {}) }).then((r) => r.run),
   resume: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/resume`).then((r) => r.run),
   archive: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/archive`).then((r) => r.run),
+  // Hard-delete a run and everything it produced (course, scenarios, generated
+  // labs, commissioned capabilities, artifacts). Returns a summary of removals.
+  remove: (runId: string) => adminSend<RunDeletionSummary>("DELETE", `/api/admin/course-runs/${encodeURIComponent(runId)}`),
   publishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`),
   unpublishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/unpublish`),
   // Operator view of a course — includes drafts and not-yet-live lessons.

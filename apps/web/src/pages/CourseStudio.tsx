@@ -103,7 +103,7 @@ export function CourseStudio({ onCoursesChanged }: { onCoursesChanged: () => voi
       ) : runs.length === 0 ? (
         <p className="admin-empty">No runs yet — start one above.</p>
       ) : (
-        <RunsTable runs={runs} onOpen={setOpenId} />
+        <RunsTable runs={runs} onOpen={setOpenId} onChanged={() => { refresh(); onCoursesChanged(); }} />
       )}
     </div>
   );
@@ -241,11 +241,28 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
 
 /* ================= runs table ================= */
 
-function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: string) => void }) {
+function RunsTable({ runs, onOpen, onChanged }: { runs: CourseRunSummary[]; onOpen: (id: string) => void; onChanged: () => void }) {
   const pending = runs
     .filter((r) => r.pendingGate || r.status === "interrupted")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); // most recent first
   const ordered = [...runs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  const deleteRun = (e: { stopPropagation(): void }, r: CourseRunSummary) => {
+    e.stopPropagation(); // don't open the run
+    const msg =
+      `Delete run ${r.runId}?\n\n` +
+      `This permanently removes the run AND everything it produced — its draft course, ` +
+      `lessons, catalog entries, generated labs, and any capabilities it commissioned. ` +
+      `This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    courseRunApi.remove(r.runId)
+      .then((s) => {
+        onChanged();
+        if (s.coursePublished) window.alert(`Deleted. Note: the course "${s.courseId}" was LIVE and has been taken down.`);
+      })
+      .catch((err) => window.alert(`Delete failed: ${(err as Error).message}`));
+  };
+
   return (
     <>
       {pending.length > 0 && (
@@ -268,7 +285,7 @@ function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: st
       )}
       <table className="admin-table admin-clickable">
         <thead>
-          <tr><th>Run</th><th>Technology</th><th>Status</th><th>Gate</th><th>Updated</th></tr>
+          <tr><th>Run</th><th>Technology</th><th>Status</th><th>Gate</th><th>Updated</th><th></th></tr>
         </thead>
         <tbody>
           {ordered.map((r) => (
@@ -278,6 +295,16 @@ function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: st
               <td><StatusChip status={r.status} /></td>
               <td>{r.pendingGate ? <span className="admin-chip status-mastered">{r.pendingGate}</span> : "—"}</td>
               <td>{fmtWhen(r.updatedAt)}</td>
+              <td>
+                <button
+                  className="gr-btn gr-btn-small gr-btn-ghost admin-danger"
+                  onClick={(e) => deleteRun(e, r)}
+                  disabled={isActive(r.status)}
+                  title={isActive(r.status) ? "Can't delete while a phase is running" : "Delete this run and everything it produced"}
+                >
+                  Delete
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -375,13 +402,35 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       <ArtifactViewer run={run} />
       <ActivityFeed events={run.events} />
 
-      {run.status !== "approved" && !isActive(run.status) && run.status !== "archived" && (
-        <div>
+      {!isActive(run.status) && (
+        <div className="admin-editor-actions">
+          {run.status !== "approved" && run.status !== "archived" && (
+            <button
+              className="gr-btn gr-btn-ghost gr-btn-small admin-danger"
+              onClick={() => { if (window.confirm("Archive this run? It can't be resumed.")) courseRunApi.archive(runId).then(setRun); }}
+            >
+              Archive run
+            </button>
+          )}
           <button
             className="gr-btn gr-btn-ghost gr-btn-small admin-danger"
-            onClick={() => { if (window.confirm("Archive this run? It can't be resumed.")) courseRunApi.archive(runId).then(setRun); }}
+            onClick={() => {
+              const msg =
+                `Delete run ${runId}?\n\n` +
+                `This permanently removes the run AND everything it produced — its draft course, ` +
+                `lessons, catalog entries, generated labs, and any capabilities it commissioned. ` +
+                `This cannot be undone.`;
+              if (!window.confirm(msg)) return;
+              courseRunApi.remove(runId)
+                .then((s) => {
+                  if (s.coursePublished) window.alert(`Deleted. Note: the course "${s.courseId}" was LIVE and has been taken down.`);
+                  onCoursesChanged();
+                  onBack();
+                })
+                .catch((err) => window.alert(`Delete failed: ${(err as Error).message}`));
+            }}
           >
-            Archive run
+            Delete run
           </button>
         </div>
       )}
