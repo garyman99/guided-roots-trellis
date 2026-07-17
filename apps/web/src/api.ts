@@ -546,6 +546,50 @@ export interface GapDecision {
   disposition: GapDisposition;
 }
 
+/* ---------- lesson experience (recorded-session metrics per lesson family) ---------- */
+
+export interface LessonVersionExperience {
+  labId: string;
+  version: number;
+  sessions: number;
+  completed: number;
+  abandoned: number;
+  open: number;
+  completionRate: number;
+  abandonmentRate: number;
+  medianDurationMs: number | null;
+  hintsPerSession: number;
+  commandFailureRate: number;
+  stallsPerSession: number;
+  topBlockingRequirements: Array<{ id: string; count: number }>;
+  topInterventionTriggers: Array<{ trigger: string; count: number }>;
+  topTaskFailReasons: string[];
+  hintFollowedByProgressRate: number | null;
+  quotes: Array<{ sessionId: string; text: string; stuck: boolean }>;
+}
+
+export interface LessonExperienceData {
+  family: string;
+  requestedVersion: number;
+  totalSessions: number;
+  versions: LessonVersionExperience[];
+  sessions: Array<{
+    sessionId: string;
+    labId: string;
+    startedAt: string;
+    durationMs: number;
+    completed: boolean;
+    abandoned: boolean;
+    hints: number;
+    friction: number;
+  }>;
+}
+
+export const lessonApi = {
+  experience: (labId: string) =>
+    adminGet<{ experience: LessonExperienceData }>(`/api/admin/lessons/${encodeURIComponent(labId)}/experience`).then((r) => r.experience),
+};
+
 export interface RunDeletionSummary {
   deleted: boolean;
   courseId: string | null;

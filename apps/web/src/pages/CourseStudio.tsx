@@ -24,6 +24,7 @@ import {
   type ProvidersPayload,
   type RunStatus,
 } from "../api.ts";
+import { LessonExperiencePanel } from "./LessonExperience.tsx";
 
 /* ---------- status vocabulary ---------- */
 
@@ -655,6 +656,7 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
   const [course, setCourse] = useState<Course | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "course" or a labId while toggling
   const [preview, setPreview] = useState<{ labId: string; md: string } | null>(null);
+  const [expLab, setExpLab] = useState<string | null>(null); // recorded-experience panel
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -751,12 +753,24 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
                       </button>{" "}
                       <a className="gr-btn gr-btn-small gr-btn-ghost" href={`/lab?lab=${encodeURIComponent(l.labId)}`} target="_blank" rel="noreferrer">
                         Try lab ↗
-                      </a>
+                      </a>{" "}
+                      <button
+                        className="gr-btn gr-btn-small gr-btn-ghost"
+                        onClick={() => setExpLab(expLab === l.labId ? null : l.labId)}
+                        title="Recorded learner experience for this lesson"
+                      >
+                        {expLab === l.labId ? "Hide stats" : "Experience"}
+                      </button>
                     </td>
                   </tr>
                   {preview?.labId === l.labId && (
                     <tr>
                       <td colSpan={5}><pre className="cg-lesson-preview">{preview.md}</pre></td>
+                    </tr>
+                  )}
+                  {expLab === l.labId && (
+                    <tr>
+                      <td colSpan={5}><LessonExperiencePanel labId={l.labId} /></td>
                     </tr>
                   )}
                 </Fragment>

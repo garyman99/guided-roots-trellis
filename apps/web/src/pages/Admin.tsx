@@ -19,6 +19,7 @@ import { getUser, logout } from "../auth.ts";
 import type { Course, CourseLesson } from "../api.ts";
 import { fetchScenarios, adminGet, adminSend, ADMIN_TOKEN_KEY } from "../api.ts";
 import { CourseStudio } from "./CourseStudio.tsx";
+import { LessonExperiencePanel } from "./LessonExperience.tsx";
 import { scenarioMap, type Scenario } from "../scenarios.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
@@ -187,7 +188,9 @@ export function Admin() {
       adminGet<{ agents: AdminAgent[] }>("/api/admin/agents"),
       adminGet<{ users: AdminUser[] }>("/api/admin/users"),
       adminGet<UsagePayload>("/api/admin/usage"),
-      adminGet<{ courses: Course[] }>("/api/courses"),
+      // Operator view of courses: includes drafts and not-yet-live lessons
+      // (the public /api/courses hides both).
+      adminGet<{ courses: Course[] }>("/api/admin/courses"),
       adminGet<{ sessions: AdminSessionSummary[] }>("/api/admin/sessions"),
       fetchScenarios(),
     ])
@@ -881,6 +884,8 @@ function CoursesView({
 }) {
   // editing: null = closed, "new" = creating, otherwise the courseId being edited
   const [editing, setEditing] = useState<string | null>(null);
+  // one lesson's recorded-experience panel open at a time (by labId)
+  const [expLab, setExpLab] = useState<string | null>(null);
   if (!courses) return <p className="admin-loading">Loading courses…</p>;
 
   return (
@@ -910,6 +915,7 @@ function CoursesView({
         <article key={c.courseId} className="gr-card admin-course">
           <div className="admin-agent-head">
             <h3>{c.title}</h3>
+            {c.status === "draft" && <span className="admin-chip status-abandoned">draft</span>}
             <span className="admin-chip">{c.level}</span>
             {c.audience && <span className="admin-chip">{c.audience}</span>}
             <span className="gr-mono-note">{c.lessons.length} lessons · updated {fmtWhen(c.updatedAt)}</span>
@@ -940,6 +946,19 @@ function CoursesView({
                   <span>
                     {l.title ?? s?.title ?? l.labId} <code>{l.labId}</code>
                   </span>
+                  <button
+                    className="gr-btn gr-btn-ghost gr-btn-small"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => setExpLab(expLab === l.labId ? null : l.labId)}
+                    title="Recorded learner experience for this lesson"
+                  >
+                    {expLab === l.labId ? "Hide experience" : "Experience"}
+                  </button>
+                  {expLab === l.labId && (
+                    <div style={{ flexBasis: "100%" }}>
+                      <LessonExperiencePanel labId={l.labId} />
+                    </div>
+                  )}
                 </li>
               );
             })}

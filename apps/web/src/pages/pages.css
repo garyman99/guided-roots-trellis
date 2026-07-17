@@ -423,7 +423,7 @@
 .admin-course-actions { margin-left: auto; display: flex; gap: 8px; }
 .admin-danger { color: var(--danger) !important; }
 .admin-course-lessons { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
-.admin-course-lessons li { display: flex; gap: 12px; align-items: baseline; font-size: var(--fs-small); color: var(--ink-dim); }
+.admin-course-lessons li { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; font-size: var(--fs-small); color: var(--ink-dim); }
 .admin-course-lessons code { color: var(--ink-faint); font-size: 0.74rem; margin-left: 8px; }
 
 .admin-course-editor { display: grid; gap: 16px; border-color: var(--green-deep); }
@@ -508,6 +508,12 @@
 .admin-clickable tbody tr:hover td { background: rgba(107, 165, 95, 0.07); }
 
 /* ===== Course studio (course-generation runs) ===== */
+.cg-experience { display: grid; gap: 10px; padding: 6px 0 10px; }
+.cg-experience-detail { font-size: var(--fs-small); display: grid; gap: 4px; }
+.cg-experience-detail p { margin: 0; }
+.cg-quotes { list-style: none; margin: 0; padding: 0 0 0 10px; display: grid; gap: 4px; }
+.cg-quotes li { font-size: var(--fs-small); color: var(--ink-faint); font-style: italic; }
+
 .cg-lesson-preview {
   max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
   font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; color: var(--ink);

@@ -98,6 +98,7 @@ import {
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
+import { lessonExperience } from "./lessonExperience.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -929,6 +930,16 @@ export const server = createServer(async (req, res) => {
       // the generator asked the code side to build (plan §4b / D11).
       if (req.method === "GET" && parts[2] === "capability-requests" && parts.length === 3) {
         return json(res, 200, { requests: listCapabilityRequests(capabilityRequestsDir()) });
+      }
+
+      // GET /api/admin/lessons/:labId/experience — the recorded-experience
+      // metrics for a lesson FAMILY (all versions; per-session summaries for
+      // the requested version). Deterministic facts from the event logs; the
+      // AI analyst and the operator dashboard both read this.
+      if (req.method === "GET" && parts[2] === "lessons" && parts.length === 5 && parts[4] === "experience") {
+        const labId = decodeURIComponent(parts[3]);
+        if (!/^[a-z0-9-]+$/.test(labId)) return json(res, 400, { error: "invalid lab id" });
+        return json(res, 200, { experience: lessonExperience(store, labId) });
       }
 
       // ── course-generation runs (Course studio) ──────────────────────────
