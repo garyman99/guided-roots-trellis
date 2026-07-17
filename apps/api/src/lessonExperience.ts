@@ -291,6 +291,46 @@ function aggregateVersion(
   };
 }
 
+/**
+ * A bounded, human/model-readable transcript of one session: the dialogue plus
+ * the load-bearing facts (failed commands, checkpoint outcomes, abandonment).
+ * Feeds the experience analyst; deterministic, newest-truncated at capChars.
+ */
+export function sessionTranscript(store: EventStore, sessionId: string, capChars = 8000): string {
+  const lines: string[] = [];
+  for (const e of store.eventsFor(sessionId)) {
+    switch (e.type) {
+      case "learner.goal.stated": lines.push(`LEARNER (goal): ${e.text}`); break;
+      case "learner.question": lines.push(`LEARNER${e.stuck ? " (stuck)" : ""}: ${e.text}`); break;
+      case "instructor.greeting": if (e.text) lines.push(`GUIDE (greeting): ${e.text}`); break;
+      case "instructor.hint": if (e.text) lines.push(`GUIDE (hint L${e.level}): ${e.text}`); break;
+      case "instructor.progress": if (e.text) lines.push(`GUIDE (progress): ${e.text}`); break;
+      case "intervention.delivered": lines.push(`GUIDE (intervention ${e.triggerType}): ${e.text}`); break;
+      case "terminal.command.completed":
+        if (e.exitCode !== 0) lines.push(`TERMINAL: \`${e.command}\` failed (exit ${e.exitCode}) ${e.outputSummary}`.trim());
+        break;
+      case "task.validated": if (!e.passed) lines.push(`TASK CHECK failed: ${e.reason}`); break;
+      case "checkpoint.evaluated": if (!e.passed) lines.push(`CHECKPOINT failed — incomplete: ${e.incomplete.join(", ")}`); break;
+      case "checkpoint.completed": lines.push(`CHECKPOINT completed.`); break;
+      case "session.abandoned": lines.push(`SESSION ABANDONED (learner started over).`); break;
+      default: break;
+    }
+  }
+  const text = lines.join("\n");
+  return text.length <= capChars ? text : `…(truncated)\n${text.slice(-capChars)}`;
+}
+
+/**
+ * The transcript sample for analysis (D7): the most frictional sessions plus
+ * the most recent ones, deduped, from an already-filtered summary list.
+ */
+export function sampleForAnalysis(sessions: SessionExperience[], topFriction = 5, recent = 5): SessionExperience[] {
+  const byFriction = [...sessions].sort((a, b) => b.friction - a.friction).slice(0, topFriction);
+  const byRecency = [...sessions].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, recent);
+  const seen = new Set<string>();
+  return [...byFriction, ...byRecency].filter((s) => (seen.has(s.sessionId) ? false : (seen.add(s.sessionId), true)));
+}
+
 function sum<T>(items: T[], f: (t: T) => number): number {
   return items.reduce((acc, t) => acc + f(t), 0);
 }

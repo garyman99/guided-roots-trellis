@@ -10,4 +10,6 @@ artifacts/
 curriculum/runs/
 curriculum/published/
 curriculum/capability-requests/
+curriculum/experience/
+curriculum/lesson-improvements/
 .env

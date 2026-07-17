@@ -186,7 +186,8 @@ export type PhaseExecutor = (ctx: PhaseContext) => Promise<void>;
  */
 export interface LiveActivity {
   runId: string;
-  phase: Phase;
+  /** A run phase — or a job label for non-run model work (e.g. "analyzing"). */
+  phase: Phase | string;
   role: string;
   task: string;
   thinking: string;

@@ -218,5 +218,31 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
   if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
   if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [] });
   if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [] });
+  // Experience analysis: a deterministic report echoing the metrics it was
+  // shown, with one finding per area class so UIs/tests exercise the routing.
+  if (prompt.task.startsWith("experience:")) {
+    const family = (ctx?.family as string) ?? prompt.task.slice("experience:".length);
+    const version = (ctx?.version as number) ?? 1;
+    const sessions = (ctx?.sessions as number) ?? 0;
+    return JSON.stringify({
+      family,
+      version,
+      sessionsAnalyzed: sessions,
+      verdict: "revise",
+      summary:
+        `Mock analysis of ${sessions} recorded session(s) for ${family} v${version}. ` +
+        `Learners stalled early and asked orientation questions; the lab's single check ` +
+        `blocked completion. One platform-level error also appeared in transcripts.`,
+      findings: [
+        { severity: "high", area: "content", description: "The opening instructions assume tools the learner has not met yet.", evidence: "Learner quotes: orientation questions in the first minutes." },
+        { severity: "medium", area: "lab-design", description: "The single verifier check gives no intermediate feedback.", evidence: "checkpoint.evaluated failures all blocked on one requirement." },
+        { severity: "low", area: "platform", description: "Environment errors appeared in the terminal.", evidence: "Terminal error lines in session transcripts." },
+      ],
+      recommendations: [
+        { findingIndex: 0, change: "Add a short orientation paragraph naming each visible tool before the first task.", rationale: "Removes the first-minutes confusion the quotes show." },
+        { findingIndex: 1, change: "Split the task into two checkpoints with an early, encouraging verification.", rationale: "Intermediate feedback converts stalls into progress." },
+      ],
+    });
+  }
   return "{}";
 };

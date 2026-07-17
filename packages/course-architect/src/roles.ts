@@ -23,7 +23,8 @@ export type CourseGenRole =
   | "lesson-author"
   | "technical-reviewer"
   | "pedagogy-reviewer"
-  | "cohesion-editor";
+  | "cohesion-editor"
+  | "experience-analyst";
 
 export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "architect",
@@ -33,6 +34,7 @@ export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "technical-reviewer",
   "pedagogy-reviewer",
   "cohesion-editor",
+  "experience-analyst",
 ];
 
 export interface RolePrompt {

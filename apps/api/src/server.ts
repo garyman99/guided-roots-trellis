@@ -61,7 +61,7 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, readdirSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -86,6 +86,13 @@ import {
   applyDispositions,
   commissionedGaps,
   isActive,
+  EXPERIENCE_ANALYST_SYSTEM,
+  experienceReportInstruction,
+  invokeValidatedJson,
+  validateExperienceReport,
+  renderExperienceReportMd,
+  REVISABLE_AREAS,
+  type ExperienceReport,
   type CapabilityGapReport,
   type CourseRun,
   type GateId,
@@ -98,8 +105,9 @@ import {
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
-import { lessonExperience } from "./lessonExperience.ts";
-import { newLearnerId } from "../../../packages/shared/src/ids.ts";
+import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
+import { writeLessonImprovement, listLessonImprovements } from "./lessonImprovements.ts";
+import { newLearnerId, familyOf, versionOf } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
 import type { SessionDigest } from "../../../packages/learner-model/src/evidence.ts";
@@ -318,9 +326,9 @@ function courseGenProviders() {
   };
 }
 
-/** Resolve the invoker for a run from its chosen provider (validated at create). */
-function rolesForRun(run: CourseRun): RoleInvoker {
-  const cfg = run.request.providerConfig;
+/** Resolve a RoleInvoker from a provider choice (shared by course-generation
+ *  runs and the experience analyst; the API key always comes from server env). */
+function invokerForProvider(cfg: RunProviderConfig | undefined): RoleInvoker {
   const provider = cfg?.provider ?? resolveCourseGenConfig("architect").provider;
   if (provider === "mock") return mockCourseGenInvoker;
   const model = cfg?.model ?? process.env.COURSE_GEN_MODEL;
@@ -334,6 +342,11 @@ function rolesForRun(run: CourseRun): RoleInvoker {
     timeoutMs: Number(process.env.COURSE_GEN_TIMEOUT_MS ?? 300_000),
     maxTokens: Number(process.env.COURSE_GEN_MAX_TOKENS ?? 8192),
   });
+}
+
+/** Resolve the invoker for a run from its chosen provider (validated at create). */
+function rolesForRun(run: CourseRun): RoleInvoker {
+  return invokerForProvider(run.request.providerConfig);
 }
 
 /** Validate a provider choice at create time; returns an error string or null. */
@@ -358,6 +371,122 @@ function validateProviderConfig(cfg: RunProviderConfig | undefined): string | nu
 // Real-time view: the current model call's streaming thinking/text per run,
 // held in memory (not the event log) and polled by the UI while a phase runs.
 const liveActivity = new Map<string, LiveActivity>();
+
+/* ── experience analysis (plan Phase B): a lightweight in-process job, NOT a
+ *    CourseRun — it only READS recorded sessions and writes a report. One
+ *    in-flight analysis per lesson family (D4/D8). ─────────────────────────── */
+const experienceDir = (): string => process.env.TRELLIS_EXPERIENCE_DIR ?? join(repoRoot, "curriculum", "experience");
+const lessonImprovementsDir = (): string =>
+  process.env.TRELLIS_LESSON_IMPROVEMENTS_DIR ?? join(repoRoot, "curriculum", "lesson-improvements");
+
+const analysisInFlight = new Set<string>(); // family
+const analysisState = new Map<string, { running: boolean; error: string | null; at: string }>(); // family
+const analysisLive = new Map<string, LiveActivity>(); // family → streaming thinking/text
+
+/** A lab that ships in the repo's labs/ tree is hand-authored (git-managed). */
+function isHandAuthoredLab(labId: string): boolean {
+  return existsSync(join(labsRoot, labId, "lab.json"));
+}
+
+function listExperienceReports(family: string): Array<Record<string, unknown>> {
+  const dir = join(experienceDir(), family);
+  if (!existsSync(dir)) return [];
+  const out: Array<Record<string, unknown>> = [];
+  for (const f of readdirSync(dir).filter((f) => /^report-\d+\.json$/.test(f)).sort().reverse()) {
+    try {
+      out.push({ file: f, ...JSON.parse(readFileSync(join(dir, f), "utf8")) as Record<string, unknown> });
+    } catch { /* skip malformed */ }
+  }
+  return out;
+}
+
+/** Run the analyst for one lesson family. Resolves when the report is written. */
+async function runExperienceAnalysis(labId: string, cfg: RunProviderConfig | undefined): Promise<void> {
+  const family = familyOf(labId);
+  const version = versionOf(labId);
+  const at = new Date().toISOString();
+  const exp = lessonExperience(store, labId);
+  const focus = exp.versions.find((v) => v.version === version);
+
+  // The transcript sample (D7): most frictional + most recent, char-capped.
+  const perCap = Number(process.env.TRELLIS_EXPERIENCE_TRANSCRIPT_CHARS ?? 8000);
+  const totalCap = Number(process.env.TRELLIS_EXPERIENCE_TOTAL_CHARS ?? 60_000);
+  const sample = sampleForAnalysis(exp.sessions);
+  let transcripts = "";
+  for (const s of sample) {
+    const t = sessionTranscript(store, s.sessionId, perCap);
+    if (!t) continue;
+    const block = `--- session ${s.sessionId} (friction ${s.friction}${s.completed ? ", completed" : s.abandoned ? ", ABANDONED" : ", unfinished"}) ---\n${t}\n`;
+    if (transcripts.length + block.length > totalCap) break;
+    transcripts += block;
+  }
+
+  // The lesson as the learner sees it (bounded): manifest + template README.
+  let content = "";
+  try {
+    const labDir = manager.labDir(labId);
+    content += readFileSync(join(labDir, "lab.json"), "utf8").slice(0, 4000);
+    const readme = join(labDir, "template", "README.md");
+    if (existsSync(readme)) content += `\n--- template/README.md ---\n` + readFileSync(readme, "utf8").slice(0, 4000);
+  } catch { /* lab may be gone; the metrics still stand */ }
+
+  // Prior versions: summary metrics only, labeled historical (D3).
+  const history = exp.versions.filter((v) => v.version !== version);
+
+  const prompt = {
+    system: EXPERIENCE_ANALYST_SYSTEM,
+    task: `experience:${family}`,
+    context: { family, version, sessions: focus?.sessions ?? 0 },
+    user: [
+      `Analyze the recorded learner experience for lesson "${family}" version ${version}.`,
+      ``,
+      `## The lesson as shipped`,
+      content || "(lesson content unavailable)",
+      ``,
+      `## Metrics for v${version} (deterministic, from the event logs)`,
+      JSON.stringify(focus ?? { sessions: 0 }, null, 2),
+      history.length ? `\n## HISTORICAL context — prior versions (do not re-litigate; trend only)\n${JSON.stringify(history, null, 2)}` : ``,
+      ``,
+      `## Session transcripts (most frictional + most recent)`,
+      transcripts || "(no transcripts available)",
+      ``,
+      experienceReportInstruction(family, version),
+    ].join("\n"),
+  };
+
+  let thinking = "";
+  let text = "";
+  const report = await invokeValidatedJson(
+    invokerForProvider(cfg),
+    "experience-analyst",
+    prompt,
+    validateExperienceReport,
+    {
+      maxAttempts: Number(process.env.COURSE_GEN_MAX_ATTEMPTS ?? 3),
+      onDelta: (d) => {
+        if (d.kind === "thinking") thinking += d.chunk;
+        else text += d.chunk;
+        analysisLive.set(family, {
+          runId: `experience:${family}`,
+          phase: "analyzing",
+          role: "experience-analyst",
+          task: prompt.task,
+          thinking,
+          text,
+          updatedAt: new Date().toISOString(),
+        });
+      },
+    },
+  );
+
+  const dir = join(experienceDir(), family);
+  mkdirSync(dir, { recursive: true });
+  const ordinal = readdirSync(dir).filter((f) => /^report-\d+\.json$/.test(f)).length + 1;
+  const file = `report-${String(ordinal).padStart(3, "0")}`;
+  const meta = { at, labId, provider: cfg?.provider ?? "mock", model: cfg?.model ?? null };
+  writeFileSync(join(dir, `${file}.json`), JSON.stringify({ ...report, meta }, null, 2));
+  writeFileSync(join(dir, `${file}.md`), renderExperienceReportMd(report, { at, model: cfg?.model ?? undefined }));
+}
 
 // Rebuild the course-run index from disk BEFORE the scheduler boots: a lost or
 // reset database must never orphan on-disk generation work. Recovered runs
@@ -932,14 +1061,85 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, { requests: listCapabilityRequests(capabilityRequestsDir()) });
       }
 
-      // GET /api/admin/lessons/:labId/experience — the recorded-experience
-      // metrics for a lesson FAMILY (all versions; per-session summaries for
-      // the requested version). Deterministic facts from the event logs; the
-      // AI analyst and the operator dashboard both read this.
-      if (req.method === "GET" && parts[2] === "lessons" && parts.length === 5 && parts[4] === "experience") {
+      // ── /api/admin/lessons/:labId/experience… — recorded-experience metrics,
+      //    the AI analyst, its reports, and the dev handoff (plan Phases A/B) ──
+      if (parts[2] === "lessons" && parts.length >= 5 && parts[4] === "experience") {
         const labId = decodeURIComponent(parts[3]);
         if (!/^[a-z0-9-]+$/.test(labId)) return json(res, 400, { error: "invalid lab id" });
-        return json(res, 200, { experience: lessonExperience(store, labId) });
+        const family = familyOf(labId);
+
+        // GET …/experience — the deterministic family metrics.
+        if (req.method === "GET" && parts.length === 5) {
+          return json(res, 200, { experience: lessonExperience(store, labId) });
+        }
+        // GET …/experience/live — the in-flight analyst's streaming view + state.
+        if (req.method === "GET" && parts.length === 6 && parts[5] === "live") {
+          return json(res, 200, {
+            live: analysisLive.get(family) ?? null,
+            state: analysisState.get(family) ?? { running: false, error: null, at: "" },
+          });
+        }
+        // GET …/experience/reports — newest first, from disk.
+        if (req.method === "GET" && parts.length === 6 && parts[5] === "reports") {
+          return json(res, 200, { reports: listExperienceReports(family) });
+        }
+        // POST …/experience/analyze — start the analyst (one per family, D4/D8).
+        if (req.method === "POST" && parts.length === 6 && parts[5] === "analyze") {
+          const body = await readBody(req);
+          const providerConfig = parseProviderConfig(body.providerConfig);
+          const providerError = validateProviderConfig(providerConfig);
+          if (providerError) return json(res, 400, { error: providerError });
+          if (analysisInFlight.has(family)) {
+            return json(res, 409, { error: `an analysis for "${family}" is already running` });
+          }
+          analysisInFlight.add(family);
+          analysisState.set(family, { running: true, error: null, at: new Date().toISOString() });
+          runExperienceAnalysis(labId, providerConfig)
+            .then(() => analysisState.set(family, { running: false, error: null, at: new Date().toISOString() }))
+            .catch((err) => {
+              const message = err instanceof Error ? err.message : String(err);
+              analysisState.set(family, { running: false, error: message, at: new Date().toISOString() });
+            })
+            .finally(() => {
+              analysisInFlight.delete(family);
+              analysisLive.delete(family);
+            });
+          return json(res, 202, { started: true, family });
+        }
+        // POST …/experience/reports/:file/handoff — route to the dev outbox
+        // (D10): the whole report for a hand-authored lesson, or just the
+        // platform/guide findings a revision can't fix for a generated one.
+        if (req.method === "POST" && parts.length === 8 && parts[5] === "reports" && parts[7] === "handoff") {
+          const file = decodeURIComponent(parts[6]);
+          if (!/^report-\d+\.json$/.test(file)) return json(res, 400, { error: "invalid report file" });
+          const path = join(experienceDir(), family, file);
+          if (!existsSync(path)) return json(res, 404, { error: "report not found" });
+          const report = JSON.parse(readFileSync(path, "utf8")) as ExperienceReport;
+          const handAuthored = isHandAuthoredLab(labId);
+          const routed = handAuthored
+            ? report.findings
+            : report.findings.filter((f) => !REVISABLE_AREAS.includes(f.area));
+          if (routed.length === 0) return json(res, 400, { error: "no findings to hand off (all are revisable in a lesson revision)" });
+          const routedIdx = new Set(report.findings.map((f, i) => (routed.includes(f) ? i : -1)).filter((i) => i >= 0));
+          const record = writeLessonImprovement(lessonImprovementsDir(), {
+            family,
+            labId,
+            version: versionOf(labId),
+            reason: handAuthored ? "hand-authored-lesson" : "platform-findings",
+            reportFile: file,
+            status: "requested",
+            requestedAt: new Date().toISOString(),
+            summary: report.summary,
+            findings: routed,
+            recommendations: report.recommendations.filter((r) => routedIdx.has(r.findingIndex)),
+          });
+          return json(res, 201, { request: record });
+        }
+      }
+
+      // GET /api/admin/lesson-improvements — the dev-handoff outbox (D10).
+      if (req.method === "GET" && parts[2] === "lesson-improvements" && parts.length === 3) {
+        return json(res, 200, { requests: listLessonImprovements(lessonImprovementsDir()) });
       }
 
       // ── course-generation runs (Course studio) ──────────────────────────

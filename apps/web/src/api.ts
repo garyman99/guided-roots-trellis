@@ -585,9 +585,35 @@ export interface LessonExperienceData {
   }>;
 }
 
+export interface ExperienceReportView {
+  file: string;
+  family: string;
+  version: number;
+  sessionsAnalyzed: number;
+  verdict: "keep" | "revise";
+  summary: string;
+  findings: Array<{ severity: "high" | "medium" | "low"; area: "content" | "lab-design" | "guide-behavior" | "platform"; description: string; evidence: string }>;
+  recommendations: Array<{ findingIndex: number; change: string; rationale: string }>;
+  usedByRunId?: string;
+  meta?: { at: string; provider: string; model: string | null; labId: string };
+}
+
+export interface AnalysisLiveView {
+  live: { role: string; task: string; thinking: string; text: string; updatedAt: string } | null;
+  state: { running: boolean; error: string | null; at: string };
+}
+
 export const lessonApi = {
   experience: (labId: string) =>
     adminGet<{ experience: LessonExperienceData }>(`/api/admin/lessons/${encodeURIComponent(labId)}/experience`).then((r) => r.experience),
+  analyze: (labId: string, providerConfig?: ProviderConfig) =>
+    adminSend(`POST`, `/api/admin/lessons/${encodeURIComponent(labId)}/experience/analyze`, providerConfig ? { providerConfig } : {}),
+  live: (labId: string) =>
+    adminGet<AnalysisLiveView>(`/api/admin/lessons/${encodeURIComponent(labId)}/experience/live`),
+  reports: (labId: string) =>
+    adminGet<{ reports: ExperienceReportView[] }>(`/api/admin/lessons/${encodeURIComponent(labId)}/experience/reports`).then((r) => r.reports),
+  handoff: (labId: string, file: string) =>
+    adminSend(`POST`, `/api/admin/lessons/${encodeURIComponent(labId)}/experience/reports/${encodeURIComponent(file)}/handoff`),
 };
 
 export interface RunDeletionSummary {
