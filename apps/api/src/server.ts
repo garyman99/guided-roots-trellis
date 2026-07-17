@@ -106,7 +106,7 @@ import {
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
-import { writeLessonImprovement, listLessonImprovements } from "./lessonImprovements.ts";
+import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
 import { newLearnerId, familyOf, versionOf } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -177,14 +177,23 @@ function deleteRunCascade(runId: string) {
     summary.courseId = course.courseId;
     summary.coursePublished = course.status === "published";
     summary.lessonsRemoved = course.lessons.length;
-    for (const l of course.lessons) {
-      store.deleteScenarioEntry(l.labId);
-      summary.scenariosRemoved++;
-      const labDir = join(publishedDir(), l.labId); // generated labs only; never labsRoot
-      try {
-        if (existsSync(labDir)) { rmSync(labDir, { recursive: true, force: true }); summary.labsRemoved++; }
-      } catch { /* leave orphaned files rather than fail the delete */ }
+    // Deleting the course-owning run removes EVERY version of each lesson
+    // family (D5) — labs, catalog entries, and any outstanding dev-handoff
+    // briefs. Revision-run labs are meaningless without their course.
+    const families = new Set(course.lessons.map((l) => l.family ?? familyOf(l.labId)));
+    for (const s of store.listScenarioEntries()) {
+      if (families.has(familyOf(s.labId))) { store.deleteScenarioEntry(s.labId); summary.scenariosRemoved++; }
     }
+    try {
+      const pub = publishedDir();
+      if (existsSync(pub)) {
+        for (const entry of readdirSync(pub, { withFileTypes: true })) {
+          if (!entry.isDirectory() || !families.has(familyOf(entry.name))) continue;
+          try { rmSync(join(pub, entry.name), { recursive: true, force: true }); summary.labsRemoved++; } catch { /* keep going */ }
+        }
+      }
+    } catch { /* leave orphaned files rather than fail the delete */ }
+    for (const fam of families) deleteLessonImprovementsForFamily(lessonImprovementsDir(), fam);
     store.deleteCourse(course.courseId);
   }
 
@@ -267,22 +276,32 @@ const materialize: Materializer = async ({ run, lessons }) => {
   const byId = new Map(lessons.map((l) => [l.lessonId, l]));
   // Generated lessons ship HIDDEN so an operator can take them live one at a
   // time. On a re-materialization, preserve any lesson the operator already took
-  // live (its published flag) rather than resetting the whole course to hidden.
+  // live (its published flag) rather than resetting the whole course to hidden —
+  // and NEVER downgrade a lesson slot a revision run has since pointed at a
+  // newer version (the revision owns that slot; see plan Phase C/D).
   const priorPublished = new Map((prior?.lessons ?? []).map((l) => [l.labId, l.published]));
+  const priorByFamily = new Map((prior?.lessons ?? []).map((l) => [l.family ?? familyOf(l.labId), l]));
   store.saveCourse({
     courseId,
     title: run.request.title ?? `${tech} course`,
     description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
     audience: run.request.targetLearner ?? "",
     level: lessons[0]?.level ?? "beginner", // legacy single-level (kept for accent/back-compat)
-    lessons: labIds.map((labId) => ({
-      labId,
-      title: byId.get(labId)?.title,
-      level: byId.get(labId)?.level,
-      published: priorPublished.get(labId) ?? false,
-    })),
+    lessons: labIds.map((labId) => {
+      const priorLesson = priorByFamily.get(labId);
+      if (priorLesson && (priorLesson.version ?? 1) > 1) return priorLesson;
+      return {
+        labId,
+        title: byId.get(labId)?.title,
+        level: byId.get(labId)?.level,
+        published: priorPublished.get(labId) ?? false,
+        family: labId,
+        version: 1,
+      };
+    }),
     status: "draft",
     sourceRunId: run.runId,
+    revisions: prior?.revisions,
     createdAt: prior?.createdAt ?? at,
     updatedAt: at,
   });
@@ -906,6 +925,10 @@ export const server = createServer(async (req, res) => {
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         return json(res, 200, {
           completedLabIds: [...new Set(digests.map((d) => d.labId))],
+          // Family completion (versioning): finishing ANY version of a lesson
+          // keeps course progress when a new version ships (plan, "family
+          // completion"). /home checks families, exact labIds stay for detail.
+          completedFamilies: [...new Set(digests.map((d) => familyOf(d.labId)))],
           sessions,
         });
       }
@@ -1424,6 +1447,15 @@ export const server = createServer(async (req, res) => {
           const lessons = existing.lessons.map((l) =>
             l.labId === labId ? { ...l, published: parts[6] === "publish" } : l,
           );
+          // Version go-live swaps the catalog: only the LIVE version of a lesson
+          // family appears in Free practice (old sessions/replays don't need
+          // catalog entries).
+          if (parts[6] === "publish") {
+            const fam = familyOf(labId);
+            for (const s of store.listScenarioEntries()) {
+              if (s.labId !== labId && familyOf(s.labId) === fam) store.deleteScenarioEntry(s.labId);
+            }
+          }
           const course: Course = { ...existing, lessons, updatedAt: new Date().toISOString() };
           store.saveCourse(course);
           return json(res, 200, { course });

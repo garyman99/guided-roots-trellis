@@ -100,6 +100,14 @@ export interface CourseLesson {
    * live one at a time; /api/courses hides lessons where this is explicitly false.
    */
   published?: boolean;
+  /**
+   * Lesson-version family (immutable versions): a revision ships as the NEW lab
+   * `<family>-v<N>` and this pointer moves to it. Absent = family is the labId
+   * itself, version 1 (every pre-versioning lesson). Completing ANY version of
+   * a family counts for course progress.
+   */
+  family?: string;
+  version?: number;
 }
 
 /**
@@ -125,6 +133,11 @@ export interface Course {
   status?: "draft" | "published";
   /** Provenance: the course-generation run that produced this course, if any. */
   sourceRunId?: string;
+  /**
+   * Lesson-pointer audit trail (course versioning in embryo): one entry per
+   * lesson-version pointer change, appended when a revision run materializes.
+   */
+  revisions?: Array<{ at: string; family: string; fromLabId: string; toLabId: string; runId: string }>;
   createdAt: string;
   updatedAt: string;
 }

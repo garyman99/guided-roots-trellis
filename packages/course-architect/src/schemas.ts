@@ -173,7 +173,12 @@ export function validateBlueprint(doc: unknown): Blueprint {
     const l = (raw ?? {}) as Record<string, unknown>;
     const where = `lessonInventory[${i}]`;
     if (typeof l.lessonId !== "string" || !/^[a-z0-9-]+$/.test(l.lessonId)) e.push(`${where}.lessonId must be kebab-case`);
-    else {
+    else if (/-v\d+$/.test(l.lessonId)) {
+      // The `-v<N>` suffix namespace is RESERVED for lesson versions (a
+      // revision of `orient-101` ships as `orient-101-v2`); a minted id there
+      // would make version↔family mapping ambiguous.
+      e.push(`${where}.lessonId "${l.lessonId}" must not end in -v<number> (reserved for lesson versions)`);
+    } else {
       if (ids.has(l.lessonId)) e.push(`${where}.lessonId "${l.lessonId}" is duplicated`);
       ids.add(l.lessonId);
     }

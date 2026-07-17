@@ -104,6 +104,9 @@ export interface CourseLesson {
   level?: string;
   /** Per-lesson learner visibility; absent = visible. Generated lessons start false. */
   published?: boolean;
+  /** Lesson-version family; absent = family is the labId itself, version 1. */
+  family?: string;
+  version?: number;
 }
 
 export interface Course {
@@ -124,6 +127,8 @@ export interface Course {
 /** Derived completion facts for the signed-in learner (see /api/learners/:id/progress). */
 export interface LearnerProgress {
   completedLabIds: string[];
+  /** Completing ANY version of a lesson family counts for course progress. */
+  completedFamilies?: string[];
   sessions: Array<{ sessionId: string; labId: string; createdAt: string; completed: boolean }>;
 }
 

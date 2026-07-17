@@ -22,6 +22,7 @@ import {
   scenarioMap,
   type Scenario,
 } from "../scenarios.ts";
+import { familyOf } from "../../../../packages/shared/src/lessonFamily.ts";
 import { useReveal } from "./reveal.ts";
 import "../brand/guided-roots.css";
 import "./pages.css";
@@ -57,9 +58,11 @@ interface CourseProgress {
   started: boolean;
 }
 function courseProgress(course: Course, completed: Set<string>): CourseProgress {
+  // `completed` holds lesson FAMILIES: finishing any version of a lesson keeps
+  // your course progress when a newer version ships (lesson versioning).
   const total = course.lessons.length;
-  const done = course.lessons.filter((l) => completed.has(l.labId)).length;
-  const next = course.lessons.find((l) => !completed.has(l.labId)) ?? null;
+  const done = course.lessons.filter((l) => completed.has(familyOf(l.labId))).length;
+  const next = course.lessons.find((l) => !completed.has(familyOf(l.labId))) ?? null;
   return {
     done,
     total,
@@ -87,7 +90,13 @@ export function Home() {
   // labId → scenario, rebuilt when the fetched catalog changes. Course lessons
   // and the resume band look up presentation titles through this.
   const scenarioByLabId = useMemo(() => scenarioMap(scenarios), [scenarios]);
-  const completed = useMemo(() => new Set(progress?.completedLabIds ?? []), [progress]);
+  // Family-level completion (any version counts); exact labIds kept separately
+  // so an "updated" badge can flag lessons completed at an older version.
+  const completed = useMemo(
+    () => new Set(progress?.completedFamilies ?? (progress?.completedLabIds ?? []).map(familyOf)),
+    [progress],
+  );
+  const completedExact = useMemo(() => new Set(progress?.completedLabIds ?? []), [progress]);
 
   // The course to resume: an in-progress course (0 < done < total), preferring the
   // one with the most recent session activity so "continue" lands where they last were.
@@ -157,6 +166,7 @@ export function Home() {
       <CoursesSection
         courses={courses}
         completed={completed}
+        completedExact={completedExact}
         resumeId={resume?.course.courseId ?? null}
         scenarioByLabId={scenarioByLabId}
       />
@@ -215,11 +225,13 @@ function ResumeBand({ course, p, scenarioByLabId }: { course: Course; p: CourseP
 function CoursesSection({
   courses,
   completed,
+  completedExact,
   resumeId,
   scenarioByLabId,
 }: {
   courses: Course[] | null;
   completed: Set<string>;
+  completedExact: Set<string>;
   resumeId: string | null;
   scenarioByLabId: Map<string, Scenario>;
 }) {
@@ -271,6 +283,7 @@ function CoursesSection({
                 key={c.courseId}
                 course={c}
                 completed={completed}
+                completedExact={completedExact}
                 highlight={c.courseId === resumeId}
                 scenarioByLabId={scenarioByLabId}
               />
@@ -290,11 +303,13 @@ function lessonLevel(lesson: Course["lessons"][number], scenarioByLabId: Map<str
 function CourseCard({
   course,
   completed,
+  completedExact,
   highlight,
   scenarioByLabId,
 }: {
   course: Course;
   completed: Set<string>;
+  completedExact: Set<string>;
   highlight: boolean;
   scenarioByLabId: Map<string, Scenario>;
 }) {
@@ -359,13 +374,17 @@ function CourseCard({
             <ol className="course-level-lessons">
               {items.map(({ lesson, index }) => {
                 const s = scenarioByLabId.get(lesson.labId);
-                const isDone = completed.has(lesson.labId);
+                const isDone = completed.has(familyOf(lesson.labId));
                 const isNext = p.next?.labId === lesson.labId;
+                // Completed an OLDER version of this lesson: still done for
+                // course progress, but flag that the content was updated.
+                const isUpdated = isDone && (lesson.version ?? 1) > 1 && !completedExact.has(lesson.labId);
                 return (
                   <li key={`${lesson.labId}-${index}`} className={isDone ? "done" : isNext ? "next" : ""}>
                     <a href={`/lab?lab=${encodeURIComponent(lesson.labId)}`}>
                       <span className="mark" aria-hidden="true">{isDone ? "✓" : index + 1}</span>
                       <span className="lesson-title">{lesson.title ?? s?.title ?? lesson.labId}</span>
+                      {isUpdated && <span className="up-next gr-mono-note" title="This lesson was updated since you completed it">UPDATED</span>}
                       {isNext && <span className="up-next gr-mono-note">NEXT</span>}
                     </a>
                   </li>
@@ -487,7 +506,7 @@ function ScenarioLibrary({ completed, scenarios }: { completed: Set<string>; sce
       ) : (
         <div className="gr-grid gr-grid-3">
           {filtered.map((s, i) => (
-            <ScenarioCard key={s.labId} scenario={s} done={completed.has(s.labId)} index={i} />
+            <ScenarioCard key={s.labId} scenario={s} done={completed.has(familyOf(s.labId))} index={i} />
           ))}
         </div>
       )}

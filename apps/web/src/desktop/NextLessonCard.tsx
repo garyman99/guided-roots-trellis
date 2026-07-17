@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import { fetchCourses, learnerApi, savedLearner, type Course } from "../api.ts";
+import { familyOf } from "../../../../packages/shared/src/lessonFamily.ts";
 
 export function NextLessonCard({ labId }: { labId: string }) {
   const [courses, setCourses] = useState<Course[] | null>(null);
@@ -36,8 +37,10 @@ export function NextLessonCard({ labId }: { labId: string }) {
 
   if (!courses) return null;
 
-  const course = courses.find((c) => c.lessons.some((l) => l.labId === labId));
-  const idx = course?.lessons.findIndex((l) => l.labId === labId) ?? -1;
+  // Match by lesson FAMILY, not exact labId: a learner finishing v1 of a lesson
+  // still gets "next lesson" even after the course pointer moved to v2.
+  const course = courses.find((c) => c.lessons.some((l) => familyOf(l.labId) === familyOf(labId)));
+  const idx = course?.lessons.findIndex((l) => familyOf(l.labId) === familyOf(labId)) ?? -1;
   const next = course && idx >= 0 ? course.lessons[idx + 1] : undefined;
   const isLastLesson = !!course && idx === course.lessons.length - 1;
   const standalone = !course;

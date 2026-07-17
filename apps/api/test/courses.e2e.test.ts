@@ -12,7 +12,7 @@ process.env.TRELLIS_ADMIN_TOKEN = "test-admin-token";
 
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { server, manager } from "../src/server.ts";
+import { server, manager, store } from "../src/server.ts";
 
 let base = "";
 
@@ -148,6 +148,48 @@ test("per-lesson go-live: lessons publish one at a time; empty courses can't go 
 
   await admin("DELETE", `/api/admin/courses/${id}`);
   await admin("DELETE", `/api/admin/courses/${emptyId}`);
+});
+
+test("lesson versioning: family completion + catalog swap on version go-live", async () => {
+  // A learner who completed v2 of a lesson: completedFamilies carries the FAMILY.
+  const learner = await api("POST", "/api/learners", {});
+  const { learnerId, learnerToken } = learner.body as { learnerId: string; learnerToken: string };
+  store.appendEvidence(learnerId, {
+    type: "session.digest",
+    timestamp: new Date().toISOString(),
+    digest: {
+      sessionId: "vv-1", labId: "fam-101-v2", variantId: null, learnerId,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), durationMs: 1,
+      checkpointCompleted: true, testsRun: 0, recoveredAfterFailure: false,
+      hintsRequested: 0, interventions: [], diffViewedBeforeFirstEdit: false,
+      filesChanged: [], hintOutcomes: [], conceptObservations: [],
+    },
+  });
+  const progress = await api("GET", `/api/learners/${learnerId}/progress`, undefined, learnerToken);
+  assert.equal(progress.status, 200);
+  const p = progress.body as { completedLabIds: string[]; completedFamilies: string[] };
+  assert.deepEqual(p.completedLabIds, ["fam-101-v2"], "exact version kept");
+  assert.deepEqual(p.completedFamilies, ["fam-101"], "family derived for course progress");
+
+  // Version go-live swaps the catalog: publishing v2 removes v1's entry.
+  const entry = (labId: string) => ({ labId, title: labId, blurb: "b", tag: "T", role: "QA & Testing", technologies: ["X"], level: "beginner" as const });
+  store.saveScenarioEntry(entry("fam-101"));
+  store.saveScenarioEntry(entry("fam-101-v2"));
+  store.saveCourse({
+    courseId: "ver-demo", title: "Ver Demo", description: "d", audience: "a", level: "beginner",
+    lessons: [{ labId: "fam-101-v2", family: "fam-101", version: 2, published: false }],
+    status: "draft", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  });
+  const pub = await admin("POST", "/api/admin/courses/ver-demo/lessons/fam-101-v2/publish");
+  assert.equal(pub.status, 200);
+  const labIds = store.listScenarioEntries().map((s) => s.labId);
+  assert.ok(labIds.includes("fam-101-v2"), "live version stays in the catalog");
+  assert.ok(!labIds.includes("fam-101"), "old version's catalog entry removed");
+
+  // hygiene
+  store.deleteCourse("ver-demo");
+  store.deleteScenarioEntry("fam-101-v2");
+  assert.equal((await api("DELETE", `/api/learners/${learnerId}`, undefined, learnerToken)).status, 200);
 });
 
 test("learner progress + admin session history + replay tell one story", async () => {

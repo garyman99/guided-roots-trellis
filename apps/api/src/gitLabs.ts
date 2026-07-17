@@ -11,6 +11,8 @@
  * the generic stub (see generatedLab.ts).
  */
 
+import { familyOf, versionOf } from "../../../packages/shared/src/ids.ts";
+
 export type GitLabKind = "git-commit" | "git-discard";
 export const GIT_LAB_KINDS: GitLabKind[] = ["git-commit", "git-discard"];
 
@@ -27,7 +29,8 @@ function labJson(kind: GitLabKind, lesson: GitLabLesson, runId: string, task: { 
   return JSON.stringify(
     {
       id: lesson.lessonId,
-      version: 1,
+      version: versionOf(lesson.lessonId),
+      family: familyOf(lesson.lessonId),
       title: lesson.title,
       objective: lesson.objective,
       scenario: `A generated Git lesson (${kind}). An AI agent left a change in the working tree; ${task.text.toLowerCase()}`,

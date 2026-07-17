@@ -209,6 +209,17 @@ test("blueprint validation rejects a cyclic prerequisite graph and unknown prere
   assert.equal(findCycle({ concepts: ["a", "b"], edges: [{ from: "a", to: "b" }] }), null);
 });
 
+test("blueprint validation reserves the -v<N> lesson-id namespace for versions (D11)", () => {
+  const bp = (lessonId: string) => ({
+    domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
+    prerequisiteGraph: { concepts: [], edges: [] },
+    lessonInventory: [{ lessonId, level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: [] }],
+  });
+  assert.throws(() => validateBlueprint(bp("orient-101-v2")), /reserved for lesson versions/);
+  // ids that merely end in digits are fine
+  assert.doesNotThrow(() => validateBlueprint(bp("orient-101")));
+});
+
 test("computeCapabilityGaps blocks a lesson whose capability is missing, whatever the disposition", () => {
   const inv: LessonInventoryEntry[] = [
     { lessonId: "a", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed", "db-browser"] },

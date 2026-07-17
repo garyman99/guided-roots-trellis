@@ -14,6 +14,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { familyOf, versionOf } from "../../../packages/shared/src/ids.ts";
 import { LocalProcessDriver } from "../../../packages/lab-runtime/src/localDriver.ts";
 import { autoSolveAll, type AutoSolveReport } from "../../../packages/lab-runtime/src/autosolve.ts";
 import { loadBlueprint } from "../../../packages/lab-runtime/src/variants.ts";
@@ -56,7 +57,10 @@ export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string
 
   const labJson = {
     id: labId,
-    version: 1,
+    // Lesson-version identity: a revision ships as `<family>-v<N>` (immutable
+    // versions); v1 keeps the bare family id.
+    version: versionOf(labId),
+    family: familyOf(labId),
     title: lesson.title,
     objective: lesson.objective,
     scenario: `A generated lesson. Complete the stub in solution.txt to prove the observable action this lesson teaches.`,
