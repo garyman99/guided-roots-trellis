@@ -241,7 +241,9 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
 /* ================= runs table ================= */
 
 function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: string) => void }) {
-  const pending = runs.filter((r) => r.pendingGate || r.status === "interrupted");
+  const pending = runs
+    .filter((r) => r.pendingGate || r.status === "interrupted")
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); // most recent first
   const ordered = [...runs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return (
     <>
@@ -255,6 +257,9 @@ function RunsTable({ runs, onOpen }: { runs: CourseRunSummary[]; onOpen: (id: st
                   {r.status === "interrupted" ? "interrupted" : `gate: ${r.pendingGate}`}
                 </span>
                 <strong>{r.title ?? r.technology}</strong> <code className="gr-mono-note">{r.runId}</code>
+                <time className="gr-mono-note" dateTime={r.updatedAt} title={r.updatedAt} style={{ marginLeft: "auto" }}>
+                  {fmtWhen(r.updatedAt)}
+                </time>
               </li>
             ))}
           </ul>
