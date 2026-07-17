@@ -209,13 +209,22 @@ const materialize: Materializer = async ({ run, lessons }) => {
   const courseId = prior?.courseId ?? newCourseId(run.request.title ?? tech);
   // Course lessons carry each lesson's level + title so /home can group by level.
   const byId = new Map(lessons.map((l) => [l.lessonId, l]));
+  // Generated lessons ship HIDDEN so an operator can take them live one at a
+  // time. On a re-materialization, preserve any lesson the operator already took
+  // live (its published flag) rather than resetting the whole course to hidden.
+  const priorPublished = new Map((prior?.lessons ?? []).map((l) => [l.labId, l.published]));
   store.saveCourse({
     courseId,
     title: run.request.title ?? `${tech} course`,
     description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
     audience: run.request.targetLearner ?? "",
     level: lessons[0]?.level ?? "beginner", // legacy single-level (kept for accent/back-compat)
-    lessons: labIds.map((labId) => ({ labId, title: byId.get(labId)?.title, level: byId.get(labId)?.level })),
+    lessons: labIds.map((labId) => ({
+      labId,
+      title: byId.get(labId)?.title,
+      level: byId.get(labId)?.level,
+      published: priorPublished.get(labId) ?? false,
+    })),
     status: "draft",
     sourceRunId: run.runId,
     createdAt: prior?.createdAt ?? at,
@@ -479,8 +488,12 @@ function parseGateNotes(raw: unknown): GateNote[] | null {
 
 /** List-row shape: enough for the runs table without the full event/gate log. */
 function courseRunSummary(run: CourseRun) {
-  const gates = store.courseRunGates(run.runId);
-  const pendingGate = gates.find((g) => g.decidedAt === null)?.gateId ?? null;
+  // A run needs a decision only when it's PARKED at a gate — derive that from the
+  // authoritative run status, not from a lingering undecided gate row (a recovered
+  // or advanced run can leave a stale pending row behind).
+  const pendingGate = run.status.startsWith("awaiting-")
+    ? (run.status.slice("awaiting-".length) as GateId)
+    : null;
   const pc = run.request.providerConfig;
   return {
     runId: run.runId,
@@ -827,9 +840,15 @@ export const server = createServer(async (req, res) => {
     }
 
     // GET /api/courses — the public shelf of curated paths (home page).
-    // Published only: a draft (generated, not yet gone live) is admin-only.
+    // Published only: a draft (generated, not yet gone live) is admin-only. Each
+    // published course also hides its not-yet-live lessons (published === false),
+    // so a generated course can go live with its lessons revealed one at a time.
     if (req.method === "GET" && url.pathname === "/api/courses") {
-      return json(res, 200, { courses: store.listCourses().filter((c) => c.status !== "draft") });
+      const courses = store
+        .listCourses()
+        .filter((c) => c.status !== "draft")
+        .map((c) => ({ ...c, lessons: c.lessons.filter((l) => l.published !== false) }));
+      return json(res, 200, { courses });
     }
 
     // GET /api/scenarios — the served catalog: hand-authored seed overlaid by
@@ -1061,6 +1080,17 @@ export const server = createServer(async (req, res) => {
 
       // ── courses CRUD (operator content; reads are public at /api/courses) ──
       if (parts[2] === "courses") {
+        // GET /api/admin/courses[/:id] — the OPERATOR view: unlike /api/courses,
+        // this returns drafts and every lesson (including not-yet-live ones) so
+        // the studio can drive per-lesson go-live.
+        if (req.method === "GET" && parts.length === 3) {
+          return json(res, 200, { courses: store.listCourses() });
+        }
+        if (req.method === "GET" && parts.length === 4) {
+          const course = store.getCourse(parts[3]);
+          if (!course) return json(res, 404, { error: "course not found" });
+          return json(res, 200, { course });
+        }
         if (req.method === "POST" && parts.length === 3) {
           const parsed = parseCourseBody(await readBody(req));
           if (typeof parsed === "string") return json(res, 400, { error: parsed });
@@ -1091,11 +1121,35 @@ export const server = createServer(async (req, res) => {
         if (req.method === "POST" && parts.length === 5 && (parts[4] === "publish" || parts[4] === "unpublish")) {
           const existing = store.getCourse(parts[3]);
           if (!existing) return json(res, 404, { error: "course not found" });
+          // A course with no lessons has nothing to teach — refuse to go live
+          // (this is what let an empty partial run publish as a real course).
+          if (parts[4] === "publish" && existing.lessons.length === 0) {
+            return json(res, 400, { error: "cannot go live: this course has no lessons" });
+          }
           const course: Course = {
             ...existing,
             status: parts[4] === "publish" ? "published" : "draft",
             updatedAt: new Date().toISOString(),
           };
+          store.saveCourse(course);
+          return json(res, 200, { course });
+        }
+        // POST /api/admin/courses/:id/lessons/:labId/(publish|unpublish) —
+        // per-lesson go-live: reveal or hide a single lesson within a course.
+        if (
+          req.method === "POST" && parts.length === 7 && parts[4] === "lessons" &&
+          (parts[6] === "publish" || parts[6] === "unpublish")
+        ) {
+          const existing = store.getCourse(parts[3]);
+          if (!existing) return json(res, 404, { error: "course not found" });
+          const labId = decodeURIComponent(parts[5]);
+          if (!existing.lessons.some((l) => l.labId === labId)) {
+            return json(res, 404, { error: `lesson not in course: ${labId}` });
+          }
+          const lessons = existing.lessons.map((l) =>
+            l.labId === labId ? { ...l, published: parts[6] === "publish" } : l,
+          );
+          const course: Course = { ...existing, lessons, updatedAt: new Date().toISOString() };
           store.saveCourse(course);
           return json(res, 200, { course });
         }

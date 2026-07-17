@@ -7,9 +7,10 @@
  * offline mock provider (default) a run completes without any model keys, so
  * this whole surface is exercisable in dev.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   courseRunApi,
+  type Course,
   type CapabilityGapReport,
   type CapabilityRequest,
   type CourseRunDetail,
@@ -601,38 +602,120 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
 /* ---------- go-live (approved run's draft course) ---------- */
 
 function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChanged: () => void }) {
-  const [manifest, setManifest] = useState<{ courseId?: string; lessons?: string[] } | null>(null);
-  const [live, setLive] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [manifest, setManifest] = useState<{ courseId?: string } | null>(null);
+  const [course, setCourse] = useState<Course | null>(null);
+  const [busy, setBusy] = useState<string | null>(null); // "course" or a labId while toggling
+  const [preview, setPreview] = useState<{ labId: string; md: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     if (run.artifacts.includes("manifest.json")) {
       courseRunApi.artifact(run.runId, "manifest.json").then((a) => setManifest(JSON.parse(a.content))).catch(() => {});
     }
   }, [run]);
 
-  if (!manifest?.courseId) {
+  const courseId = manifest?.courseId;
+  const loadCourse = useCallback(() => {
+    if (!courseId) return;
+    courseRunApi.course(courseId).then(setCourse).catch(() => setCourse(null));
+  }, [courseId]);
+  useEffect(loadCourse, [loadCourse]);
+
+  if (!courseId) {
     return <div className="gr-card"><h3>Approved</h3><p className="admin-empty">Materialization complete. (No course manifest found.)</p></div>;
   }
-  const go = (publish: boolean) => {
-    setBusy(true);
-    const call = publish ? courseRunApi.publishCourse(manifest.courseId!) : courseRunApi.unpublishCourse(manifest.courseId!);
-    call.then(() => { setBusy(false); setLive(publish); onCoursesChanged(); }).catch(() => setBusy(false));
+
+  const live = course?.status === "published";
+  const lessons = course?.lessons ?? [];
+  const liveCount = lessons.filter((l) => l.published !== false).length;
+
+  const setCourseLive = (publish: boolean) => {
+    setBusy("course"); setError(null);
+    const call = publish ? courseRunApi.publishCourse(courseId) : courseRunApi.unpublishCourse(courseId);
+    call.then(() => { onCoursesChanged(); loadCourse(); })
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
   };
+  const setLessonLive = (labId: string, publish: boolean) => {
+    setBusy(labId); setError(null);
+    courseRunApi.setLessonLive(courseId, labId, publish)
+      .then((c) => { setCourse(c); onCoursesChanged(); })
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+  const togglePreview = (labId: string) => {
+    if (preview?.labId === labId) { setPreview(null); return; }
+    courseRunApi.artifact(run.runId, `lessons/${labId}/lesson.md`)
+      .then((a) => setPreview({ labId, md: a.content }))
+      .catch(() => setPreview({ labId, md: "(no lesson content found on disk)" }));
+  };
+
   return (
     <div className="gr-card">
-      <h3>Draft course ready</h3>
+      <h3>Go live</h3>
       <p>
-        Course <code>{manifest.courseId}</code> · {manifest.lessons?.length ?? 0} lessons. It stays a draft —
-        hidden from learners — until you take it live.
+        Course <code>{courseId}</code> · {lessons.length} lessons ({liveCount} live).{" "}
+        {live
+          ? "The course is live. Reveal lessons to learners one at a time below."
+          : "A draft — hidden from learners until you take the course live. You can preview and reveal individual lessons after."}
       </p>
       <div className="admin-editor-actions">
         {live ? (
-          <button className="gr-btn gr-btn-ghost" onClick={() => go(false)} disabled={busy}>Unpublish</button>
+          <button className="gr-btn gr-btn-ghost" onClick={() => setCourseLive(false)} disabled={busy === "course"}>Unpublish course</button>
         ) : (
-          <button className="gr-btn gr-btn-primary" onClick={() => go(true)} disabled={busy}>Go live</button>
+          <button className="gr-btn gr-btn-primary" onClick={() => setCourseLive(true)} disabled={busy === "course" || lessons.length === 0}>
+            Go live
+          </button>
         )}
         {live && <span className="admin-chip status-mastered">live</span>}
+        {lessons.length === 0 && <span className="gr-mono-note">no lessons materialized — nothing to publish</span>}
       </div>
+      {error && <p className="admin-error">{error}</p>}
+
+      {lessons.length > 0 && (
+        <table className="admin-table" style={{ marginTop: 14 }}>
+          <thead>
+            <tr><th>#</th><th>Level</th><th>Lesson</th><th>Learner visibility</th><th>Preview</th></tr>
+          </thead>
+          <tbody>
+            {lessons.map((l, i) => {
+              const lessonLive = l.published !== false;
+              return (
+                <Fragment key={l.labId}>
+                  <tr>
+                    <td>{i + 1}</td>
+                    <td><span className="admin-chip">{l.level ?? "—"}</span></td>
+                    <td>{l.title ?? l.labId} <code className="gr-mono-note">{l.labId}</code></td>
+                    <td>
+                      <button
+                        className={`gr-btn gr-btn-small ${lessonLive ? "gr-btn-ghost" : "gr-btn-primary"}`}
+                        onClick={() => setLessonLive(l.labId, !lessonLive)}
+                        disabled={busy === l.labId}
+                      >
+                        {lessonLive ? "Hide" : "Go live"}
+                      </button>
+                      {lessonLive && <span className="admin-chip status-mastered" style={{ marginLeft: 8 }}>live</span>}
+                    </td>
+                    <td>
+                      <button className="gr-btn gr-btn-small gr-btn-ghost" onClick={() => togglePreview(l.labId)}>
+                        {preview?.labId === l.labId ? "Hide" : "Read"}
+                      </button>{" "}
+                      <a className="gr-btn gr-btn-small gr-btn-ghost" href={`/lab?lab=${encodeURIComponent(l.labId)}`} target="_blank" rel="noreferrer">
+                        Try lab ↗
+                      </a>
+                    </td>
+                  </tr>
+                  {preview?.labId === l.labId && (
+                    <tr>
+                      <td colSpan={5}><pre className="cg-lesson-preview">{preview.md}</pre></td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

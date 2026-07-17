@@ -111,6 +111,45 @@ test("course CRUD is admin-gated and validates its lessons", async () => {
   assert.ok(!relisted.courses.some((c) => c.courseId === course.courseId));
 });
 
+test("per-lesson go-live: lessons publish one at a time; empty courses can't go live", async () => {
+  type CB = { course: { courseId: string; status?: string; lessons: Array<{ labId: string; published?: boolean }> } };
+  const created = await admin("POST", "/api/admin/courses", {
+    title: "Per Lesson Demo",
+    description: "d", audience: "a", level: "beginner",
+    lessons: [{ labId: "inspect-generated-changes" }, { labId: "review-content-changes" }],
+  });
+  assert.equal(created.status, 201);
+  const id = (created.body as CB).course.courseId;
+
+  // Simulate a generated course: hide both lessons.
+  await admin("POST", `/api/admin/courses/${id}/lessons/inspect-generated-changes/unpublish`);
+  await admin("POST", `/api/admin/courses/${id}/lessons/review-content-changes/unpublish`);
+
+  // Empty-course guard: a course with no lessons can't go live.
+  const empty = await admin("POST", "/api/admin/courses", { title: "Empty Demo", description: "d", audience: "a", level: "beginner", lessons: [] });
+  const emptyId = (empty.body as CB).course.courseId;
+  assert.equal((await admin("POST", `/api/admin/courses/${emptyId}/publish`)).status, 400, "no lessons → 400");
+
+  // Take the course live, then reveal exactly one lesson.
+  assert.equal((await admin("POST", `/api/admin/courses/${id}/publish`)).status, 200);
+  assert.equal((await admin("POST", `/api/admin/courses/${id}/lessons/inspect-generated-changes/publish`)).status, 200);
+  assert.equal((await admin("POST", `/api/admin/courses/${id}/lessons/no-such-lesson/publish`)).status, 404);
+
+  // Public read: course visible, but ONLY the live lesson leaks.
+  const pub = ((await api("GET", "/api/courses")).body as { courses: CB["course"][] }).courses.find((c) => c.courseId === id);
+  assert.ok(pub, "published course is publicly listed");
+  assert.deepEqual(pub.lessons.map((l) => l.labId), ["inspect-generated-changes"], "hidden lesson does not reach learners");
+
+  // Admin read: both lessons, with their flags.
+  const adm = ((await admin("GET", `/api/admin/courses/${id}`)).body as CB).course;
+  assert.equal(adm.lessons.length, 2);
+  assert.equal(adm.lessons.find((l) => l.labId === "inspect-generated-changes")!.published, true);
+  assert.equal(adm.lessons.find((l) => l.labId === "review-content-changes")!.published, false);
+
+  await admin("DELETE", `/api/admin/courses/${id}`);
+  await admin("DELETE", `/api/admin/courses/${emptyId}`);
+});
+
 test("learner progress + admin session history + replay tell one story", async () => {
   // learner + a workspace session with some guide conversation
   const learner = await api("POST", "/api/learners", {});

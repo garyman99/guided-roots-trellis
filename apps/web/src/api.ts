@@ -102,6 +102,8 @@ export interface CourseLesson {
   note?: string;
   /** Progression level (intro…expert); courses span levels, /home groups by it. */
   level?: string;
+  /** Per-lesson learner visibility; absent = visible. Generated lessons start false. */
+  published?: boolean;
 }
 
 export interface Course {
@@ -559,6 +561,11 @@ export const courseRunApi = {
   archive: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/archive`).then((r) => r.run),
   publishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`),
   unpublishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/unpublish`),
+  // Operator view of a course — includes drafts and not-yet-live lessons.
+  course: (courseId: string) => adminGet<{ course: Course }>(`/api/admin/courses/${encodeURIComponent(courseId)}`).then((r) => r.course),
+  // Per-lesson go-live: reveal or hide one lesson within a course.
+  setLessonLive: (courseId: string, labId: string, live: boolean) =>
+    adminSend<{ course: Course }>("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(labId)}/${live ? "publish" : "unpublish"}`).then((r) => r.course),
   capabilityRequests: () => adminGet<{ requests: CapabilityRequest[] }>("/api/admin/capability-requests").then((r) => r.requests),
 };
 

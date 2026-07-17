@@ -93,6 +93,13 @@ export interface CourseLesson {
   /** Progression level for this lesson (intro | beginner | intermediate |
    *  advanced | expert). A course spans levels; /home groups lessons by this. */
   level?: string;
+  /**
+   * Per-lesson learner visibility. Absent = visible (backward compatible: every
+   * hand-authored/seeded course predates the field and shows all its lessons).
+   * A GENERATED lesson starts `false` (hidden) so an operator can take lessons
+   * live one at a time; /api/courses hides lessons where this is explicitly false.
+   */
+  published?: boolean;
 }
 
 /**

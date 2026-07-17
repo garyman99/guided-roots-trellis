@@ -508,6 +508,12 @@
 .admin-clickable tbody tr:hover td { background: rgba(107, 165, 95, 0.07); }
 
 /* ===== Course studio (course-generation runs) ===== */
+.cg-lesson-preview {
+  max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; color: var(--ink);
+  background: rgba(0,0,0,0.22); border: 1px solid var(--line-solid); border-radius: 8px;
+  padding: 12px 14px; margin: 4px 0;
+}
 .cg-rail { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .cg-rail-node { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .cg-rail-dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.18); flex: none; }
