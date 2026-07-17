@@ -74,6 +74,7 @@ import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
 import {
   CourseRunScheduler,
+  DiskMirroredCourseRunStore,
   RunArtifacts,
   RunStateError,
   GATES,
@@ -95,6 +96,7 @@ import {
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests } from "./capabilityRequests.ts";
+import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { newLearnerId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
 import { cohortAggregate, learnerSummary } from "../../../packages/learner-model/src/analytics.ts";
@@ -300,8 +302,24 @@ function validateProviderConfig(cfg: RunProviderConfig | undefined): string | nu
 // held in memory (not the event log) and polled by the UI while a phase runs.
 const liveActivity = new Map<string, LiveActivity>();
 
+// Rebuild the course-run index from disk BEFORE the scheduler boots: a lost or
+// reset database must never orphan on-disk generation work. Recovered runs
+// reappear in Course studio at their last point of progress. See
+// courseRunRecovery.ts.
+const courseRunRecovery = recoverCourseRunsFromDisk(store, runsDir());
+if (courseRunRecovery.recovered.length) {
+  const extra = courseRunRecovery.downgraded.length
+    ? ` (${courseRunRecovery.downgraded.length} sent back to the Package gate to rebuild a lost course index)`
+    : "";
+  console.log(`[trellis-api] recovered ${courseRunRecovery.recovered.length} course run(s) from disk${extra}`);
+}
+
+// The scheduler persists run STATE through a disk-mirroring store, so run.json
+// stays current next to the content — the durable record the recovery above reads.
+const mirroredRunStore = new DiskMirroredCourseRunStore(store, (runId) => join(runsDir(), runId));
+
 export const courseRuns = new CourseRunScheduler(
-  store,
+  mirroredRunStore,
   createExecutor({
     rolesFor: rolesForRun,
     artifactsFor: runArtifactsFor,

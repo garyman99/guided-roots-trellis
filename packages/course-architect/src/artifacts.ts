@@ -1,7 +1,8 @@
 /**
  * RunArtifacts — the on-disk artifact store for one generation run, rooted at
  * curriculum/runs/<runId>/. Content lives here (diffable, inspectable); run
- * STATE lives in SQLite. Two guarantees the API relies on:
+ * STATE is indexed in SQLite but also mirrored here as run.json (see mirror.ts)
+ * so a lost DB can be rebuilt from disk. Two guarantees the API relies on:
  *
  *   • Path allowlist — a write/read path must match the known run layout (plan
  *     §3) and may never escape the run directory. The API exposes artifact

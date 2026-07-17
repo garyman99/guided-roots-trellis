@@ -46,12 +46,42 @@ a separate, reversible status flip that makes the draft course visible.
 |---|---|
 | Run state machine, scheduler, artifacts, roles, phases, schemas, reviews, gaps | `packages/course-architect/src/` |
 | Run persistence (course_runs / _events / _gates tables) | `apps/api/src/store.ts` |
+| Disk mirror of run state (`run.json`) + boot reconcile | `packages/course-architect/src/mirror.ts`, `apps/api/src/courseRunRecovery.ts` |
 | Materializer + generated labs + provider wiring + endpoints | `apps/api/src/server.ts`, `generatedLab.ts`, `gitLabs.ts`, `capabilityRequests.ts` |
 | Capability registry (twin of `labs/AUTHORING.md`) | `apps/api/src/capabilities.ts` |
 | Course studio UI | `apps/web/src/pages/CourseStudio.tsx` |
 | Run artifacts (content) | `curriculum/runs/<runId>/` (gitignored) |
 | Published generated labs | `curriculum/published/<labId>/` (gitignored) |
 | Capability requests (commission outbox) | `curriculum/capability-requests/<gapId>/` (gitignored) |
+
+## Durability — disk is authoritative
+
+Generated content is expensive (real model tokens), so a run must survive a
+shutdown, crash, or even a **wiped database**. Two stores back a run:
+
+- **Content** — lessons, reviews, blueprint, `manifest.json` — under
+  `curriculum/runs/<runId>/`. Always on disk.
+- **Run state** — status, phase, gate, request — mirrored to
+  `curriculum/runs/<runId>/run.json` on **every** state change, via the
+  `DiskMirroredCourseRunStore` the scheduler writes through. (The DB
+  `course_runs` table is now just a fast, rebuildable index.)
+
+On boot, `recoverCourseRunsFromDisk` (`courseRunRecovery.ts`) scans the run dirs
+and re-inserts any run the DB is missing:
+
+- A dir with `run.json` is restored **verbatim** at its exact last status.
+- A **legacy** dir (content but no `run.json`, i.e. generated before mirroring)
+  gets a `run.json` **synthesized** from its artifacts — parked at the gate for
+  the furthest completed phase (`manifest.json` → Publish, authored lessons →
+  Package, blueprint → Blueprint, request → Frame).
+- If a recovered run sits at/after the **Publish** gate but its draft **course**
+  row is also gone, it's sent back to the **Package** gate. One re-approve there
+  re-runs the (deterministic, **no-model-token**) materializer, rebuilding the
+  course, scenarios, and labs from the authored content on disk.
+
+Net guarantee: shut the app down mid-run, lose the DB entirely, restart — the
+run reappears in Course studio at its last point of progress. Covered by
+`packages/course-architect/test/mirror.test.ts`.
 
 ## Running it
 
