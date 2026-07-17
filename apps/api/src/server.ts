@@ -362,7 +362,15 @@ const liveActivity = new Map<string, LiveActivity>();
 // reset database must never orphan on-disk generation work. Recovered runs
 // reappear in Course studio at their last point of progress. See
 // courseRunRecovery.ts.
-const courseRunRecovery = recoverCourseRunsFromDisk(store, runsDir());
+//
+// Skipped when persistence is OFF (MemoryStore): recovery exists to rebuild a
+// lost SQLite index — with no database there is nothing to rebuild, and running
+// it (at module-load time, before a test's body-level env is set) would read and
+// rewrite the real curriculum/runs. Persistence-off is the test/ephemeral mode.
+const persistenceOn = (process.env.TRELLIS_PERSISTENCE ?? "on").toLowerCase() !== "off";
+const courseRunRecovery = persistenceOn
+  ? recoverCourseRunsFromDisk(store, runsDir())
+  : { recovered: [], synthesized: [], downgraded: [] };
 if (courseRunRecovery.recovered.length) {
   const extra = courseRunRecovery.downgraded.length
     ? ` (${courseRunRecovery.downgraded.length} sent back to the Package gate to rebuild a lost course index)`

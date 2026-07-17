@@ -9,7 +9,7 @@
  * reset (or a stray `exit`) feels like a scene change, not a crash.
  */
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { newLearnerId, newSessionId, newSessionToken } from "../../../packages/shared/src/ids.ts";
 import { sanitizeUntrusted } from "../../../packages/shared/src/sanitize.ts";
@@ -1261,6 +1261,8 @@ export class SessionManager {
   /** Concurrent resume() calls for the same session share one in-flight promise. */
   private resuming = new Map<string, Promise<Session>>();
   private driver: LabDriver;
+  /** Lazily built local driver for generated labs when the default is docker. */
+  private localDriver?: LabDriver;
   // Guide provider selection is per-session and swappable at runtime. The
   // catalog (what env makes available) is resolved once; built providers are
   // cached and shared across sessions — one mock, one live model.
@@ -1297,6 +1299,31 @@ export class SessionManager {
         })
       : new LocalProcessDriver();
     this.learners = new LearnerService(store, loadCurriculum(join(labsRoot, "..", "curriculum", "concepts.json")));
+  }
+
+  /**
+   * Generated/published labs are built and auto-solve-proven for the LOCAL
+   * driver — no Docker image is ever built for them (that's the whole point of
+   * the no-Docker generation pipeline). So a generated lab must run locally even
+   * when the deployment default is docker; a docker learner session would fail
+   * with "Unable to find image 'trellis-lab-<id>'". Hand-authored labs (labsRoot)
+   * keep using the configured driver.
+   */
+  private isGeneratedLab(labDir: string): boolean {
+    const pub = this.resolvePublishedRoot();
+    if (!pub) return false;
+    const p = resolve(labDir);
+    const root = resolve(pub);
+    return p === root || p.startsWith(root + sep);
+  }
+
+  /** The driver (and its kind) to run a given lab under — see isGeneratedLab. */
+  private driverFor(labDir: string): { driver: LabDriver; kind: "local" | "docker" } {
+    if (this.driverKind === "docker" && this.isGeneratedLab(labDir)) {
+      this.localDriver ??= new LocalProcessDriver();
+      return { driver: this.localDriver, kind: "local" };
+    }
+    return { driver: this.driver, kind: this.driverKind };
   }
 
   /**
@@ -1398,13 +1425,14 @@ export class SessionManager {
         guideId = this.defaultGuideId;
       }
     }
+    const { driver, kind } = this.driverFor(labDir);
     const session = new Session(
-      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
+      manifest, labDir, kind, this.store, this.guideProvider(guideId),
       learner, this.learners, variant, lessonConcepts, this.taskValidator,
     );
     session.guideProviderId = guideId;
     if (!manifest.workspace) {
-      session.handle = await this.driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
+      session.handle = await driver.create({ labDir, labId, variant: variant ? { defect: variant.defect } : undefined }, session.id);
     }
     this.store.createSession({
       sessionId: session.id,
@@ -1528,15 +1556,16 @@ export class SessionManager {
         guideId = this.defaultGuideId;
       }
     }
+    const { driver, kind } = this.driverFor(labDir);
     const session = new Session(
-      manifest, labDir, this.driverKind, this.store, this.guideProvider(guideId),
+      manifest, labDir, kind, this.store, this.guideProvider(guideId),
       meta.learnerId, this.learners, variant, lessonConcepts, this.taskValidator,
       { id: meta.sessionId, createdAt: meta.createdAt },
     );
     session.guideProviderId = guideId;
 
     if (!manifest.workspace) {
-      session.handle = await this.driver.create(
+      session.handle = await driver.create(
         { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined },
         session.id,
       );
