@@ -666,6 +666,49 @@ export const courseRunApi = {
   capabilityRequests: () => adminGet<{ requests: CapabilityRequest[] }>("/api/admin/capability-requests").then((r) => r.requests),
 };
 
+/* ── persona library (quality-rework Phase 1) ── */
+
+export interface PersonaProfile {
+  personaId: string;
+  name: string;
+  version: number;
+  status: "draft" | "ready";
+  anticipatedKnowledgeLevel: string;
+  anticipatedCapabilityLevel: string;
+  background: string;
+  goals: string[];
+  frustrations: string[];
+  vocabularyComfort: string;
+  toolFamiliarity: string[];
+  behaviorUnderFriction: string;
+  narrative: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PersonaInterviewMessage {
+  role: "admin" | "interviewer";
+  text: string;
+  at: string;
+}
+
+export const personaApi = {
+  list: () => adminGet<{ personas: PersonaProfile[] }>("/api/admin/personas").then((r) => r.personas),
+  create: (name: string) => adminSend<{ persona: PersonaProfile }>("POST", "/api/admin/personas", { name }).then((r) => r.persona),
+  get: (id: string) =>
+    adminGet<{ persona: PersonaProfile; interview: PersonaInterviewMessage[] }>(`/api/admin/personas/${encodeURIComponent(id)}`),
+  update: (id: string, patch: { profile?: Partial<PersonaProfile>; status?: "draft" | "ready" }) =>
+    adminSend<{ persona: PersonaProfile }>("PUT", `/api/admin/personas/${encodeURIComponent(id)}`, patch).then((r) => r.persona),
+  remove: (id: string) => adminSend<{ deleted: boolean }>("DELETE", `/api/admin/personas/${encodeURIComponent(id)}`),
+  interview: (id: string, message: string, providerConfig?: ProviderConfig) =>
+    adminSend<{ persona: PersonaProfile; reply: string; complete: boolean }>(
+      "POST",
+      `/api/admin/personas/${encodeURIComponent(id)}/interview`,
+      { message, ...(providerConfig ? { providerConfig } : {}) },
+    ),
+  interviewLive: (id: string) =>
+    adminGet<{ live: LiveActivity | null; running: boolean }>(`/api/admin/personas/${encodeURIComponent(id)}/interview/live`),
+};
+
 export interface CapabilityRequest {
   gapId: string;
   runId: string;

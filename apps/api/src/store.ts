@@ -134,6 +134,12 @@ export interface Course {
   /** Provenance: the course-generation run that produced this course, if any. */
   sourceRunId?: string;
   /**
+   * The target-user persona this course was generated for — a full snapshot
+   * (quality-rework Phase 1), so revision runs and the pre-publish simulated
+   * learner can re-embed it long after the persona library moves on.
+   */
+  persona?: { personaId: string; version: number; profile: Record<string, unknown> };
+  /**
    * Lesson-pointer audit trail (course versioning in embryo): one entry per
    * lesson-version pointer change, appended when a revision run materializes.
    */

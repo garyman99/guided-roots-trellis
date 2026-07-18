@@ -96,6 +96,13 @@ import {
   validateExperienceReport,
   renderExperienceReportMd,
   REVISABLE_AREAS,
+  PERSONA_INTERVIEWER_SYSTEM,
+  personaInterviewInstruction,
+  validatePersonaInterviewTurn,
+  validatePersonaDraft,
+  personaReadyErrors,
+  type EmbeddedPersona,
+  type PersonaProfile,
   type ExperienceReport,
   type CapabilityGapReport,
   type CourseGenRole,
@@ -109,6 +116,7 @@ import {
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
+import { createPersona, deletePersona, listPersonas, readInterview, readPersona, savePersona, writeInterview } from "./personaLibrary.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
 import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
@@ -359,6 +367,9 @@ const materialize: Materializer = async ({ run, lessons }) => {
     }),
     status: "draft",
     sourceRunId: run.runId,
+    // The persona snapshot rides the course so revision runs and the
+    // pre-publish simulated learner can re-embed it later (Phase 1).
+    persona: run.request.persona ?? prior?.persona,
     revisions: prior?.revisions,
     createdAt: prior?.createdAt ?? at,
     updatedAt: at,
@@ -540,6 +551,73 @@ const lessonImprovementsDir = (): string =>
 const analysisInFlight = new Set<string>(); // family
 const analysisState = new Map<string, { running: boolean; error: string | null; at: string }>(); // family
 const analysisLive = new Map<string, LiveActivity>(); // family → streaming thinking/text
+
+/* ── persona library (quality-rework Phase 1): reusable target-user personas
+ *    built by iterating with the persona-interviewer role. Disk-only, like
+ *    curriculum/experience; runs embed a snapshot at create time. ─────────── */
+const personasDir = (): string => process.env.TRELLIS_PERSONAS_DIR ?? join(repoRoot, "curriculum", "personas");
+const personaInterviewInFlight = new Set<string>(); // personaId
+const personaLive = new Map<string, LiveActivity>(); // personaId → streaming thinking/text
+
+/** One synchronous interviewer turn: append the admin message, invoke the
+ *  role, persist the merged draft + transcript, return the turn. */
+async function runPersonaInterviewTurn(
+  profile: PersonaProfile,
+  message: string,
+  cfg: RunProviderConfig | undefined,
+): Promise<{ persona: PersonaProfile; reply: string; complete: boolean }> {
+  const dir = personasDir();
+  const at = new Date().toISOString();
+  const transcript = [...readInterview(dir, profile.personaId), { role: "admin" as const, text: message, at }];
+
+  const prompt = {
+    system: PERSONA_INTERVIEWER_SYSTEM,
+    task: "persona-interview",
+    context: { profile, transcript },
+    user: [
+      `You are interviewing a course operator to define a target-user persona.`,
+      ``,
+      `## Current profile draft`,
+      JSON.stringify(profile, null, 2),
+      ``,
+      `## Interview so far (newest last)`,
+      ...transcript.map((m) => `${m.role === "admin" ? "OPERATOR" : "YOU"}: ${m.text}`),
+      ``,
+      personaInterviewInstruction(),
+    ].join("\n"),
+  };
+
+  let thinking = "";
+  let text = "";
+  const turn = await invokeValidatedJson(
+    invokerForProvider(cfg),
+    "persona-interviewer",
+    prompt,
+    validatePersonaInterviewTurn,
+    {
+      maxAttempts: Number(process.env.COURSE_GEN_MAX_ATTEMPTS ?? 3),
+      onDelta: (d) => {
+        if (d.kind === "thinking") thinking += d.chunk;
+        else text += d.chunk;
+        personaLive.set(profile.personaId, {
+          runId: `persona:${profile.personaId}`,
+          phase: "interviewing",
+          role: "persona-interviewer",
+          task: prompt.task,
+          thinking,
+          text,
+          updatedAt: new Date().toISOString(),
+        });
+      },
+    },
+  );
+
+  // Merge the returned draft over the stored identity; the interviewer never
+  // owns ids, status, or timestamps.
+  const persona = savePersona(dir, { ...profile, ...turn.profile });
+  writeInterview(dir, profile.personaId, [...transcript, { role: "interviewer", text: turn.reply, at: new Date().toISOString() }]);
+  return { persona, reply: turn.reply, complete: turn.complete };
+}
 
 /** A lab that ships in the repo's labs/ tree is hand-authored (git-managed). */
 function isHandAuthoredLab(labId: string): boolean {
@@ -1233,6 +1311,87 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, { requests: listCapabilityRequests(capabilityRequestsDir()) });
       }
 
+      // ── /api/admin/personas — the target-user persona library (Phase 1).
+      //    Disk-only under curriculum/personas; runs embed snapshots. ─────────
+      if (parts[2] === "personas") {
+        // GET list
+        if (req.method === "GET" && parts.length === 3) {
+          return json(res, 200, { personas: listPersonas(personasDir()) });
+        }
+        // POST create — scaffold an empty draft from a display name.
+        if (req.method === "POST" && parts.length === 3) {
+          const body = await readBody(req);
+          const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
+          if (!name) return json(res, 400, { error: "name is required" });
+          return json(res, 201, { persona: createPersona(personasDir(), name) });
+        }
+        if (parts.length >= 4) {
+          const personaId = decodeURIComponent(parts[3]);
+          const persona = readPersona(personasDir(), personaId);
+          if (!persona) return json(res, 404, { error: "persona not found" });
+
+          // GET one — profile + interview transcript.
+          if (req.method === "GET" && parts.length === 4) {
+            return json(res, 200, { persona, interview: readInterview(personasDir(), personaId) });
+          }
+          // PUT — direct field edits and/or a status flip. "ready" is validated:
+          // the anchors + narrative must be filled (the human stays the authority
+          // on WHEN it's ready; validation only enforces that it's usable).
+          if (req.method === "PUT" && parts.length === 4) {
+            const body = await readBody(req);
+            let draft;
+            try {
+              draft = validatePersonaDraft({ ...persona, ...(body.profile as Record<string, unknown> | undefined) });
+            } catch (err) {
+              return json(res, 400, { error: (err as Error).message });
+            }
+            let status = persona.status;
+            if (body.status === "ready" || body.status === "draft") {
+              if (body.status === "ready") {
+                const missing = personaReadyErrors(draft);
+                if (missing.length) return json(res, 400, { error: `not ready: ${missing.join("; ")}` });
+              }
+              status = body.status;
+            }
+            return json(res, 200, { persona: savePersona(personasDir(), { ...persona, ...draft, status }) });
+          }
+          // DELETE — safe: existing runs/courses hold full snapshots.
+          if (req.method === "DELETE" && parts.length === 4) {
+            if (personaInterviewInFlight.has(personaId)) return json(res, 409, { error: "an interview turn is in flight" });
+            return json(res, 200, { deleted: deletePersona(personasDir(), personaId) });
+          }
+          // POST …/interview — one synchronous interviewer turn.
+          if (req.method === "POST" && parts.length === 5 && parts[4] === "interview") {
+            const body = await readBody(req);
+            const message = typeof body.message === "string" ? body.message.trim().slice(0, 4000) : "";
+            if (!message) return json(res, 400, { error: "message is required" });
+            const providerConfig = parseProviderConfig(body.providerConfig);
+            const providerError = validateProviderConfig(providerConfig);
+            if (providerError) return json(res, 400, { error: providerError });
+            if (personaInterviewInFlight.has(personaId)) {
+              return json(res, 409, { error: "an interview turn is already running for this persona" });
+            }
+            personaInterviewInFlight.add(personaId);
+            try {
+              const result = await runPersonaInterviewTurn(persona, message, providerConfig);
+              return json(res, 200, result);
+            } catch (err) {
+              return json(res, 502, { error: err instanceof Error ? err.message : String(err) });
+            } finally {
+              personaInterviewInFlight.delete(personaId);
+              personaLive.delete(personaId);
+            }
+          }
+          // GET …/interview/live — the in-flight turn's streaming view.
+          if (req.method === "GET" && parts.length === 6 && parts[4] === "interview" && parts[5] === "live") {
+            return json(res, 200, {
+              live: personaLive.get(personaId) ?? null,
+              running: personaInterviewInFlight.has(personaId),
+            });
+          }
+        }
+      }
+
       // ── /api/admin/lessons/:labId/experience… — recorded-experience metrics,
       //    the AI analyst, its reports, and the dev handoff (plan Phases A/B) ──
       if (parts[2] === "lessons" && parts.length >= 5 && parts[4] === "experience") {
@@ -1387,13 +1546,38 @@ export const server = createServer(async (req, res) => {
             }
             if (!technology) return json(res, 400, { error: "technology is required" });
 
+            // Persona (Phase 1): a whole-course run embeds a READY persona
+            // snapshot; a revision run re-embeds the course's snapshot. The run
+            // stays self-contained across persona edits/deletes.
+            let persona: EmbeddedPersona | undefined;
+            if (!revision) {
+              const personaId = typeof body.personaId === "string" ? body.personaId.trim() : "";
+              if (personaId) {
+                const p = readPersona(personasDir(), personaId);
+                if (!p) return json(res, 400, { error: `persona "${personaId}" not found` });
+                if (p.status !== "ready") return json(res, 400, { error: `persona "${personaId}" is not marked ready` });
+                const missing = personaReadyErrors(p);
+                if (missing.length) return json(res, 400, { error: `persona "${personaId}" is incomplete: ${missing.join("; ")}` });
+                persona = { personaId: p.personaId, version: p.version, profile: p };
+              } else if (process.env.TRELLIS_REQUIRE_PERSONA === "1") {
+                return json(res, 400, { error: "a target-user persona is required — define one in the Personas view first" });
+              }
+            } else {
+              const course = store.getCourse(revision.courseId);
+              if (course?.persona) persona = course.persona as unknown as EmbeddedPersona;
+            }
+
             const run = courseRuns.create({
               technology: technology.slice(0, 80),
               ...pickStrings(body, ["title", "targetLearner", "learnerStartingExperience", "outcome", "inScope", "outOfScope", "breadth", "depth", "ecosystem"]),
+              // The persona narrative doubles as the legacy targetLearner string
+              // (catalog role labels, prompts) unless the form set one explicitly.
+              ...(persona && typeof body.targetLearner !== "string" ? { targetLearner: persona.profile.narrative.slice(0, 300) } : {}),
               ...(revision && typeof body.title !== "string"
                 ? { title: `Revision: ${revision.family} v${revision.fromVersion} → v${revision.fromVersion + 1}` }
                 : {}),
               ...(providerConfig ? { providerConfig } : {}),
+              ...(persona ? { persona } : {}),
               ...(revision ? { revision } : {}),
             });
             // Stamp the seeding report with the run that used it (D6).

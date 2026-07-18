@@ -10,6 +10,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   courseRunApi,
+  personaApi,
   type Course,
   type CapabilityGapReport,
   type CapabilityRequest,
@@ -20,6 +21,8 @@ import {
   type GapDisposition,
   type GateId,
   type GateNote,
+  type PersonaInterviewMessage,
+  type PersonaProfile,
   type ProviderConfig,
   type ProvidersPayload,
   type RunStatus,
@@ -73,29 +76,78 @@ function fmtWhen(iso: string): string {
 export function CourseStudio({ onCoursesChanged }: { onCoursesChanged: () => void }) {
   const [runs, setRuns] = useState<CourseRunSummary[] | null>(null);
   const [requests, setRequests] = useState<CapabilityRequest[]>([]);
+  const [personas, setPersonas] = useState<PersonaProfile[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Personas | Runs sub-view. Defining WHO the course is for comes before
+  // generating it — with no ready persona, the studio lands on Personas.
+  const [view, setView] = useState<"personas" | "runs" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     courseRunApi.list().then(setRuns).catch((e) => setError(String((e as Error).message)));
     courseRunApi.capabilityRequests().then(setRequests).catch(() => setRequests([]));
+    personaApi.list().then(setPersonas).catch(() => setPersonas([]));
   }, []);
   useEffect(() => refresh(), [refresh]);
+  useEffect(() => {
+    if (view === null && personas !== null) setView(personas.some((p) => p.status === "ready") ? "runs" : "personas");
+  }, [view, personas]);
 
   if (openId) {
     return <RunDetail runId={openId} onBack={() => { setOpenId(null); refresh(); }} onCoursesChanged={onCoursesChanged} />;
   }
 
+  const readyCount = (personas ?? []).filter((p) => p.status === "ready").length;
   return (
     <div className="admin-stack">
       <p className="admin-lede-note">
-        Generate a course under human control: start a run, then approve each of the four gates. Nothing
-        reaches learners until you review the draft and take it live. With no model configured the built-in
-        mock produces a small course so you can walk the whole flow.
+        Generate a course under human control: define WHO it's for (a persona), start a run, then approve
+        each of the four gates. Nothing reaches learners until you review the draft and take it live. With
+        no model configured the built-in mock produces a small course so you can walk the whole flow.
       </p>
       {error && <p className="admin-error">{error}</p>}
 
-      <StartRunForm onStarted={(run) => { refresh(); setOpenId(run.runId); }} />
+      <div className="admin-actions" role="tablist" aria-label="Course studio views">
+        <button
+          className={`gr-btn ${view === "personas" ? "gr-btn-primary" : "gr-btn-ghost"}`}
+          onClick={() => setView("personas")}
+        >
+          Personas{personas ? ` (${readyCount} ready)` : ""}
+        </button>
+        <button className={`gr-btn ${view === "runs" ? "gr-btn-primary" : "gr-btn-ghost"}`} onClick={() => setView("runs")}>
+          Runs{runs ? ` (${runs.length})` : ""}
+        </button>
+      </div>
+
+      {view === "personas" ? (
+        <PersonaLibrary personas={personas} onChanged={refresh} />
+      ) : (
+        <RunsView
+          runs={runs}
+          requests={requests}
+          personas={personas ?? []}
+          onGoPersonas={() => setView("personas")}
+          onOpen={setOpenId}
+          onStarted={(run) => { refresh(); setOpenId(run.runId); }}
+          onChanged={() => { refresh(); onCoursesChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RunsView({ runs, requests, personas, onGoPersonas, onOpen, onStarted, onChanged }: {
+  runs: CourseRunSummary[] | null;
+  requests: CapabilityRequest[];
+  personas: PersonaProfile[];
+  onGoPersonas: () => void;
+  onOpen: (id: string) => void;
+  onStarted: (run: CourseRunDetail) => void;
+  onChanged: () => void;
+}) {
+  return (
+    <div className="admin-stack">
+      <StartRunForm onStarted={onStarted} personas={personas} onGoPersonas={onGoPersonas} />
 
       {requests.length > 0 && <CommissionOutbox requests={requests} />}
 
@@ -104,20 +156,301 @@ export function CourseStudio({ onCoursesChanged }: { onCoursesChanged: () => voi
       ) : runs.length === 0 ? (
         <p className="admin-empty">No runs yet — start one above.</p>
       ) : (
-        <RunsTable runs={runs} onOpen={setOpenId} onChanged={() => { refresh(); onCoursesChanged(); }} />
+        <RunsTable runs={runs} onOpen={onOpen} onChanged={onChanged} />
       )}
+    </div>
+  );
+}
+
+/* ================= personas (quality-rework Phase 1) ================= */
+
+function PersonaLibrary({ personas, onChanged }: { personas: PersonaProfile[] | null; onChanged: () => void }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (openId) {
+    return <PersonaWorkbench personaId={openId} onBack={() => { setOpenId(null); onChanged(); }} />;
+  }
+
+  const create = () => {
+    setBusy(true);
+    setError(null);
+    personaApi.create(newName.trim())
+      .then((p) => { setBusy(false); setNewName(""); onChanged(); setOpenId(p.personaId); })
+      .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
+  };
+
+  return (
+    <div className="admin-stack">
+      <article className="gr-card admin-course-editor">
+        <h3>Define a target user</h3>
+        <p className="gr-mono-note">
+          Every course is generated FOR someone specific. Create a persona, then let the interviewer agent
+          sharpen it with you — what this person knows, what they can do, and how they behave when stuck.
+          The generation agents, the reviewers, and the pre-publish simulated learner all anchor on it.
+        </p>
+        <div className="admin-editor-grid">
+          <div className="gr-field">
+            <label htmlFor="persona-name">Who is this course for?</label>
+            <input
+              id="persona-name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder='e.g. "Priya — manual QA moving to automation"'
+              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) create(); }}
+            />
+          </div>
+        </div>
+        {error && <p className="admin-error">{error}</p>}
+        <div className="admin-editor-actions">
+          <button className="gr-btn gr-btn-primary" onClick={create} disabled={busy || !newName.trim()}>
+            {busy ? "Creating…" : "Create persona"}
+          </button>
+        </div>
+      </article>
+
+      {personas === null ? (
+        <p className="admin-loading">Loading personas…</p>
+      ) : personas.length === 0 ? (
+        <p className="admin-empty">No personas yet — create one above before starting a run.</p>
+      ) : (
+        <div className="admin-stack">
+          {personas.map((p) => (
+            <article key={p.personaId} className="gr-card admin-course-editor persona-card">
+              <div className="admin-actions" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+                <h3 style={{ margin: 0 }}>{p.name}</h3>
+                <span className={`admin-chip ${p.status === "ready" ? "status-mastered" : ""}`}>{p.status === "ready" ? "Ready" : "Draft"}</span>
+              </div>
+              <p className="gr-mono-note">{p.personaId} · v{p.version} · updated {fmtWhen(p.updatedAt)}</p>
+              {p.narrative
+                ? <p>{p.narrative}</p>
+                : <p className="admin-empty">No narrative yet — continue the interview.</p>}
+              {(p.anticipatedKnowledgeLevel || p.anticipatedCapabilityLevel) && (
+                <ul>
+                  {p.anticipatedKnowledgeLevel && <li><strong>Knows:</strong> {p.anticipatedKnowledgeLevel}</li>}
+                  {p.anticipatedCapabilityLevel && <li><strong>Can do:</strong> {p.anticipatedCapabilityLevel}</li>}
+                </ul>
+              )}
+              <div className="admin-editor-actions">
+                <button className="gr-btn gr-btn-primary" onClick={() => setOpenId(p.personaId)}>Open workbench</button>
+                <button
+                  className="gr-btn gr-btn-ghost"
+                  onClick={() => {
+                    if (!confirm(`Delete persona "${p.name}"? Existing runs keep their snapshots.`)) return;
+                    personaApi.remove(p.personaId).then(onChanged).catch(() => onChanged());
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PERSONA_FIELDS: Array<{ key: keyof PersonaProfile; label: string; hint?: string; list?: boolean }> = [
+  { key: "name", label: "Name" },
+  { key: "anticipatedKnowledgeLevel", label: "Anticipated knowledge level", hint: "What they already KNOW (terms, concepts)" },
+  { key: "anticipatedCapabilityLevel", label: "Anticipated capability level", hint: "What they can DO (follow steps? debug alone?)" },
+  { key: "background", label: "Background" },
+  { key: "goals", label: "Goals", list: true },
+  { key: "frustrations", label: "Frustrations", list: true },
+  { key: "vocabularyComfort", label: "Vocabulary comfort", hint: "Safe terms vs. terms needing definition" },
+  { key: "toolFamiliarity", label: "Tool familiarity", list: true },
+  { key: "behaviorUnderFriction", label: "Behavior under friction", hint: "What they do when stuck — drives the simulated learner" },
+  { key: "narrative", label: "Narrative", hint: "One paragraph, used verbatim in prompts" },
+];
+
+function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: () => void }) {
+  const [persona, setPersona] = useState<PersonaProfile | null>(null);
+  const [interview, setInterview] = useState<PersonaInterviewMessage[]>([]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState(false);
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [live, setLive] = useState<LiveActivity | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProvidersPayload | null>(null);
+  const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
+
+  const fromProfile = (p: PersonaProfile): Record<string, string> =>
+    Object.fromEntries(PERSONA_FIELDS.map((f) => [f.key, f.list ? (p[f.key] as string[]).join("\n") : String(p[f.key] ?? "")]));
+  const toPatch = (d: Record<string, string>): Record<string, unknown> =>
+    Object.fromEntries(PERSONA_FIELDS.map((f) => [f.key, f.list ? d[f.key].split("\n").map((s) => s.trim()).filter(Boolean) : d[f.key]]));
+
+  const load = useCallback(() => {
+    personaApi.get(personaId).then(({ persona: p, interview: iv }) => {
+      setPersona(p);
+      setInterview(iv);
+      setDraft(fromProfile(p));
+      setDirty(false);
+    }).catch((e) => setError(String((e as Error).message)));
+  }, [personaId]);
+  useEffect(() => load(), [load]);
+
+  useEffect(() => {
+    if (!providers) {
+      courseRunApi.providers().then((p) => {
+        setProviders(p);
+        const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
+        if (def) setProvider(def.id);
+      }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
+    }
+  }, [providers]);
+
+  // While a turn is in flight, poll the streaming view (the analysisLive pattern).
+  useEffect(() => {
+    if (!sending) { setLive(null); return; }
+    const t = setInterval(() => personaApi.interviewLive(personaId).then((r) => setLive(r.live)).catch(() => {}), 1200);
+    return () => clearInterval(t);
+  }, [sending, personaId]);
+
+  const send = () => {
+    const text = message.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setError(null);
+    setInterview((iv) => [...iv, { role: "admin", text, at: new Date().toISOString() }]);
+    setMessage("");
+    personaApi.interview(personaId, text, provider === "mock" ? { provider: "mock" } : { provider })
+      .then(({ persona: p, reply, complete }) => {
+        setSending(false);
+        setPersona(p);
+        setDraft(fromProfile(p));
+        setDirty(false);
+        setInterview((iv) => [...iv, { role: "interviewer", text: reply, at: new Date().toISOString() }]);
+        if (complete) setError(null);
+      })
+      .catch((e) => { setSending(false); setError(String((e as Error).message)); });
+  };
+
+  const save = (status?: "ready" | "draft") => {
+    setError(null);
+    personaApi.update(personaId, { profile: toPatch(draft) as Partial<PersonaProfile>, ...(status ? { status } : {}) })
+      .then((p) => { setPersona(p); setDraft(fromProfile(p)); setDirty(false); })
+      .catch((e) => setError(String((e as Error).message)));
+  };
+
+  if (!persona) return <p className="admin-loading">{error ?? "Loading persona…"}</p>;
+
+  return (
+    <div className="admin-stack">
+      <div className="admin-actions" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <button className="gr-btn gr-btn-ghost" onClick={onBack}>← Personas</button>
+        <span className={`admin-chip ${persona.status === "ready" ? "status-mastered" : ""}`}>
+          {persona.status === "ready" ? "Ready" : "Draft"} · v{persona.version}
+        </span>
+      </div>
+
+      <div className="persona-workbench">
+        <article className="gr-card admin-course-editor persona-chat">
+          <h3>Interview</h3>
+          <p className="gr-mono-note">
+            Talk to the interviewer agent about who this course is for. It asks one question at a time and
+            builds the profile live on the right.
+          </p>
+          <div className="persona-chat-log">
+            {interview.length === 0 && <p className="admin-empty">Start by describing this person in a sentence or two.</p>}
+            {interview.map((m, i) => (
+              <p key={i} className={m.role === "admin" ? "persona-msg-admin" : "persona-msg-interviewer"}>
+                <strong>{m.role === "admin" ? "You" : "Interviewer"}:</strong> {m.text}
+              </p>
+            ))}
+            {sending && (
+              <p className="persona-msg-interviewer gr-mono-note">
+                {live?.text ? live.text : live?.thinking ? `(thinking) ${live.thinking.slice(-300)}` : "Interviewer is thinking…"}
+              </p>
+            )}
+          </div>
+          <div className="gr-field">
+            <textarea
+              rows={3}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Describe the target user, answer the interviewer's question…"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              disabled={sending}
+            />
+          </div>
+          <div className="admin-editor-actions">
+            <button className="gr-btn gr-btn-primary" onClick={send} disabled={sending || !message.trim()}>
+              {sending ? "Interviewing…" : "Send"}
+            </button>
+            {providers && providers.providers.length > 1 && (
+              <select value={provider} onChange={(e) => setProvider(e.target.value as ProviderConfig["provider"])} aria-label="Interview model provider">
+                {providers.providers.map((p) => (
+                  <option key={p.id} value={p.id} disabled={!p.available}>{p.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </article>
+
+        <article className="gr-card admin-course-editor persona-profile">
+          <h3>Profile</h3>
+          {PERSONA_FIELDS.map((f) => (
+            <div className="gr-field" key={f.key}>
+              <label htmlFor={`pf-${f.key}`}>{f.label}{f.hint ? <span className="gr-mono-note"> — {f.hint}</span> : null}</label>
+              {f.list || f.key === "narrative" || f.key === "background" ? (
+                <textarea
+                  id={`pf-${f.key}`}
+                  rows={f.list ? 3 : 3}
+                  value={draft[f.key] ?? ""}
+                  onChange={(e) => { setDraft((d) => ({ ...d, [f.key]: e.target.value })); setDirty(true); }}
+                  placeholder={f.list ? "One per line" : ""}
+                />
+              ) : (
+                <input
+                  id={`pf-${f.key}`}
+                  value={draft[f.key] ?? ""}
+                  onChange={(e) => { setDraft((d) => ({ ...d, [f.key]: e.target.value })); setDirty(true); }}
+                />
+              )}
+            </div>
+          ))}
+          {error && <p className="admin-error">{error}</p>}
+          <div className="admin-editor-actions">
+            <button className="gr-btn" onClick={() => save()} disabled={!dirty}>Save</button>
+            {persona.status === "draft" ? (
+              <button className="gr-btn gr-btn-primary" onClick={() => save("ready")}>Mark ready</button>
+            ) : (
+              <button className="gr-btn gr-btn-ghost" onClick={() => save("draft")}>Back to draft</button>
+            )}
+          </div>
+          <p className="gr-mono-note">
+            "Ready" requires the two anchors (knowledge + capability) and the narrative. You stay the
+            authority — the interviewer's "complete" is advice, not a gate.
+          </p>
+        </article>
+      </div>
     </div>
   );
 }
 
 /* ================= start form ================= */
 
-function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void }) {
+function StartRunForm({ onStarted, personas, onGoPersonas }: {
+  onStarted: (run: CourseRunDetail) => void;
+  personas: PersonaProfile[];
+  onGoPersonas: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState<Record<string, string>>({ technology: "", title: "", targetLearner: "", outcome: "", inScope: "", outOfScope: "" });
+  const [form, setForm] = useState<Record<string, string>>({ technology: "", title: "", outcome: "", inScope: "", outOfScope: "" });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // The target user is a PERSONA, not a free-text field (Phase 1).
+  const ready = personas.filter((p) => p.status === "ready");
+  const [personaId, setPersonaId] = useState("");
+  useEffect(() => {
+    if (!personaId && ready.length > 0) setPersonaId(ready[0].personaId);
+  }, [personaId, ready]);
+  const chosenPersona = ready.find((p) => p.personaId === personaId) ?? null;
 
   // Model provider selection (mock / Claude / OpenAI-compatible).
   const [providers, setProviders] = useState<ProvidersPayload | null>(null);
@@ -146,6 +479,7 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
     setBusy(true);
     setError(null);
     const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
+    if (personaId) body.personaId = personaId;
     const pickedRoleModels = Object.fromEntries(Object.entries(roleModels).filter(([, v]) => v.trim()));
     body.providerConfig =
       provider === "mock"
@@ -181,10 +515,19 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
           <input id="cg-title" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Git Fundamentals" />
         </div>
         <div className="gr-field">
-          <label htmlFor="cg-learner">Target learner</label>
-          <input id="cg-learner" value={form.targetLearner} onChange={(e) => set("targetLearner", e.target.value)} placeholder="Backend engineers new to Git" />
+          <label htmlFor="cg-persona">Target persona *</label>
+          {ready.length === 0 ? (
+            <p className="admin-error" style={{ margin: 0 }}>
+              No ready personas. <button className="gr-btn gr-btn-ghost" onClick={onGoPersonas}>Define a persona first →</button>
+            </p>
+          ) : (
+            <select id="cg-persona" value={personaId} onChange={(e) => setPersonaId(e.target.value)}>
+              {ready.map((p) => <option key={p.personaId} value={p.personaId}>{p.name} (v{p.version})</option>)}
+            </select>
+          )}
         </div>
       </div>
+      {chosenPersona && <p className="gr-mono-note">{chosenPersona.narrative}</p>}
       <div className="gr-field">
         <label htmlFor="cg-outcome">Intended outcome</label>
         <input id="cg-outcome" value={form.outcome} onChange={(e) => set("outcome", e.target.value)} placeholder="Can review a diff and repair a broken test" />
@@ -271,7 +614,7 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
 
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-editor-actions">
-        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || (provider === "openai-compatible" && !model.trim())}>
+        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || !personaId || (provider === "openai-compatible" && !model.trim())}>
           {busy ? "Starting…" : "Start run"}
         </button>
         <button className="gr-btn gr-btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>

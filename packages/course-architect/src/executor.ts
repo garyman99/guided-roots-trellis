@@ -35,6 +35,8 @@ import {
   type LessonPlanDoc,
 } from "./schemas.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, type CapabilityGapReport } from "./gaps.ts";
+import { personaPromptView } from "./personas.ts";
+import type { CourseRunRequest } from "./types.ts";
 import {
   evaluateReviews,
   validateTechnicalReview,
@@ -192,9 +194,28 @@ function taskInstruction(task: string): string {
   return `Produce the "${task}" artifact as strict JSON.`;
 }
 
+/** Standing rule appended whenever the context carries a persona (Phase 1). */
+const PERSONA_NOTE = [
+  "CONTEXT.persona is the target-user persona this course serves. Every",
+  "technical term and every direction MUST stay within their",
+  "anticipatedKnowledgeLevel and anticipatedCapabilityLevel; define anything",
+  "outside their vocabularyComfort before first use. Pace and scope toward",
+  "their goals, and design around their frustrations.",
+  "",
+  "",
+].join("\n");
+
 /** Build a role prompt carrying structured context (mock reads it directly). */
 function prompt(task: string, context: Record<string, unknown>, extra = ""): RolePrompt {
-  return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}${taskInstruction(task)}` };
+  const personaNote = context.persona ? PERSONA_NOTE : "";
+  return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}${personaNote}${taskInstruction(task)}` };
+}
+
+/** The request as prompt context: persona lifted out as a bounded view (the raw
+ *  embedded snapshot carries ids/timestamps the model has no use for). */
+function requestContext(req: CourseRunRequest): { request: Record<string, unknown>; persona?: Record<string, unknown> } {
+  const { persona, ...rest } = req;
+  return { request: rest as Record<string, unknown>, ...(persona ? { persona: personaPromptView(persona.profile) } : {}) };
 }
 
 /** Invoke a role, retrying ONCE with the validation errors appended (plan §4).
@@ -258,12 +279,20 @@ function renderCourseRequestMd(doc: CourseRequestDoc): string {
 
 /* ── the phases ── */
 
+/** Persist the embedded persona snapshot for gate review (framing phases). */
+function writePersonaArtifact(ctx: PhaseContext, arts: RunArtifacts): void {
+  if (!ctx.run.request.persona) return;
+  arts.write("persona.json", JSON.stringify(ctx.run.request.persona, null, 2));
+  ctx.emit("artifact.written", { path: "persona.json" });
+}
+
 async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  writePersonaArtifact(ctx, arts);
   const doc = await invokeValidated(
     deps,
     ctx,
     "architect",
-    prompt("course-request", { request: ctx.run.request, changeNotes: ctx.changeNotes ?? undefined }),
+    prompt("course-request", { ...requestContext(ctx.run.request), changeNotes: ctx.changeNotes ?? undefined }),
     validateCourseRequest,
   );
   arts.write("course-request.md", renderCourseRequestMd(doc));
@@ -278,6 +307,7 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
 
 async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const rev = ctx.run.request.revision!;
+  writePersonaArtifact(ctx, arts);
   const doc = await invokeValidated(
     deps,
     ctx,
@@ -289,6 +319,7 @@ async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArt
       notes: rev.notes ?? "",
       report: rev.report ?? null,
       lessonContent: rev.lessonContent ?? "",
+      ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
       changeNotes: ctx.changeNotes ?? undefined,
     }),
     validateRevisionGoal,
@@ -327,6 +358,7 @@ async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunA
       report: rev.report ?? null,
       notes: rev.notes ?? "",
       lessonContent: rev.lessonContent ?? "",
+      ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
       availableCapabilities: [...deps.availableCapabilities].sort(),
       changeNotes: ctx.changeNotes ?? undefined,
     }),
@@ -348,7 +380,7 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     ctx,
     "architect",
     prompt("blueprint", {
-      request: ctx.run.request,
+      ...requestContext(ctx.run.request),
       courseRequest: arts.read("course-request.md") ?? "",
       availableCapabilities: [...deps.availableCapabilities].sort(),
       changeNotes: ctx.changeNotes ?? undefined,
@@ -401,7 +433,7 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
         deps,
         ctx,
         "lesson-author",
-        prompt(`lesson:${lesson.lessonId}`, { lesson, request: ctx.run.request, reviewFeedback: feedback ?? undefined }),
+        prompt(`lesson:${lesson.lessonId}`, { lesson, ...requestContext(ctx.run.request), reviewFeedback: feedback ?? undefined }),
         (parsed) => validateLessonPlan(parsed, lesson.lessonId),
       );
       arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
@@ -410,7 +442,17 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify({ ...lesson, lab: plan.lab }, null, 2));
 
       const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview);
-      const pedagogy = await invokeValidated(deps, ctx, "pedagogy-reviewer", prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validatePedagogyReview);
+      const pedagogy = await invokeValidated(
+        deps,
+        ctx,
+        "pedagogy-reviewer",
+        prompt(`review:pedagogy:${lesson.lessonId}`, {
+          lesson,
+          lessonMarkdown: plan.markdown,
+          ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
+        }),
+        validatePedagogyReview,
+      );
       const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
 
       outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion);

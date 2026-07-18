@@ -9,3 +9,4 @@ export * from "./executor.ts";
 export * from "./mockCourse.ts";
 export * from "./mirror.ts";
 export * from "./experience.ts";
+export * from "./personas.ts";

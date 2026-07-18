@@ -25,6 +25,7 @@ const ALLOW: RegExp[] = [
   /^capability-gaps\.(json|md)$/,
   /^manifest\.json$/,
   /^run\.json$/,
+  /^persona\.json$/,
   /^briefs\/[a-z0-9-]+\.json$/,
   /^lessons\/[a-z0-9-]+\/lesson\.md$/,
   /^lessons\/[a-z0-9-]+\/lab\/[A-Za-z0-9._\/-]+$/,

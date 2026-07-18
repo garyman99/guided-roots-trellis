@@ -11,6 +11,7 @@
  */
 
 import type { CourseGenRole } from "./roles.ts";
+import type { EmbeddedPersona } from "./personas.ts";
 
 /** The work phases, in order. Exactly one gate follows each. */
 export const PHASES = ["framing", "designing", "authoring", "materializing"] as const;
@@ -118,6 +119,9 @@ export interface CourseRunRequest {
   ecosystem?: string;
   /** Model provider for this run. Absent → the deployment default (env/mock). */
   providerConfig?: RunProviderConfig;
+  /** The target-user persona, embedded as a full snapshot at create time so
+   *  the run is self-contained across persona edits/deletes (Phase 1). */
+  persona?: EmbeddedPersona;
   /** Present ⇒ this is a lesson-revision run, not a whole-course generation. */
   revision?: RevisionRequest;
 }

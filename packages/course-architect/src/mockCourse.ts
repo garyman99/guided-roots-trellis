@@ -253,6 +253,56 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
       },
     });
   }
+  // Persona interview (Phase 1): a deterministic three-turn interview that
+  // progressively fills the profile, so the whole workbench flow runs offline.
+  if (prompt.task === "persona-interview") {
+    const transcript = (ctx?.transcript as Array<{ role: string; text: string }> | undefined) ?? [];
+    const adminTurns = transcript.filter((m) => m.role === "admin").length;
+    const seed = transcript.find((m) => m.role === "admin")?.text.trim() || "a working professional";
+    const empty = {
+      name: "", anticipatedKnowledgeLevel: "", anticipatedCapabilityLevel: "", background: "",
+      goals: [] as string[], frustrations: [] as string[], vocabularyComfort: "",
+      toolFamiliarity: [] as string[], behaviorUnderFriction: "", narrative: "",
+    };
+    if (adminTurns <= 1) {
+      return JSON.stringify({
+        reply: "Got it. What do they already KNOW coming in — which terms and concepts are familiar, and which would be new?",
+        profile: { ...empty, name: `Persona: ${seed.slice(0, 60)}`, background: seed },
+        complete: false,
+      });
+    }
+    if (adminTurns === 2) {
+      return JSON.stringify({
+        reply: "That sharpens the knowledge picture. When they get stuck, what do they actually do — retry, search, ask someone, give up?",
+        profile: {
+          ...empty,
+          name: `Persona: ${seed.slice(0, 60)}`,
+          background: seed,
+          anticipatedKnowledgeLevel: "Knows the vocabulary of their day job; has read about this technology but never used it hands-on.",
+          anticipatedCapabilityLevel: "Can follow precise numbered steps; cannot yet adapt when a step's output differs from the example.",
+          vocabularyComfort: "Everyday tooling terms are safe; this technology's jargon needs defining on first use.",
+          toolFamiliarity: ["web browser", "text editor"],
+        },
+        complete: false,
+      });
+    }
+    return JSON.stringify({
+      reply: "This persona is specific enough to role-play. I've marked it complete — review the profile and mark it ready when you agree.",
+      profile: {
+        name: `Persona: ${seed.slice(0, 60)}`,
+        background: seed,
+        anticipatedKnowledgeLevel: "Knows the vocabulary of their day job; has read about this technology but never used it hands-on.",
+        anticipatedCapabilityLevel: "Can follow precise numbered steps; cannot yet adapt when a step's output differs from the example.",
+        goals: ["Become independently productive with the core workflow", "Stop relying on a teammate for routine tasks"],
+        frustrations: ["Docs that assume unstated background", "Errors with no hint at the cause"],
+        vocabularyComfort: "Everyday tooling terms are safe; this technology's jargon needs defining on first use.",
+        toolFamiliarity: ["web browser", "text editor"],
+        behaviorUnderFriction: "Re-reads the instructions once, retries once, then asks for help rather than experimenting.",
+        narrative: `${seed}. New to this technology but motivated: follows precise steps well, needs terms defined on first use, and asks for help quickly when stuck rather than thrashing.`,
+      },
+      complete: true,
+    });
+  }
   // Experience analysis: a deterministic report echoing the metrics it was
   // shown, with one finding per area class so UIs/tests exercise the routing.
   if (prompt.task.startsWith("experience:")) {
