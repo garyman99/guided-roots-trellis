@@ -438,6 +438,14 @@ export async function adminGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Admin GET returning raw text (e.g. the rrweb NDJSON screen replay). */
+export async function adminGetText(path: string): Promise<string> {
+  const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+  const res = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.text();
+}
+
 /** Admin mutations — surfaces the API's error message when it has one. */
 export async function adminSend<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = localStorage.getItem(ADMIN_TOKEN_KEY);

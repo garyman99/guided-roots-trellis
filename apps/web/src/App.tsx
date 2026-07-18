@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { api, savedCredentials, saveCredentials, type SessionCredentials, type StatePayload } from "./api.ts";
+import { startRrwebCapture, stopRrwebCapture } from "./replay/rrwebCapture.ts";
 import { Terminal } from "./Terminal.tsx";
 import { InstructorPanel, InterventionToast, LessonPanel } from "./panels.tsx";
 import { Desktop } from "./desktop/Desktop.tsx";
@@ -67,6 +68,14 @@ export function App() {
       }
     });
   }, [creds, boot]);
+
+  // Screen-faithful recording (Phase 3): every session records an rrweb
+  // replay unless the server turned it off (rrweb:false on the session).
+  useEffect(() => {
+    if (!creds) return;
+    void startRrwebCapture(creds, (creds as { rrweb?: boolean }).rrweb);
+    return () => stopRrwebCapture();
+  }, [creds]);
 
   // "Start over": end the current attempt (history kept, no learner data
   // lost) and open a fresh one for the same lab. Unlike boot()'s resume-or-

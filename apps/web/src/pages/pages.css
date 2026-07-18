@@ -338,6 +338,10 @@
   font-size: var(--fs-small);
 }
 
+/* Screen replay (rrweb, quality-rework Phase 3) */
+.admin-screen-replay { padding: 8px; overflow-x: auto; }
+.admin-screen-replay .rr-player { margin: 0 auto; }
+
 /* Persona workbench (Course studio · quality-rework Phase 1) */
 .persona-workbench { display: grid; gap: 20px; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); align-items: start; }
 @media (max-width: 960px) { .persona-workbench { grid-template-columns: 1fr; } }

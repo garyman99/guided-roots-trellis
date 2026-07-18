@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getUser, logout } from "../auth.ts";
 import type { Course, CourseLesson } from "../api.ts";
-import { fetchScenarios, adminGet, adminSend, ADMIN_TOKEN_KEY } from "../api.ts";
+import { fetchScenarios, adminGet, adminGetText, adminSend, ADMIN_TOKEN_KEY } from "../api.ts";
 import { CourseStudio } from "./CourseStudio.tsx";
 import { LessonExperiencePanel } from "./LessonExperience.tsx";
 import { scenarioMap, type Scenario } from "../scenarios.ts";
@@ -1357,15 +1357,199 @@ function toBeats(events: ReplayEvent[]): Beat[] {
 function ReplayView({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
   const [payload, setPayload] = useState<ReplayPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Screen mode (Phase 3): the stored rrweb NDJSON, when this session has one.
+  const [mode, setMode] = useState<"timeline" | "screen">("timeline");
+  const [screenNdjson, setScreenNdjson] = useState<string | null>(null);
   useEffect(() => {
     adminGet<ReplayPayload>(`/api/admin/sessions/${encodeURIComponent(sessionId)}/replay`)
       .then(setPayload)
       .catch((err) => setError(String((err as Error).message)));
+    adminGetText(`/api/admin/sessions/${encodeURIComponent(sessionId)}/rrweb`)
+      .then(setScreenNdjson)
+      .catch(() => setScreenNdjson(null)); // 404 = no screen replay recorded
   }, [sessionId]);
 
   if (error) return <p className="admin-error">Couldn't load the replay: {error}</p>;
   if (!payload) return <p className="admin-loading">Loading the session's event log…</p>;
-  return <ReplayPlayer payload={payload} onBack={onBack} />;
+  return (
+    <div className="admin-stack">
+      <div className="admin-actions">
+        <button className={`gr-btn gr-btn-small ${mode === "timeline" ? "gr-btn-primary" : "gr-btn-ghost"}`} onClick={() => setMode("timeline")}>
+          Timeline
+        </button>
+        <button
+          className={`gr-btn gr-btn-small ${mode === "screen" ? "gr-btn-primary" : "gr-btn-ghost"}`}
+          onClick={() => setMode("screen")}
+          disabled={!screenNdjson}
+          title={screenNdjson ? "Watch the session as the learner saw it" : "No screen replay recorded for this session"}
+        >
+          Screen{screenNdjson ? "" : " (none)"}
+        </button>
+      </div>
+      {mode === "screen" && screenNdjson ? (
+        <ScreenReplay ndjson={screenNdjson} meta={payload.meta} onBack={onBack} />
+      ) : (
+        <ReplayPlayer payload={payload} onBack={onBack} />
+      )}
+    </div>
+  );
+}
+
+/** Minimal Replayer surface we drive (avoids depending on rrweb internals). */
+interface RrwebReplayer {
+  play(offsetMs?: number): void;
+  pause(): void;
+  on(event: string, handler: (payload: unknown) => void): void;
+  getMetaData(): { startTime: number; endTime: number; totalTime: number };
+  destroy(): void;
+  wrapper: HTMLElement;
+  iframe: HTMLIFrameElement;
+}
+
+/**
+ * Pixel-faithful playback of the stored rrweb events via @rrweb/replay's
+ * Replayer with a small controls bar. (rrweb-player 2.1.0's published bundle
+ * ships its UI shell without the Replayer itself, so we drive the replayer
+ * directly.) Lazy-imported — the admin bundle only pays for it when opened.
+ */
+function ScreenReplay({ ndjson, meta, onBack }: { ndjson: string; meta: ReplayPayload["meta"]; onBack: () => void }) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<RrwebReplayer | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [nowMs, setNowMs] = useState(0);
+  const [totalMs, setTotalMs] = useState(0);
+
+  useEffect(() => {
+    let disposed = false;
+    (async () => {
+      try {
+        const events = ndjson
+          .split("\n")
+          .filter((l) => l.trim())
+          .map((l) => JSON.parse(l) as { type?: unknown; timestamp?: unknown })
+          .filter((e) => e.type !== "trellis-cap-reached" && typeof e.timestamp === "number");
+        if (events.length < 2) {
+          setError("This replay has too few events to play.");
+          return;
+        }
+        const { Replayer } = await import("@rrweb/replay");
+        await import("@rrweb/replay/dist/style.css");
+        if (disposed || !hostRef.current) return;
+        const replayer = new Replayer(events as unknown as ConstructorParameters<typeof Replayer>[0], {
+          root: hostRef.current,
+          speed: 1,
+          showWarning: false,
+          mouseTail: { strokeStyle: "#79b473" },
+        }) as unknown as RrwebReplayer;
+        playerRef.current = replayer;
+        setTotalMs(replayer.getMetaData().totalTime);
+        // Scale the recorded viewport down into the host card.
+        const fit = (): void => {
+          const w = hostRef.current?.clientWidth ?? 1024;
+          const iw = replayer.iframe.offsetWidth || 1280;
+          const scale = Math.min(1, (w - 16) / iw);
+          replayer.wrapper.style.transform = `scale(${scale})`;
+          replayer.wrapper.style.transformOrigin = "top left";
+          if (hostRef.current) hostRef.current.style.height = `${Math.ceil((replayer.iframe.offsetHeight || 720) * scale) + 16}px`;
+        };
+        fit();
+        window.addEventListener("resize", fit);
+        // The clock rides the replayer's own event stream (getCurrentTime is
+        // unreliable outside rrweb-player's controller).
+        const start = replayer.getMetaData().startTime;
+        replayer.on("event-cast", (e) => {
+          const ts = (e as { timestamp?: number }).timestamp;
+          if (typeof ts === "number") setNowMs(Math.max(0, ts - start));
+        });
+        replayer.on("finish", () => setPlaying(false));
+        return () => window.removeEventListener("resize", fit);
+      } catch (err) {
+        setError(`Couldn't start the screen replay: ${String((err as Error).message)}`);
+      }
+    })();
+    return () => {
+      disposed = true;
+      playerRef.current?.pause();
+      playerRef.current?.destroy();
+      playerRef.current = null;
+    };
+  }, [ndjson]);
+
+  const seek = (ms: number): void => {
+    const p = playerRef.current;
+    if (!p) return;
+    setNowMs(ms);
+    if (playing) p.play(ms);
+    else {
+      // pause-at-offset: play(offset) then pause renders the frame at that time.
+      p.play(ms);
+      p.pause();
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <div className="admin-replay-head">
+        <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={onBack}>
+          ← All sessions
+        </button>
+        <div>
+          <h3>{meta.labTitle}</h3>
+          <p className="gr-mono-note">{meta.learnerId} · started {fmtWhen(meta.createdAt)} · screen replay</p>
+        </div>
+      </div>
+      {error && <p className="admin-error">{error}</p>}
+      <div className="gr-card admin-replay">
+        <div className="admin-replay-controls">
+          <button
+            className="gr-btn gr-btn-primary gr-btn-small"
+            onClick={() => {
+              const p = playerRef.current;
+              if (!p) return;
+              if (playing) {
+                p.pause();
+                setPlaying(false);
+              } else {
+                p.play(nowMs >= totalMs ? 0 : nowMs);
+                setPlaying(true);
+              }
+            }}
+          >
+            {playing ? "⏸ Pause" : nowMs >= totalMs && totalMs > 0 ? "↺ Replay" : "▶ Play"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(totalMs, 1)}
+            value={Math.min(nowMs, totalMs)}
+            onChange={(e) => seek(Number(e.target.value))}
+            aria-label="Scrub through the screen replay"
+          />
+          <span className="gr-mono-note replay-clock">
+            +{fmtDuration(nowMs)} / {fmtDuration(totalMs)}
+          </span>
+          <span className="admin-replay-speed">
+            {[1, 4, 16].map((s) => (
+              <button
+                key={s}
+                className={speed === s ? "active" : ""}
+                onClick={() => {
+                  setSpeed(s);
+                  const p = playerRef.current as (RrwebReplayer & { setConfig?: (c: { speed: number }) => void }) | null;
+                  p?.setConfig?.({ speed: s });
+                }}
+              >
+                {s}×
+              </button>
+            ))}
+          </span>
+        </div>
+        <div className="admin-screen-replay" ref={hostRef} />
+      </div>
+    </div>
+  );
 }
 
 function ReplayPlayer({ payload, onBack }: { payload: ReplayPayload; onBack: () => void }) {

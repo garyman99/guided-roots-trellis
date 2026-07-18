@@ -61,7 +61,7 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -117,6 +117,7 @@ import {
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { createPersona, deletePersona, listPersonas, readInterview, readPersona, savePersona, writeInterview } from "./personaLibrary.ts";
+import { appendReplayEvents, deleteReplay, replayFileFor, rrwebEnabled } from "./replayStore.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
 import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
@@ -153,6 +154,8 @@ export const store = createStore();
 const labsRoot = join(repoRoot, "labs");
 const publishedDir = (): string => process.env.TRELLIS_PUBLISHED_DIR ?? join(repoRoot, "curriculum", "published");
 const runsDir = (): string => process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
+// Screen-faithful rrweb replays, one NDJSON per session (Phase 3).
+const replaysDir = (): string => process.env.TRELLIS_REPLAYS_DIR ?? join(repoRoot, "data", "replays");
 const capabilityRequestsDir = (): string => process.env.TRELLIS_CAPABILITY_REQUESTS_DIR ?? join(repoRoot, "curriculum", "capability-requests");
 
 // Two lab search paths: hand-authored labs ship in the repo (labs/); generated
@@ -865,6 +868,16 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   return raw ? JSON.parse(raw) : {};
 }
 
+/** Large-body reader for the rrweb ingest — DOM snapshots dwarf readBody's cap. */
+async function readRawBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  let raw = "";
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > maxBytes) throw new Error("body too large");
+  }
+  return raw;
+}
+
 /* ── course-run request/response helpers ── */
 
 /** Pull a whitelist of string fields off a body, trimmed and length-capped. */
@@ -1198,6 +1211,9 @@ export const server = createServer(async (req, res) => {
         return json(res, 201, { seq: stored.seq, profile: manager.learners.profileFor(learnerId) });
       }
       if (req.method === "DELETE" && tail === "") {
+        // Erasure removes the learner's screen replays too (before the store
+        // forgets which sessions were theirs).
+        for (const s of store.listSessions()) if (s.learnerId === learnerId) deleteReplay(replaysDir(), s.sessionId);
         await manager.destroyByLearner(learnerId);
         store.eraseLearner(learnerId);
         return json(res, 200, { erased: true });
@@ -1227,6 +1243,7 @@ export const server = createServer(async (req, res) => {
           terminalUrl: `/ws/terminal?session=${session.id}`,
           guideProvider: session.guideProviderId,
           resumed,
+          rrweb: rrwebEnabled(),
         });
 
         const open = store.latestOpenSession(learnerId, labId);
@@ -1894,6 +1911,15 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, { sessions: sessions.reverse() }); // newest first
       }
 
+      // ── screen replay (Phase 3): the stored rrweb NDJSON, streamed line-wise ──
+      if (req.method === "GET" && parts[2] === "sessions" && parts.length === 5 && parts[4] === "rrweb") {
+        const file = replayFileFor(replaysDir(), parts[3]);
+        if (!file) return json(res, 404, { error: "no screen replay recorded for this session" });
+        res.writeHead(200, { "content-type": "application/x-ndjson" });
+        createReadStream(file).pipe(res);
+        return;
+      }
+
       // ── session replay: the full event log, the deterministic recording ──
       if (req.method === "GET" && parts[2] === "sessions" && parts.length === 5 && parts[4] === "replay") {
         const meta = store.sessionMeta(parts[3]);
@@ -1944,6 +1970,9 @@ export const server = createServer(async (req, res) => {
         driver: manager.driverKind,
         guideProvider: session.guideProviderId,
         terminalUrl: `/ws/terminal?session=${session.id}`,
+        // Whether the client should record a screen-faithful rrweb replay
+        // (Phase 3; kill-switch TRELLIS_RRWEB=off).
+        rrweb: rrwebEnabled(),
       });
     }
 
@@ -2178,8 +2207,23 @@ export const server = createServer(async (req, res) => {
           events: store.eventsFor(session.id),
         });
       }
+      // POST …/rrweb — screen-replay ingest (Phase 3): the client batches rrweb
+      // DOM events; we append them as NDJSON under data/replays/<sessionId>/.
+      // Its own body reader: a full-DOM snapshot dwarfs readBody's 64 KB cap.
+      if (req.method === "POST" && tail === "rrweb") {
+        if (!rrwebEnabled()) return json(res, 202, { stored: 0, dropped: 0, capped: false, disabled: true });
+        let events: unknown[];
+        try {
+          const doc = JSON.parse((await readRawBody(req, 8 * 1024 * 1024)) || "{}") as { events?: unknown };
+          events = Array.isArray(doc.events) ? doc.events : [];
+        } catch {
+          return json(res, 400, { error: "body must be JSON { events: [...] }" });
+        }
+        return json(res, 202, appendReplayEvents(replaysDir(), id, events));
+      }
       if (req.method === "DELETE" && tail === "") {
         await manager.destroy(id);
+        deleteReplay(replaysDir(), id);
         return json(res, 200, { ok: true });
       }
     }
