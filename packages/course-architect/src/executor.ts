@@ -36,6 +36,14 @@ import {
 } from "./schemas.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, type CapabilityGapReport } from "./gaps.ts";
 import { personaPromptView } from "./personas.ts";
+import {
+  critiqueInstruction,
+  critiqueLoop,
+  critiqueRounds,
+  validateCritiqueVerdict,
+  type CritiqueLoopResult,
+  type CritiqueSummaryEntry,
+} from "./critique.ts";
 import type { CourseRunRequest } from "./types.ts";
 import {
   evaluateReviews,
@@ -90,7 +98,13 @@ const JSON_ONLY =
 const SYSTEM: Record<CourseGenRole, string> = {
   architect: "You are the Course Architect. Design a cohesive technology course." + JSON_ONLY,
   "domain-analyst": "You map the technology into teachable capabilities." + JSON_ONLY,
-  "learner-advocate": "You represent the target learner's prior knowledge and cognitive load." + JSON_ONLY,
+  "learner-advocate":
+    "You are the learner advocate — the critic every generated artifact must satisfy before a human sees it. " +
+    "You represent the target persona's prior knowledge and cognitive load, and you judge exactly two things: " +
+    "(1) persona-fit — every technical term and direction stays within their anticipated knowledge and capability levels; " +
+    "(2) goal-fit — the artifact will actually achieve its stated, scoped goal. " +
+    "Be specific and unsentimental; demand concrete changes, not vibes. Do not invent requirements beyond the persona and the goal." +
+    JSON_ONLY,
   "lesson-author": "You expand one lesson brief into a complete, active-learning lesson plan." + JSON_ONLY,
   "technical-reviewer": "You verify technical correctness and currency." + JSON_ONLY,
   "pedagogy-reviewer": "You score pedagogy 1–5 across the rubric." + JSON_ONLY,
@@ -163,6 +177,7 @@ function taskInstruction(task: string): string {
   if (task.startsWith("review:")) {
     return 'Review the lesson. Return a JSON object with EXACTLY these keys: { "verdict": "approved" | "revise", "issues": string[] }.';
   }
+  if (task.startsWith("critique:")) return critiqueInstruction();
   if (task === "revision-goal") {
     return [
       'This is a LESSON REVISION run: CONTEXT carries the experience report, operator notes, and the lesson as shipped.',
@@ -279,6 +294,62 @@ function renderCourseRequestMd(doc: CourseRequestDoc): string {
 
 /* ── the phases ── */
 
+/* ── critique/refine (quality-rework Phase 2) ── */
+
+/** Upsert this phase's entries into critiques/summary.json (the gate rollup). */
+function recordCritiqueSummary(arts: RunArtifacts, entries: CritiqueSummaryEntry[]): void {
+  let existing: CritiqueSummaryEntry[] = [];
+  try {
+    existing = parseJson<CritiqueSummaryEntry[]>(arts.read("critiques/summary.json") ?? "[]");
+  } catch { /* rebuild from scratch */ }
+  const replaced = new Set(entries.map((e) => e.subject));
+  arts.write("critiques/summary.json", JSON.stringify([...existing.filter((e) => !replaced.has(e.subject)), ...entries], null, 2));
+}
+
+/**
+ * Produce an artifact under the learner-advocate's critique loop: produce →
+ * judge persona-fit + goal-fit → feed requiredChanges back → refine, up to the
+ * round cap. Each round's verdict is written to critiques/<subject>.roundN.json
+ * and emitted for the activity feed. Unsatisfied-after-cap keeps the last
+ * output — the human gate (or needs-revision) decides from the recorded trail.
+ */
+async function runCritiqued<T>(
+  deps: RunDeps,
+  ctx: PhaseContext,
+  arts: RunArtifacts,
+  subject: string, // artifact-safe: "frame" | "blueprint" | `lesson-<id>`
+  goal: string,
+  produce: (critiqueFeedback: string[] | null, round: number) => Promise<T>,
+  render: (value: T) => string,
+): Promise<CritiqueLoopResult<T>> {
+  const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
+  const result = await critiqueLoop<T>({
+    maxRounds: critiqueRounds(),
+    produce,
+    critique: (value, round) =>
+      invokeValidated(
+        deps,
+        ctx,
+        "learner-advocate",
+        prompt(`critique:${subject}`, { subject, round, goal, persona, content: render(value) }),
+        validateCritiqueVerdict,
+      ),
+    onRound: (round, verdict) => {
+      arts.write(`critiques/${subject}.round${round}.json`, JSON.stringify(verdict, null, 2));
+      ctx.emit("critique.round", {
+        subject,
+        round,
+        satisfied: verdict.satisfied,
+        personaFitOk: verdict.personaFit.ok,
+        goalFitOk: verdict.goalFit.ok,
+        requiredChanges: verdict.requiredChanges.length,
+      });
+    },
+  });
+  if (!result.satisfied) ctx.emit("critique.unsatisfied", { subject, rounds: result.rounds });
+  return result;
+}
+
 /** Persist the embedded persona snapshot for gate review (framing phases). */
 function writePersonaArtifact(ctx: PhaseContext, arts: RunArtifacts): void {
   if (!ctx.run.request.persona) return;
@@ -288,14 +359,35 @@ function writePersonaArtifact(ctx: PhaseContext, arts: RunArtifacts): void {
 
 async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   writePersonaArtifact(ctx, arts);
-  const doc = await invokeValidated(
+  const req = ctx.run.request;
+  const goal = [
+    `Frame a ${req.technology} course the target persona can complete.`,
+    req.outcome ? `Stated outcome: ${req.outcome}` : "Derive an outcome appropriate to the persona.",
+    req.inScope ? `In scope: ${req.inScope}` : "",
+    req.outOfScope ? `Out of scope: ${req.outOfScope}` : "",
+  ].filter(Boolean).join(" ");
+  const { value: doc, rounds, satisfied } = await runCritiqued(
     deps,
     ctx,
-    "architect",
-    prompt("course-request", { ...requestContext(ctx.run.request), changeNotes: ctx.changeNotes ?? undefined }),
-    validateCourseRequest,
+    arts,
+    "frame",
+    goal,
+    (critiqueFeedback) =>
+      invokeValidated(
+        deps,
+        ctx,
+        "architect",
+        prompt("course-request", {
+          ...requestContext(req),
+          changeNotes: ctx.changeNotes ?? undefined,
+          critiqueFeedback: critiqueFeedback ?? undefined,
+        }),
+        validateCourseRequest,
+      ),
+    renderCourseRequestMd,
   );
   arts.write("course-request.md", renderCourseRequestMd(doc));
+  recordCritiqueSummary(arts, [{ subject: "frame", rounds, satisfied }]);
   ctx.emit("artifact.written", { path: "course-request.md" });
 }
 
@@ -308,22 +400,33 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
 async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const rev = ctx.run.request.revision!;
   writePersonaArtifact(ctx, arts);
-  const doc = await invokeValidated(
+  const { value: doc, rounds, satisfied } = await runCritiqued(
     deps,
     ctx,
-    "architect",
-    prompt("revision-goal", {
-      family: rev.family,
-      fromVersion: rev.fromVersion,
-      level: rev.level,
-      notes: rev.notes ?? "",
-      report: rev.report ?? null,
-      lessonContent: rev.lessonContent ?? "",
-      ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
-      changeNotes: ctx.changeNotes ?? undefined,
-    }),
-    validateRevisionGoal,
+    arts,
+    "frame",
+    `State a revision goal for lesson "${rev.family}" that fixes what the experience report and operator notes describe.`,
+    (critiqueFeedback) =>
+      invokeValidated(
+        deps,
+        ctx,
+        "architect",
+        prompt("revision-goal", {
+          family: rev.family,
+          fromVersion: rev.fromVersion,
+          level: rev.level,
+          notes: rev.notes ?? "",
+          report: rev.report ?? null,
+          lessonContent: rev.lessonContent ?? "",
+          ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
+          changeNotes: ctx.changeNotes ?? undefined,
+          critiqueFeedback: critiqueFeedback ?? undefined,
+        }),
+        validateRevisionGoal,
+      ),
+    (d) => [`Revision goal: ${d.goal}`, ``, `Success criteria:`, ...d.successCriteria.map((s) => `- ${s}`)].join("\n"),
   );
+  recordCritiqueSummary(arts, [{ subject: "frame", rounds, satisfied }]);
   arts.write(
     "course-request.md",
     [
@@ -347,23 +450,35 @@ async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArt
 
 async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const rev = ctx.run.request.revision!;
-  const plan = await invokeValidated(
+  const revisionGoal = arts.read("course-request.md") ?? "";
+  const { value: plan, rounds, satisfied } = await runCritiqued(
     deps,
     ctx,
-    "architect",
-    prompt("improvement-plan", {
-      family: rev.family,
-      level: rev.level ?? "intro",
-      revisionGoal: arts.read("course-request.md") ?? "",
-      report: rev.report ?? null,
-      notes: rev.notes ?? "",
-      lessonContent: rev.lessonContent ?? "",
-      ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
-      availableCapabilities: [...deps.availableCapabilities].sort(),
-      changeNotes: ctx.changeNotes ?? undefined,
-    }),
-    (parsed) => validateImprovementPlan(parsed, rev.family),
+    arts,
+    "blueprint",
+    `Deliver the approved revision goal:\n${revisionGoal}`,
+    (critiqueFeedback) =>
+      invokeValidated(
+        deps,
+        ctx,
+        "architect",
+        prompt("improvement-plan", {
+          family: rev.family,
+          level: rev.level ?? "intro",
+          revisionGoal,
+          report: rev.report ?? null,
+          notes: rev.notes ?? "",
+          lessonContent: rev.lessonContent ?? "",
+          ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
+          availableCapabilities: [...deps.availableCapabilities].sort(),
+          changeNotes: ctx.changeNotes ?? undefined,
+          critiqueFeedback: critiqueFeedback ?? undefined,
+        }),
+        (parsed) => validateImprovementPlan(parsed, rev.family),
+      ),
+    (p) => p.changePlan,
   );
+  recordCritiqueSummary(arts, [{ subject: "blueprint", rounds, satisfied }]);
   arts.write("plan-review.md", plan.changePlan);
   arts.write("lesson-inventory.json", JSON.stringify([plan.lesson], null, 2));
   const report = computeCapabilityGaps([plan.lesson], deps.availableCapabilities);
@@ -375,19 +490,41 @@ async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunA
 }
 
 async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
-  const bp = await invokeValidated(
+  const courseRequest = arts.read("course-request.md") ?? "";
+  const { value: bp, rounds, satisfied } = await runCritiqued(
     deps,
     ctx,
-    "architect",
-    prompt("blueprint", {
-      ...requestContext(ctx.run.request),
-      courseRequest: arts.read("course-request.md") ?? "",
-      availableCapabilities: [...deps.availableCapabilities].sort(),
-      changeNotes: ctx.changeNotes ?? undefined,
-    }),
-    validateBlueprint,
+    arts,
+    "blueprint",
+    `Deliver the approved course frame:\n${courseRequest}`,
+    (critiqueFeedback) =>
+      invokeValidated(
+        deps,
+        ctx,
+        "architect",
+        prompt("blueprint", {
+          ...requestContext(ctx.run.request),
+          courseRequest,
+          availableCapabilities: [...deps.availableCapabilities].sort(),
+          changeNotes: ctx.changeNotes ?? undefined,
+          critiqueFeedback: critiqueFeedback ?? undefined,
+        }),
+        validateBlueprint,
+      ),
+    // The critic reads the learner-shaped parts: the spine + the inventory
+    // (id/title/purpose/level/concepts), not the full internal graph.
+    (b) =>
+      [
+        b.progressionSpine,
+        "",
+        "## Lesson inventory",
+        ...b.lessonInventory.map(
+          (l) => `- ${l.sequence}. [${l.level}] ${l.title} — ${l.purpose} (introduces: ${l.conceptsIntroduced.join(", ") || "—"})`,
+        ),
+      ].join("\n"),
   );
   writeBlueprint(arts, bp);
+  recordCritiqueSummary(arts, [{ subject: "blueprint", rounds, satisfied }]);
 
   // Capability gaps: diff the inventory's required capabilities vs the registry.
   const report = computeCapabilityGaps(bp.lessonInventory, deps.availableCapabilities);
@@ -417,17 +554,25 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   const authored: string[] = [];
   const needsRevision: string[] = [];
   const summary: ReviewOutcome[] = [];
+  const critiqueEntries: CritiqueSummaryEntry[] = [];
+  const maxRounds = critiqueRounds();
+  const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
 
   for (const lesson of inventory) {
     if (blocked.has(lesson.lessonId)) {
       ctx.emit("lesson.blocked", { lessonId: lesson.lessonId, reason: "capability-gap" });
       continue;
     }
-    // Author → 3 reviews → if it fails the bar, re-author ONCE with the review
-    // feedback, then re-review. A real lesson-author improves; the mock is
-    // deterministic, so a genuinely failing lesson lands in needs-revision.
+    // Author → 4 reviews (technical, pedagogy, cohesion + the learner-advocate's
+    // persona-fit/goal-fit critique) → on failure, re-author with ALL reviewers'
+    // feedback and re-judge — one unified loop up to the critique round cap
+    // (Phase 2). A real author converges in 1-2 rounds; the cap bounds cost, and
+    // a lesson still failing lands in needs-revision (excluded from the course).
+    const subject = `lesson-${lesson.lessonId}`;
     let outcome: ReviewOutcome | null = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    let attemptsUsed = 0;
+    for (let attempt = 1; attempt <= maxRounds; attempt++) {
+      attemptsUsed = attempt;
       const feedback = outcome?.blockers ?? null;
       const plan = await invokeValidated(
         deps,
@@ -446,23 +591,37 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
         deps,
         ctx,
         "pedagogy-reviewer",
-        prompt(`review:pedagogy:${lesson.lessonId}`, {
-          lesson,
-          lessonMarkdown: plan.markdown,
-          ...(ctx.run.request.persona ? { persona: personaPromptView(ctx.run.request.persona.profile) } : {}),
-        }),
+        prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown, persona }),
         validatePedagogyReview,
       );
       const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
+      const advocate = await invokeValidated(
+        deps,
+        ctx,
+        "learner-advocate",
+        prompt(`critique:${subject}`, { subject, round: attempt, goal: lesson.purpose, persona, content: plan.markdown }),
+        validateCritiqueVerdict,
+      );
+      arts.write(`critiques/${subject}.round${attempt}.json`, JSON.stringify(advocate, null, 2));
+      ctx.emit("critique.round", {
+        subject,
+        round: attempt,
+        satisfied: advocate.satisfied,
+        personaFitOk: advocate.personaFit.ok,
+        goalFitOk: advocate.goalFit.ok,
+        requiredChanges: advocate.requiredChanges.length,
+      });
 
-      outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion);
+      outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion, advocate);
       writeReviewArtifacts(arts, lesson.lessonId, outcome);
       ctx.emit("lesson.reviewed", { lessonId: lesson.lessonId, attempt, passed: outcome.passed, scores: pedagogy.scores, blockers: outcome.blockers });
       if (outcome.passed) break;
-      if (attempt < 2) ctx.emit("lesson.revising", { lessonId: lesson.lessonId, blockers: outcome.blockers });
+      if (attempt < maxRounds) ctx.emit("lesson.revising", { lessonId: lesson.lessonId, blockers: outcome.blockers });
     }
 
     summary.push(outcome!);
+    critiqueEntries.push({ subject, rounds: attemptsUsed, satisfied: outcome!.advocate?.satisfied ?? true });
+    if (outcome!.advocate && !outcome!.advocate.satisfied) ctx.emit("critique.unsatisfied", { subject, rounds: attemptsUsed });
     if (outcome!.passed) {
       authored.push(lesson.lessonId);
       ctx.emit("lesson.authored", { lessonId: lesson.lessonId });
@@ -472,6 +631,7 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     }
   }
 
+  if (critiqueEntries.length) recordCritiqueSummary(arts, critiqueEntries);
   arts.write("reviews/summary.json", JSON.stringify(summary, null, 2));
   arts.write("reviews/quality-gates.json", JSON.stringify(qualityGates(inventory, authored, needsRevision, blocked, summary), null, 2));
   arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, needsRevision, blocked));

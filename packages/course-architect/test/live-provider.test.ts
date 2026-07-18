@@ -32,7 +32,8 @@ function fakeFetch(provider: Provider): typeof fetch {
     const lessonId = (context.lesson as { lessonId?: string } | undefined)?.lessonId ?? "x";
     const task =
       user.match(/Produce the "([^"]+)" artifact/)?.[1] ??
-      (/course-request/.test(user) ? "course-request"
+      (/"personaFit"/.test(user) ? `critique:${lessonId}`
+        : /course-request/.test(user) ? "course-request"
         : /course blueprint/.test(user) ? "blueprint"
         : /lesson plan for/.test(user) ? `lesson:${lessonId}`
         : /pedagogy/i.test(user) ? `review:pedagogy:${lessonId}`

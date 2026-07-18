@@ -763,7 +763,12 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
         <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={onBack}>← All runs</button>
         <div>
           <h3>{run.title ?? run.technology}</h3>
-          <p className="gr-mono-note">{run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : run.provider === "anthropic" ? " (per-role tiers)" : ""} · <StatusChip status={run.status} /></p>
+          <p className="gr-mono-note">
+            {run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : run.provider === "anthropic" ? " (per-role tiers)" : ""} · <StatusChip status={run.status} />
+            {(run.request?.persona as { profile?: { name?: string } } | undefined)?.profile?.name
+              ? <> · persona: {(run.request!.persona as { profile: { name: string } }).profile.name}</>
+              : null}
+          </p>
         </div>
       </div>
 
@@ -794,6 +799,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       {run.status === "approved" && <GoLive run={run} onCoursesChanged={onCoursesChanged} />}
 
       <LessonBoard run={run} />
+      <CritiquePanel run={run} />
       <QualityGates run={run} />
       <ArtifactViewer run={run} />
       <ActivityFeed events={run.events} />
@@ -1249,6 +1255,46 @@ function LessonBoard({ run }: { run: CourseRunDetail }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ---------- critique rounds (quality-rework Phase 2) ---------- */
+
+function CritiquePanel({ run }: { run: CourseRunDetail }) {
+  const [entries, setEntries] = useState<Array<{ subject: string; rounds: number; satisfied: boolean }> | null>(null);
+  useEffect(() => {
+    if (run.artifacts.includes("critiques/summary.json")) {
+      courseRunApi.artifact(run.runId, "critiques/summary.json").then((a) => setEntries(JSON.parse(a.content))).catch(() => setEntries(null));
+    } else {
+      setEntries(null);
+    }
+  }, [run]);
+  if (!entries?.length) return null;
+  const unsatisfied = entries.filter((e) => !e.satisfied);
+  return (
+    <div className="gr-card">
+      <h3>
+        Learner-advocate critique{" "}
+        <span className="gr-mono-note">
+          {entries.length} artifact(s){unsatisfied.length ? ` · ${unsatisfied.length} unsatisfied after the round cap` : " · all satisfied"}
+        </span>
+      </h3>
+      <p className="admin-lede-note">
+        Every artifact was judged for persona-fit (terms within the target user's knowledge + capability) and
+        goal-fit (will it achieve its stated goal), refining until satisfied or the round cap. Round-by-round
+        verdicts are in the artifacts under <code>critiques/</code>.
+      </p>
+      <ul className="admin-claims">
+        {entries.map((e) => (
+          <li key={e.subject}>
+            <span className={`admin-chip ${e.satisfied ? "status-mastered" : "status-open"}`}>
+              {e.satisfied ? (e.rounds === 1 ? "satisfied" : `satisfied · ${e.rounds} rounds`) : `unsatisfied · ${e.rounds} rounds`}
+            </span>
+            <code>{e.subject}</code>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

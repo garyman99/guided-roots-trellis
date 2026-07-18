@@ -214,6 +214,11 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
     if (pack && lessonId && pack.lessons[lessonId]) return JSON.stringify(pack.lessons[lessonId]);
     return JSON.stringify(mockLessonPlan(ctx));
   }
+  // The learner-advocate critique (Phase 2): satisfied on round 1 keeps the
+  // offline pipeline fast; tests that exercise iteration pass their own responder.
+  if (prompt.task.startsWith("critique:")) {
+    return JSON.stringify({ satisfied: true, personaFit: { ok: true, issues: [] }, goalFit: { ok: true, issues: [] }, requiredChanges: [] });
+  }
   // Reviews are structured; a passing verdict keeps the default course moving.
   if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
   if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [] });

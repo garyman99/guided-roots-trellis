@@ -6,6 +6,7 @@
  * doc's "below 4 requires revision or an explicit justification" made real.
  */
 import { ValidationError } from "./schemas.ts";
+import type { CritiqueVerdict } from "./critique.ts";
 
 /** Pedagogy rubric — kept to the load-bearing few for this slice. */
 export const PEDAGOGY_CATEGORIES = ["priorKnowledge", "mentalModel", "activeLearning", "feedback", "mastery"] as const;
@@ -69,14 +70,23 @@ export interface ReviewOutcome {
   technical: TechnicalReview;
   pedagogy: PedagogyReview;
   cohesion: CohesionReview;
+  /** The learner-advocate's persona-fit + goal-fit verdict (Phase 2), when run. */
+  advocate?: CritiqueVerdict;
   /** Pedagogy categories below threshold WITHOUT a justification. */
   failingCategories: PedagogyCategory[];
   /** Human-readable reasons the lesson didn't pass (empty when it passed). */
   blockers: string[];
 }
 
-/** Decide whether a lesson's three reviews clear the bar. */
-export function evaluateReviews(lessonId: string, technical: TechnicalReview, pedagogy: PedagogyReview, cohesion: CohesionReview): ReviewOutcome {
+/** Decide whether a lesson's reviews clear the bar (advocate is the 4th
+ *  reviewer when present — a persona-unfit lesson fails like any other). */
+export function evaluateReviews(
+  lessonId: string,
+  technical: TechnicalReview,
+  pedagogy: PedagogyReview,
+  cohesion: CohesionReview,
+  advocate?: CritiqueVerdict,
+): ReviewOutcome {
   const failingCategories = PEDAGOGY_CATEGORIES.filter(
     (cat) => pedagogy.scores[cat] < REVISION_THRESHOLD && !(pedagogy.justifications?.[cat]?.trim()),
   );
@@ -84,5 +94,13 @@ export function evaluateReviews(lessonId: string, technical: TechnicalReview, pe
   if (technical.verdict === "revise") blockers.push(`technical: ${technical.issues?.join("; ") || "revise"}`);
   if (cohesion.verdict === "revise") blockers.push(`cohesion: ${cohesion.issues?.join("; ") || "revise"}`);
   for (const cat of failingCategories) blockers.push(`pedagogy.${cat}=${pedagogy.scores[cat]} (< ${REVISION_THRESHOLD}, unjustified)`);
-  return { lessonId, passed: blockers.length === 0, technical, pedagogy, cohesion, failingCategories, blockers };
+  if (advocate && !advocate.satisfied) {
+    for (const i of advocate.personaFit.issues) blockers.push(`persona-fit: ${i}`);
+    for (const i of advocate.goalFit.issues) blockers.push(`goal-fit: ${i}`);
+    for (const c of advocate.requiredChanges) blockers.push(`learner-advocate: ${c}`);
+    if (advocate.personaFit.issues.length + advocate.goalFit.issues.length + advocate.requiredChanges.length === 0) {
+      blockers.push("learner-advocate: unsatisfied");
+    }
+  }
+  return { lessonId, passed: blockers.length === 0, technical, pedagogy, cohesion, ...(advocate ? { advocate } : {}), failingCategories, blockers };
 }
