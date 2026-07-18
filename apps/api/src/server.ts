@@ -62,7 +62,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
@@ -118,8 +118,9 @@ import {
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { createPersona, deletePersona, listPersonas, readInterview, readPersona, savePersona, writeInterview } from "./personaLibrary.ts";
 import { appendReplayEvents, deleteReplay, replayFileFor, rrwebEnabled } from "./replayStore.ts";
+import { SimTestManager, spawnSimTestRunner, type SimLessonResult, type SimTestJob } from "./courseSimTest.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
-import { lessonExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
+import { lessonExperience, sessionExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
 import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
 import { newLearnerId, familyOf, versionOf, versionedLabId } from "../../../packages/shared/src/ids.ts";
 import { recommendNext } from "../../../packages/learner-model/src/recommend.ts";
@@ -543,6 +544,67 @@ function validateProviderConfig(cfg: RunProviderConfig | undefined): string | nu
 // Real-time view: the current model call's streaming thinking/text per run,
 // held in memory (not the event log) and polled by the UI while a phase runs.
 const liveActivity = new Map<string, LiveActivity>();
+
+/* ── pre-publish simulated user test (Phase 4): the course's persona plays
+ *    every materialized lesson via tools/sim-test.mjs. Advisory at Go-live. ── */
+
+/** Persist a finished lesson's sim result under the run + tag its session. */
+function persistSimResult(runId: string, result: SimLessonResult): void {
+  // Keep the sim session replayable, but OUT of real-learner metrics; then its
+  // friction score is computed with the same function real sessions use.
+  if (result.sessionId) {
+    try {
+      store.setSessionKind(result.sessionId, "sim");
+      const meta = store.sessionMeta(result.sessionId);
+      if (meta) result.frictionScore = sessionExperience(store, meta).friction;
+    } catch { /* session may be gone; the result still stands */ }
+  }
+  const arts = runArtifactsFor(runId);
+  arts.write(`sim-tests/${result.labId}/result.json`, JSON.stringify(result, null, 2));
+  // Copy the trace beside it so the artifact endpoint can serve it.
+  if (result.bundleDir) {
+    try {
+      const trace = readFileSync(join(result.bundleDir, "simulator-trace.md"), "utf8");
+      arts.write(`sim-tests/${result.labId}/simulator-trace.md`, trace);
+    } catch { /* trace missing (early failure) */ }
+  }
+}
+
+/** Offline stand-in for the child-process runner (TRELLIS_SIM_TEST_FAKE=1):
+ *  lets the web e2e walk approve → sim → advisory badges with no browser. */
+const fakeSimTestRunner = async (job: SimTestJob): Promise<SimLessonResult> => ({
+  labId: job.labId,
+  status: "completed",
+  reason: "fake runner (TRELLIS_SIM_TEST_FAKE=1)",
+  decisions: 5,
+  invalidActions: 0,
+  clarifyingQuestions: 1,
+  checkpointPassed: true,
+  sessionId: null,
+  model: "fake/sim-test",
+});
+
+const simTests = new SimTestManager({
+  runner: (job) => (process.env.TRELLIS_SIM_TEST_FAKE === "1" ? fakeSimTestRunner(job) : spawnSimTestRunner(repoRoot)(job)),
+  onResult: persistSimResult,
+});
+
+/** Job states for a run: durable disk results overlaid by live in-memory state. */
+function simTestStatus(runId: string): Array<{ labId: string; state: string; result?: SimLessonResult }> {
+  const out = new Map<string, { labId: string; state: string; result?: SimLessonResult }>();
+  const dir = join(runsDir(), runId, "sim-tests");
+  if (existsSync(dir)) {
+    for (const labId of readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
+      try {
+        out.set(labId, { labId, state: "done", result: JSON.parse(readFileSync(join(dir, labId, "result.json"), "utf8")) as SimLessonResult });
+      } catch { /* partial dir */ }
+    }
+  }
+  for (const r of simTests.status(runId)) {
+    if (r.state !== "done" || r.result) out.set(r.labId, { labId: r.labId, state: r.state, ...(r.result ? { result: r.result } : {}) });
+  }
+  return [...out.values()];
+}
 
 /* ── experience analysis (plan Phase B): a lightweight in-process job, NOT a
  *    CourseRun — it only READS recorded sessions and writes a report. One
@@ -1663,6 +1725,195 @@ export const server = createServer(async (req, res) => {
               else courseRuns.archive(runId);
               return json(res, 200, { run: courseRunDetail(runId) });
             }
+            // ── pre-publish simulated user test (Phase 4): the persona plays
+            //    every materialized lesson; results are ADVISORY at Go-live. ──
+            if (parts.length >= 5 && parts[4] === "sim-test") {
+              // GET status — durable disk results overlaid by live queue state.
+              if (req.method === "GET" && parts.length === 5) {
+                return json(res, 200, { jobs: simTestStatus(runId), running: simTests.busy(runId) });
+              }
+              // GET …/sim-test/:labId/video — stream the run.webm.
+              if (req.method === "GET" && parts.length === 7 && parts[6] === "video") {
+                const rec = simTestStatus(runId).find((j) => j.labId === parts[5])?.result;
+                if (!rec?.bundleDir) return json(res, 404, { error: "no sim-test recording for this lesson" });
+                const abs = resolvePath(join(rec.bundleDir, "recording", "run.webm"));
+                const artifactsRoot = resolvePath(process.env.TRELLIS_ARTIFACTS_DIR ?? join(repoRoot, "artifacts"));
+                if (!abs.startsWith(artifactsRoot) || !existsSync(abs)) return json(res, 404, { error: "recording not found" });
+                res.writeHead(200, { "content-type": "video/webm" });
+                createReadStream(abs).pipe(res);
+                return;
+              }
+              // POST — enqueue the persona through the materialized lessons.
+              if (req.method === "POST" && parts.length === 5) {
+                if (run.status !== "approved") {
+                  return json(res, 409, { error: "run the simulated learner after the publish gate is approved" });
+                }
+                if (simTests.busy(runId)) {
+                  return json(res, 409, { error: "a simulated-learner test is already running for this run" });
+                }
+                const body = await readBody(req);
+                const webUrl = process.env.TRELLIS_WEB_URL ?? "http://localhost:5173";
+                const apiUrl = process.env.TRELLIS_API_URL ?? "http://127.0.0.1:8787";
+
+                // Persona: the run's embedded snapshot → the course's → an
+                // explicit personaId (legacy courses; backfilled one time).
+                let persona = run.request.persona;
+                const course = run.request.revision
+                  ? store.getCourse(run.request.revision.courseId)
+                  : store.listCourses().find((c) => c.sourceRunId === runId);
+                if (!persona && course?.persona) persona = course.persona as unknown as EmbeddedPersona;
+                if (!persona) {
+                  const personaId = typeof body.personaId === "string" ? body.personaId.trim() : "";
+                  if (!personaId) {
+                    return json(res, 422, { error: "this run predates personas — pick one to attach (personaId)", needPersona: true });
+                  }
+                  const p = readPersona(personasDir(), personaId);
+                  if (!p) return json(res, 400, { error: `persona "${personaId}" not found` });
+                  if (p.status !== "ready") return json(res, 400, { error: `persona "${personaId}" is not marked ready` });
+                  persona = { personaId: p.personaId, version: p.version, profile: p };
+                  if (course) store.saveCourse({ ...course, persona, updatedAt: new Date().toISOString() });
+                }
+                const arts = runArtifactsFor(runId);
+                if (!arts.read("persona.json")) arts.write("persona.json", JSON.stringify(persona, null, 2));
+                const personaPath = join(runsDir(), runId, "persona.json");
+
+                // Lessons: what materializing actually shipped.
+                let manifest: { labIds?: string[] } = {};
+                try {
+                  manifest = JSON.parse(arts.read("manifest.json") ?? "{}") as { labIds?: string[] };
+                } catch { /* fall through to empty */ }
+                const allLabs = manifest.labIds ?? [];
+                const wanted =
+                  Array.isArray(body.labIds) && body.labIds.length
+                    ? allLabs.filter((l) => (body.labIds as unknown[]).includes(l))
+                    : allLabs;
+                if (wanted.length === 0) return json(res, 400, { error: "no materialized lessons to test" });
+
+                // Preflight the web server (the child drives a real browser).
+                if (process.env.TRELLIS_SIM_TEST_FAKE !== "1") {
+                  const ok = await fetch(webUrl, { signal: AbortSignal.timeout(3000) }).then((r) => r.status < 500).catch(() => false);
+                  if (!ok) return json(res, 503, { error: `web server unreachable at ${webUrl} — start it or set TRELLIS_WEB_URL` });
+                }
+
+                // Cumulative memory: lesson N's persona "already learned" the
+                // concepts lessons 1..N-1 introduced (grill decision).
+                let inventory: Array<{ lessonId: string; sequence?: number; title?: string; conceptsIntroduced?: string[] }> = [];
+                try {
+                  inventory = JSON.parse(arts.read("lesson-inventory.json") ?? "[]") as typeof inventory;
+                } catch { /* concepts stay empty */ }
+                const bySeq = [...inventory].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+                const scenarios = new Map(store.listScenarioEntries().map((s) => [s.labId, s]));
+                const jobs: SimTestJob[] = wanted.map((labId) => {
+                  const idx = bySeq.findIndex((l) => l.lessonId === labId);
+                  const concepts = idx > 0 ? [...new Set(bySeq.slice(0, idx).flatMap((l) => l.conceptsIntroduced ?? []))] : [];
+                  const scen = scenarios.get(labId);
+                  return {
+                    runId,
+                    labId,
+                    title: scen?.title ?? bySeq[idx]?.title ?? labId,
+                    ...(scen?.blurb ? { blurb: scen.blurb } : {}),
+                    concepts,
+                    personaPath,
+                    webUrl,
+                    apiUrl,
+                  };
+                });
+                simTests.enqueue(jobs);
+                return json(res, 202, { jobs: simTestStatus(runId), running: true });
+              }
+              // POST …/sim-test/:labId/start-revision — one-click loop closure:
+              // the sim result becomes an ExperienceReport-shaped seed feeding
+              // the existing revision machinery (Phase D unchanged).
+              if (req.method === "POST" && parts.length === 7 && parts[6] === "start-revision") {
+                const labId = parts[5];
+                const rec = simTestStatus(runId).find((j) => j.labId === labId)?.result;
+                if (!rec) return json(res, 404, { error: "no sim-test result for this lesson" });
+                if (isHandAuthoredLab(labId)) {
+                  return json(res, 400, { error: "hand-authored lessons are revised in the repo — use the dev handoff instead" });
+                }
+                const family = familyOf(labId);
+                const course = store.listCourses().find((c) => c.lessons.some((l) => (l.family ?? familyOf(l.labId)) === family));
+                if (!course) return json(res, 400, { error: `no course contains a lesson in family "${family}"` });
+                const slot = course.lessons.find((l) => (l.family ?? familyOf(l.labId)) === family)!;
+                if (store.listCourseRuns().some((r) => r.request.revision?.family === family && !isTerminal(r.status))) {
+                  return json(res, 400, { error: `a revision for "${family}" is already in progress` });
+                }
+                const body = await readBody(req);
+                const providerConfig = parseProviderConfig(body.providerConfig);
+                const providerError = validateProviderConfig(providerConfig);
+                if (providerError) return json(res, 400, { error: providerError });
+
+                const trace = (runArtifactsFor(runId).read(`sim-tests/${labId}/simulator-trace.md`) ?? "").slice(-2000);
+                const failed = rec.status !== "completed" || rec.checkpointPassed === false;
+                const report = {
+                  family,
+                  version: slot.version ?? versionOf(slot.labId),
+                  sessionsAnalyzed: 1,
+                  verdict: "revise",
+                  summary:
+                    `Pre-publish simulated user test: the target persona ` +
+                    (failed
+                      ? `did NOT complete this lesson (${rec.status}${rec.reason ? `: ${rec.reason}` : ""}).`
+                      : `completed this lesson but with notable friction.`) +
+                    ` ${rec.decisions ?? 0} decisions, ${rec.clarifyingQuestions ?? 0} guide question(s)` +
+                    (typeof rec.frictionScore === "number" ? `, friction score ${rec.frictionScore}` : "") +
+                    `.`,
+                  findings: [
+                    {
+                      severity: failed ? "high" : "medium",
+                      area: "content",
+                      description: failed
+                        ? `The simulated target user got ${rec.status === "gave_up" ? "frustrated and gave up" : rec.status} before completing the lesson.`
+                        : "The simulated target user completed the lesson but needed help beyond what the content provides.",
+                      evidence: `status=${rec.status}; decisions=${rec.decisions ?? 0}; guide questions=${rec.clarifyingQuestions ?? 0}; checkpoint=${String(rec.checkpointPassed)}${rec.reason ? `; reason: ${rec.reason}` : ""}`,
+                    },
+                    ...(trace
+                      ? [{
+                          severity: "medium",
+                          area: "lab-design",
+                          description: "The sim trace shows where the persona's attention and attempts went — the friction points to address.",
+                          evidence: `Trace tail:\n${trace}`,
+                        }]
+                      : []),
+                  ],
+                  recommendations: [
+                    {
+                      findingIndex: 0,
+                      change: "Rework the point of failure the sim trace shows so this persona can pass it unaided (terms defined, steps within their capability).",
+                      rationale: "The sim plays the exact persona the course targets; where it stalls, real learners will too.",
+                    },
+                  ],
+                };
+
+                let lessonContent = "";
+                try {
+                  const dir = manager.labDir(slot.labId);
+                  lessonContent = readFileSync(join(dir, "lab.json"), "utf8").slice(0, 4000);
+                  const readme = join(dir, "template", "README.md");
+                  if (existsSync(readme)) lessonContent += "\n--- template/README.md ---\n" + readFileSync(readme, "utf8").slice(0, 4000);
+                } catch { /* the report still seeds the run */ }
+
+                const scenario = store.listScenarioEntries().find((s) => s.labId === slot.labId);
+                const technology = scenario?.technologies?.[0] ?? course.title ?? family;
+                const revisionRun = courseRuns.create({
+                  technology: technology.slice(0, 80),
+                  title: `Revision: ${family} v${slot.version ?? versionOf(slot.labId)} → v${(slot.version ?? versionOf(slot.labId)) + 1}`,
+                  ...(providerConfig ? { providerConfig } : {}),
+                  ...(course.persona ? { persona: course.persona as unknown as EmbeddedPersona } : {}),
+                  revision: {
+                    courseId: course.courseId,
+                    family,
+                    fromLabId: slot.labId,
+                    fromVersion: slot.version ?? versionOf(slot.labId),
+                    level: slot.level,
+                    report,
+                    notes: `Seeded by the pre-publish simulated user test (run ${runId}, lesson ${labId}).`,
+                    lessonContent,
+                  },
+                });
+                return json(res, 201, { run: courseRunDetail(revisionRun.runId) });
+              }
+            }
             // DELETE a run and everything it produced (cascade). Refuse mid-phase.
             if (req.method === "DELETE" && parts.length === 4) {
               if (isActive(run.status)) {
@@ -1904,6 +2155,8 @@ export const server = createServer(async (req, res) => {
             // Lifecycle: "open" until the learner finishes or starts over.
             status: m.status,
             endedAt: m.endedAt,
+            // Who drove it: a real learner or the pre-publish simulated learner.
+            kind: m.kind ?? "learner",
             // Still attached to a live lab environment in this process?
             live: manager.get(m.sessionId) !== null,
           };

@@ -17,7 +17,7 @@ export {
   type RawSnapshot,
   type RawSnapshotTarget,
 } from "./observation.ts";
-export { learnerVisibleSpec } from "./specView.ts";
+export { learnerVisibleSpec, personaSpec, type PersonaSpecProfile } from "./specView.ts";
 export {
   MAX_ACTIONS_PER_DECISION,
   validateDecision,

@@ -205,7 +205,9 @@ export function sessionExperience(store: EventStore, meta: SessionMeta): Session
  */
 export function lessonExperience(store: EventStore, labId: string): LessonExperience {
   const family = familyOf(labId);
-  const metas = store.listSessions().filter((m) => familyOf(m.labId) === family);
+  // Real learners only: kept sim-test sessions (kind "sim", Phase 4) are for
+  // replay/inspection and must not pollute the improvement-loop metrics.
+  const metas = store.listSessions().filter((m) => familyOf(m.labId) === family && (m.kind ?? "learner") === "learner");
   const all = metas.map((m) => sessionExperience(store, m));
 
   // Completion digests carry hint-outcome signal the raw log lacks. Digests are

@@ -36,6 +36,10 @@ export interface SessionMeta {
   /** Lifecycle: "open" until the learner finishes or starts over. */
   status: "open" | "abandoned";
   endedAt: string | null;
+  /** Who drove it: a real learner (default) or the pre-publish simulated
+   *  learner (Phase 4). Sim sessions are kept for replay/inspection but are
+   *  EXCLUDED from the real-learner experience metrics. */
+  kind?: "learner" | "sim";
 }
 
 /** Latest-wins snapshot of a session's workspace content, for resume-after-restart. */
@@ -202,6 +206,8 @@ export interface EventStore {
   eventsFor(sessionId: string): SessionEvent[];
   sessionMeta(sessionId: string): SessionMeta | null;
   setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void;
+  /** Tag a session's driver (Phase 4: the sim runner marks its sessions "sim"). */
+  setSessionKind(sessionId: string, kind: "learner" | "sim"): void;
   /** Newest still-open session for a learner+lab, or null. */
   latestOpenSession(learnerId: string, labId: string): SessionMeta | null;
   // session snapshots (resume-after-restart) — latest-wins per (session, kind)
@@ -378,6 +384,7 @@ class SqliteStore implements EventStore {
       "ALTER TABLE token_usage ADD COLUMN run_id TEXT",
       "ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
       "ALTER TABLE sessions ADD COLUMN ended_at TEXT",
+      "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'learner'",
     ]) {
       try {
         this.db.exec(alter);
@@ -420,7 +427,7 @@ class SqliteStore implements EventStore {
 
   sessionMeta(sessionId: string): SessionMeta | null {
     const row = this.selectSession.get(sessionId) as
-      | { session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number; status: string; ended_at: string | null }
+      | { session_id: string; learner_id: string; lab_id: string; created_at: string; consent_analytics: number; status: string; ended_at: string | null; kind?: string }
       | undefined;
     if (!row) return null;
     return {
@@ -431,11 +438,16 @@ class SqliteStore implements EventStore {
       consentAnalytics: row.consent_analytics === 1,
       status: row.status === "abandoned" ? "abandoned" : "open",
       endedAt: row.ended_at,
+      kind: row.kind === "sim" ? "sim" : "learner",
     };
   }
 
   setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void {
     this.db.prepare("UPDATE sessions SET status = ?, ended_at = ? WHERE session_id = ?").run(status, endedAt, sessionId);
+  }
+
+  setSessionKind(sessionId: string, kind: "learner" | "sim"): void {
+    this.db.prepare("UPDATE sessions SET kind = ? WHERE session_id = ?").run(kind, sessionId);
   }
 
   latestOpenSession(learnerId: string, labId: string): SessionMeta | null {
@@ -747,6 +759,7 @@ class SqliteStore implements EventStore {
       consentAnalytics: r.consent_analytics === 1,
       status: r.status === "abandoned" ? ("abandoned" as const) : ("open" as const),
       endedAt: r.ended_at,
+      kind: (r as { kind?: string }).kind === "sim" ? ("sim" as const) : ("learner" as const),
     }));
   }
 
@@ -888,6 +901,10 @@ class MemoryStore implements EventStore {
   }
   sessionMeta(sessionId: string): SessionMeta | null {
     return this.sessions.get(sessionId) ?? null;
+  }
+  setSessionKind(sessionId: string, kind: "learner" | "sim"): void {
+    const m = this.sessions.get(sessionId);
+    if (m) this.sessions.set(sessionId, { ...m, kind });
   }
   setSessionStatus(sessionId: string, status: "open" | "abandoned", endedAt: string | null): void {
     const m = this.sessions.get(sessionId);

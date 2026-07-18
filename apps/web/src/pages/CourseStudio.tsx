@@ -11,6 +11,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import {
   courseRunApi,
   personaApi,
+  simTestApi,
+  type SimLessonResult,
+  type SimTestJobView,
   type Course,
   type CapabilityGapReport,
   type CapabilityRequest,
@@ -1124,6 +1127,8 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
       </div>
       {error && <p className="admin-error">{error}</p>}
 
+      <SimTestPanel run={run} />
+
       {lessons.length > 0 && (
         <table className="admin-table" style={{ marginTop: 14 }}>
           <thead>
@@ -1175,6 +1180,157 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
                     </tr>
                   )}
                 </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/* ---------- pre-publish simulated user test (quality-rework Phase 4) ---------- */
+
+function SimTestPanel({ run }: { run: CourseRunDetail }) {
+  const [jobs, setJobs] = useState<SimTestJobView[] | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [needPersona, setNeedPersona] = useState(false);
+  const [readyPersonas, setReadyPersonas] = useState<PersonaProfile[]>([]);
+  const [personaId, setPersonaId] = useState("");
+  const [busyRev, setBusyRev] = useState<string | null>(null);
+  const [revStarted, setRevStarted] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    simTestApi.status(run.runId).then((s) => { setJobs(s.jobs); setRunning(s.running); }).catch(() => {});
+  }, [run.runId]);
+  useEffect(() => refresh(), [refresh]);
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+  }, [running, refresh]);
+
+  const start = (pid?: string) => {
+    setError(null);
+    simTestApi.start(run.runId, pid ? { personaId: pid } : {})
+      .then((s) => { setJobs(s.jobs); setRunning(true); setNeedPersona(false); })
+      .catch((e) => {
+        if ((e as { status?: number }).status === 422) {
+          // Legacy run/course with no persona: prompt to attach one (backfilled).
+          setNeedPersona(true);
+          personaApi.list().then((ps) => {
+            const ready = ps.filter((p) => p.status === "ready");
+            setReadyPersonas(ready);
+            if (ready[0]) setPersonaId(ready[0].personaId);
+          }).catch(() => setReadyPersonas([]));
+        } else {
+          setError(String((e as Error).message));
+        }
+      });
+  };
+
+  const badge = (j: SimTestJobView) => {
+    if (j.state !== "done") return <span className="admin-chip status-open">{j.state}</span>;
+    const s = j.result?.status;
+    const cls = s === "completed" ? "status-mastered" : s === "environment_failure" || s === "simulator_failure" ? "" : "status-open";
+    return <span className={`admin-chip ${cls}`}>{s ?? "?"}</span>;
+  };
+
+  return (
+    <div className="cg-simtest" style={{ marginTop: 14 }}>
+      <h4 className="admin-subhead">Simulated learner (advisory)</h4>
+      <p className="gr-mono-note">
+        Before publishing, let the course's target persona actually play every lesson — screen only, mouse
+        and keyboard, asking the in-app guide when stuck. Results inform your publish decision; they don't
+        block it. Requires the web dev server and a live SIMULATOR_* provider.
+      </p>
+      <div className="admin-editor-actions">
+        <button className="gr-btn gr-btn-primary gr-btn-small" onClick={() => start()} disabled={running}>
+          {running ? "Running…" : jobs?.length ? "Re-run simulated learner" : "Run simulated learner (all lessons)"}
+        </button>
+        {running && <span className="gr-mono-note">one lesson at a time — this takes a while; leave the page open or come back</span>}
+      </div>
+      {needPersona && (
+        <div className="admin-editor-actions">
+          <span className="gr-mono-note">This course predates personas — pick one to attach (saved onto the course):</span>
+          {readyPersonas.length === 0 ? (
+            <span className="admin-error">no ready personas — define one in the Personas view first</span>
+          ) : (
+            <>
+              <select value={personaId} onChange={(e) => setPersonaId(e.target.value)} aria-label="Persona to attach">
+                {readyPersonas.map((p) => <option key={p.personaId} value={p.personaId}>{p.name}</option>)}
+              </select>
+              <button className="gr-btn gr-btn-small gr-btn-primary" onClick={() => start(personaId)} disabled={!personaId}>
+                Attach &amp; run
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {error && <p className="admin-error">{error}</p>}
+      {revStarted && <p className="gr-mono-note">Revision run started: <code>{revStarted}</code> — see the Runs list.</p>}
+
+      {jobs && jobs.length > 0 && (
+        <table className="admin-table">
+          <thead>
+            <tr><th>Lesson</th><th>Outcome</th><th>Friction</th><th>Asked the guide</th><th>Evidence</th><th></th></tr>
+          </thead>
+          <tbody>
+            {jobs.map((j) => {
+              const r = j.result;
+              const failed = j.state === "done" && (r?.status !== "completed" || r?.checkpointPassed === false);
+              return (
+                <tr key={j.labId}>
+                  <td><code>{j.labId}</code></td>
+                  <td>
+                    {badge(j)}
+                    {r?.checkpointPassed === false && <span className="admin-chip status-abandoned" style={{ marginLeft: 6 }}>checkpoint fail</span>}
+                    {r?.reason && <div className="gr-mono-note">{r.reason}</div>}
+                  </td>
+                  <td>{typeof r?.frictionScore === "number" ? r.frictionScore : "—"}</td>
+                  <td>{r ? `${r.clarifyingQuestions ?? 0}×` : "—"}</td>
+                  <td>
+                    {r && (
+                      <>
+                        <button
+                          className="gr-btn gr-btn-small gr-btn-ghost"
+                          onClick={() =>
+                            courseRunApi.artifact(run.runId, `sim-tests/${j.labId}/simulator-trace.md`)
+                              .then((a) => window.open("", "_blank")?.document.write(`<pre>${a.content.replace(/</g, "&lt;")}</pre>`))
+                              .catch(() => setError("no trace recorded"))
+                          }
+                        >
+                          Trace
+                        </button>{" "}
+                        {r.bundleDir && (
+                          <a className="gr-btn gr-btn-small gr-btn-ghost" href={simTestApi.videoUrl(run.runId, j.labId)} target="_blank" rel="noreferrer">
+                            Video ↗
+                          </a>
+                        )}
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {failed && (
+                      <button
+                        className="gr-btn gr-btn-small"
+                        disabled={busyRev === j.labId}
+                        onClick={() => {
+                          setBusyRev(j.labId);
+                          setError(null);
+                          simTestApi.startRevision(run.runId, j.labId)
+                            .then((rev) => setRevStarted(rev.runId))
+                            .catch((e) => setError(String((e as Error).message)))
+                            .finally(() => setBusyRev(null));
+                        }}
+                        title="Seed a lesson-revision run from this sim result"
+                      >
+                        {busyRev === j.labId ? "Starting…" : "Start revision from this result"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
               );
             })}
           </tbody>

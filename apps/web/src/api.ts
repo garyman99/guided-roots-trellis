@@ -717,6 +717,46 @@ export const personaApi = {
     adminGet<{ live: LiveActivity | null; running: boolean }>(`/api/admin/personas/${encodeURIComponent(id)}/interview/live`),
 };
 
+/* ── pre-publish simulated user test (quality-rework Phase 4) ── */
+
+export interface SimLessonResult {
+  labId: string;
+  status: string;
+  reason?: string;
+  decisions?: number;
+  invalidActions?: number;
+  clarifyingQuestions?: number;
+  checkpointPassed?: boolean | null;
+  sessionId?: string | null;
+  estimatedCostUSD?: number;
+  model?: string;
+  bundleDir?: string;
+  at?: string;
+  frictionScore?: number | null;
+}
+export interface SimTestJobView {
+  labId: string;
+  state: "queued" | "running" | "done";
+  result?: SimLessonResult;
+}
+
+export const simTestApi = {
+  status: (runId: string) =>
+    adminGet<{ jobs: SimTestJobView[]; running: boolean }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test`),
+  start: (runId: string, body?: { labIds?: string[]; personaId?: string }) =>
+    adminSend<{ jobs: SimTestJobView[]; running: boolean }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test`, body ?? {}),
+  startRevision: (runId: string, labId: string, providerConfig?: ProviderConfig) =>
+    adminSend<{ run: CourseRunDetail }>(
+      "POST",
+      `/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test/${encodeURIComponent(labId)}/start-revision`,
+      providerConfig ? { providerConfig } : {},
+    ).then((r) => r.run),
+  videoUrl: (runId: string, labId: string) => {
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    return `/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test/${encodeURIComponent(labId)}/video${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  },
+};
+
 export interface CapabilityRequest {
   gapId: string;
   runId: string;

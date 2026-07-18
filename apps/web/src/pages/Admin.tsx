@@ -118,6 +118,8 @@ interface AdminSessionSummary {
   live: boolean;
   /** Lifecycle: "open" until the learner finishes or starts over. Optional — older sessions predate this field. */
   status?: "open" | "abandoned";
+  /** Who drove it: a real learner or the pre-publish simulated learner (Phase 4). */
+  kind?: "learner" | "sim";
 }
 
 /** Replay events are the raw session event log; rendered defensively. */
@@ -1149,6 +1151,7 @@ function SessionsView({
 }) {
   const [learner, setLearner] = useState<string>("all");
   const [status, setStatus] = useState<"all" | "finished" | "in-progress">("all");
+  const [kind, setKind] = useState<"all" | "learner" | "sim">("all");
   const [replayId, setReplayId] = useState<string | null>(null);
 
   if (!sessions) return <p className="admin-loading">Loading sessions…</p>;
@@ -1163,7 +1166,8 @@ function SessionsView({
   const rows = sessions.filter(
     (s) =>
       (learner === "all" || s.learnerId === learner) &&
-      (status === "all" || (status === "finished" ? s.completed : !s.completed)),
+      (status === "all" || (status === "finished" ? s.completed : !s.completed)) &&
+      (kind === "all" || (s.kind ?? "learner") === kind),
   );
 
   if (replayId) return <ReplayView sessionId={replayId} onBack={() => setReplayId(null)} />;
@@ -1193,6 +1197,14 @@ function SessionsView({
             <option value="all">All</option>
             <option value="finished">Finished</option>
             <option value="in-progress">Not finished</option>
+          </select>
+        </label>
+        <label>
+          <span className="gr-mono-note">DRIVER</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+            <option value="all">All</option>
+            <option value="learner">Real learners</option>
+            <option value="sim">Simulated (sim-test)</option>
           </select>
         </label>
         <span className="gr-mono-note">
@@ -1225,6 +1237,7 @@ function SessionsView({
                   {s.completed ? "finished" : s.live ? "live now" : "not finished"}
                 </span>
                 {s.status === "abandoned" && <span className="admin-chip status-abandoned">abandoned</span>}
+                {s.kind === "sim" && <span className="admin-chip kind-llm" title="Driven by the pre-publish simulated learner">sim</span>}
               </td>
               <td>{fmtDuration(s.durationMs)}</td>
               <td>
