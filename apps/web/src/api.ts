@@ -507,11 +507,17 @@ export interface ProviderOption {
 export interface ProvidersPayload {
   defaultProvider: string;
   defaultModel: string | null;
+  /** Pipeline role ids, in invocation order. */
+  roles?: string[];
+  /** Per-role default Claude model (the tier ladder), for the advanced picker. */
+  roleTiers?: Record<string, string>;
   providers: ProviderOption[];
 }
 export interface ProviderConfig {
   provider: "mock" | "anthropic" | "openai-compatible";
   model?: string;
+  /** Per-role model overrides; wins over `model` for that role. */
+  roleModels?: Record<string, string>;
   baseUrl?: string;
 }
 

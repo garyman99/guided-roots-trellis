@@ -37,6 +37,54 @@ export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "experience-analyst",
 ];
 
+/**
+ * Default Claude model per role — the cheapest tier that fits the job.
+ * Generative roles (whole documents, high leverage) ride Opus; judgment roles
+ * (review against explicit criteria) ride Sonnet. Applies only when the run
+ * picked the anthropic provider without an explicit model; see
+ * resolveRoleModel for the full precedence chain.
+ */
+export const ROLE_MODEL_TIERS: Record<CourseGenRole, string> = {
+  architect: "claude-opus-4-8",
+  "lesson-author": "claude-opus-4-8",
+  "domain-analyst": "claude-sonnet-5",
+  "learner-advocate": "claude-sonnet-5",
+  "technical-reviewer": "claude-sonnet-5",
+  "pedagogy-reviewer": "claude-sonnet-5",
+  "cohesion-editor": "claude-sonnet-5",
+  "experience-analyst": "claude-sonnet-5",
+};
+
+/** The per-run provider choice, as far as model resolution needs it. */
+export interface RoleModelChoice {
+  provider: CourseGenProvider;
+  /** Explicit run-wide model — the operator's override for every role. */
+  model?: string;
+  /** Per-role overrides from the run's advanced picker. */
+  roleModels?: Partial<Record<CourseGenRole, string>>;
+}
+
+/**
+ * Which model a role should use. Precedence: the run's per-role pick, then the
+ * run's explicit run-wide model, then COURSE_GEN_<ROLE>_MODEL env, then the
+ * anthropic tier default, then the shared COURSE_GEN_MODEL env. Undefined means
+ * the caller has no model for this role (an error for live providers).
+ */
+export function resolveRoleModel(
+  role: CourseGenRole,
+  choice: RoleModelChoice,
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const roleKey = role.toUpperCase().replace(/-/g, "_");
+  return (
+    choice.roleModels?.[role] ??
+    choice.model ??
+    env[`COURSE_GEN_${roleKey}_MODEL`] ??
+    (choice.provider === "anthropic" ? ROLE_MODEL_TIERS[role] : undefined) ??
+    env.COURSE_GEN_MODEL
+  );
+}
+
 export interface RolePrompt {
   system: string;
   user: string;
@@ -120,7 +168,10 @@ export function resolveCourseGenConfig(role: CourseGenRole, env: Record<string, 
 
 export interface LiveRoleOptions {
   provider: "anthropic" | "openai-compatible";
-  model: string;
+  /** Run-wide fallback model; a role without a roleModels entry uses this. */
+  model?: string;
+  /** Resolved per-role models (tier defaults folded in by the caller). */
+  roleModels?: Partial<Record<CourseGenRole, string>>;
   baseUrl?: string;
   apiKey?: string;
   maxTokens?: number;
@@ -133,18 +184,26 @@ export interface LiveRoleOptions {
 
 /**
  * Live invoker over model-runtime's fetch clients. Built with ONE explicit
- * config used for every role (the run-wide provider/model the operator picked),
- * so provider selection is per-run, not per-boot. The API key is passed in from
- * the server's environment — never from the client.
+ * provider config per run, but the MODEL is resolved per call — each role rides
+ * its roleModels entry (tier defaults folded in by the caller) with `model` as
+ * the run-wide fallback. The API key is passed in from the server's
+ * environment — never from the client.
  */
 export class LiveRoleInvoker implements RoleInvoker {
   private readonly opts: LiveRoleOptions;
   constructor(opts: LiveRoleOptions) {
-    if (!opts.model) throw new Error(`course-gen ${opts.provider} provider requires a model`);
+    if (!opts.model && !Object.values(opts.roleModels ?? {}).some(Boolean)) {
+      throw new Error(`course-gen ${opts.provider} provider requires a model`);
+    }
     this.opts = opts;
   }
+  private modelFor(role: CourseGenRole): string {
+    const model = this.opts.roleModels?.[role] ?? this.opts.model;
+    if (!model) throw new Error(`course-gen ${this.opts.provider} provider has no model for role "${role}"`);
+    return model;
+  }
   async invoke(role: CourseGenRole, prompt: RolePrompt, onDelta?: RoleDelta): Promise<RoleResult> {
-    const o = this.opts;
+    const o = { ...this.opts, model: this.modelFor(role) };
     if (onDelta) return streamChat(o, role, prompt, onDelta);
     const req = {
       baseUrl: o.baseUrl ?? (o.provider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"),
@@ -188,7 +247,10 @@ async function* sseData(body: ReadableStream<Uint8Array> | null): AsyncGenerator
   }
 }
 
-async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RolePrompt, onDelta: RoleDelta): Promise<RoleResult> {
+/** Options with the per-role model already resolved (invoke() guarantees it). */
+type ResolvedLiveOptions = LiveRoleOptions & { model: string };
+
+async function streamChat(o: ResolvedLiveOptions, role: CourseGenRole, prompt: RolePrompt, onDelta: RoleDelta): Promise<RoleResult> {
   const anthropic = o.provider === "anthropic";
   // Extended thinking is ON by default for Claude (opt out with
   // COURSE_GEN_THINKING=0) — otherwise the model's reasoning streams as plain
@@ -205,7 +267,7 @@ async function streamChat(o: LiveRoleOptions, role: CourseGenRole, prompt: RoleP
   }
 }
 
-async function streamOnce(o: LiveRoleOptions, prompt: RolePrompt, onDelta: RoleDelta, useThinking: boolean): Promise<RoleResult> {
+async function streamOnce(o: ResolvedLiveOptions, prompt: RolePrompt, onDelta: RoleDelta, useThinking: boolean): Promise<RoleResult> {
   const fetchImpl = o.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), o.timeoutMs ?? 300_000);

@@ -10,6 +10,8 @@
  * lives in SQLite, mirroring the split the plan calls for.
  */
 
+import type { CourseGenRole } from "./roles.ts";
+
 /** The work phases, in order. Exactly one gate follows each. */
 export const PHASES = ["framing", "designing", "authoring", "materializing"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -68,8 +70,11 @@ export function isTerminal(status: RunStatus): boolean {
 /** The model provider a run uses (chosen per-run in the UI). */
 export interface RunProviderConfig {
   provider: "mock" | "anthropic" | "openai-compatible";
-  /** Required for anthropic / openai-compatible; ignored for mock. */
+  /** Explicit run-wide model. Absent for anthropic ⇒ per-role tier defaults
+   *  (ROLE_MODEL_TIERS); still required for openai-compatible. */
   model?: string;
+  /** Per-role model overrides from the advanced picker; wins over `model`. */
+  roleModels?: Partial<Record<CourseGenRole, string>>;
   /** openai-compatible only (e.g. a local LM Studio / Ollama endpoint). */
   baseUrl?: string;
 }

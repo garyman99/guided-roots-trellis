@@ -82,6 +82,9 @@ import {
   LiveRoleInvoker,
   defaultMockResponder,
   resolveCourseGenConfig,
+  resolveRoleModel,
+  COURSE_GEN_ROLES,
+  ROLE_MODEL_TIERS,
   createExecutor,
   applyDispositions,
   commissionedGaps,
@@ -95,6 +98,7 @@ import {
   REVISABLE_AREAS,
   type ExperienceReport,
   type CapabilityGapReport,
+  type CourseGenRole,
   type CourseRun,
   type GateId,
   type GateNote,
@@ -458,6 +462,9 @@ function courseGenProviders() {
   return {
     defaultProvider: envDefault,
     defaultModel: process.env.COURSE_GEN_MODEL ?? null,
+    // Per-role tier defaults (anthropic), so the UI can prefill the advanced picker.
+    roles: COURSE_GEN_ROLES,
+    roleTiers: ROLE_MODEL_TIERS,
     providers: [
       { id: "mock", label: "Mock (offline, deterministic)", available: true },
       { id: "anthropic", label: "Claude (Anthropic)", available: !!anthropicKey(), keyEnv: "ANTHROPIC_API_KEY", models: ANTHROPIC_MODELS },
@@ -471,11 +478,19 @@ function courseGenProviders() {
 function invokerForProvider(cfg: RunProviderConfig | undefined): RoleInvoker {
   const provider = cfg?.provider ?? resolveCourseGenConfig("architect").provider;
   if (provider === "mock") return mockCourseGenInvoker;
-  const model = cfg?.model ?? process.env.COURSE_GEN_MODEL;
-  if (!model) throw new Error(`the ${provider} provider requires a model`);
+  // Resolve every role's model up front (per-role pick → run-wide model →
+  // COURSE_GEN_<ROLE>_MODEL → anthropic tier default → COURSE_GEN_MODEL).
+  const roleModels: Partial<Record<CourseGenRole, string>> = {};
+  const unresolved: CourseGenRole[] = [];
+  for (const role of COURSE_GEN_ROLES) {
+    const model = resolveRoleModel(role, { provider, model: cfg?.model, roleModels: cfg?.roleModels });
+    if (model) roleModels[role] = model;
+    else unresolved.push(role);
+  }
+  if (unresolved.length > 0) throw new Error(`the ${provider} provider requires a model`);
   return new LiveRoleInvoker({
     provider,
-    model,
+    roleModels,
     baseUrl: cfg?.baseUrl ?? process.env.COURSE_GEN_BASE_URL,
     apiKey: provider === "anthropic" ? anthropicKey() : openaiKey(),
     // Generation calls are slow (a blueprint or a lesson can take minutes).
@@ -492,8 +507,11 @@ function rolesForRun(run: CourseRun): RoleInvoker {
 /** Validate a provider choice at create time; returns an error string or null. */
 function validateProviderConfig(cfg: RunProviderConfig | undefined): string | null {
   if (!cfg || cfg.provider === "mock") return null;
+  if (cfg.roleModels && Object.entries(cfg.roleModels).some(([, m]) => typeof m !== "string" || !m.trim())) {
+    return "per-role model overrides must be non-empty strings";
+  }
   if (cfg.provider === "anthropic") {
-    if (!cfg.model) return "Claude provider requires a model";
+    // No explicit model needed — every role has an anthropic tier default.
     if (!anthropicKey()) return "Claude provider needs ANTHROPIC_API_KEY set in the server environment";
     return null;
   }
@@ -787,9 +805,19 @@ function parseProviderConfig(raw: unknown): RunProviderConfig | undefined {
   const o = raw as Record<string, unknown>;
   const provider = o.provider;
   if (provider !== "mock" && provider !== "anthropic" && provider !== "openai-compatible") return undefined;
+  // Per-role overrides: keep only known roles with non-empty string values.
+  let roleModels: Partial<Record<CourseGenRole, string>> | undefined;
+  if (o.roleModels && typeof o.roleModels === "object") {
+    for (const [role, model] of Object.entries(o.roleModels as Record<string, unknown>)) {
+      if (!(COURSE_GEN_ROLES as string[]).includes(role)) continue;
+      if (typeof model !== "string" || !model.trim()) continue;
+      (roleModels ??= {})[role as CourseGenRole] = model.trim().slice(0, 120);
+    }
+  }
   return {
     provider,
     ...(typeof o.model === "string" && o.model.trim() ? { model: o.model.trim().slice(0, 120) } : {}),
+    ...(roleModels ? { roleModels } : {}),
     ...(typeof o.baseUrl === "string" && o.baseUrl.trim() ? { baseUrl: o.baseUrl.trim().slice(0, 300) } : {}),
   };
 }

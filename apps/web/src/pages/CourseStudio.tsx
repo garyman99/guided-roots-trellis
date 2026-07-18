@@ -124,15 +124,18 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
   const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  // Advanced per-role overrides; empty string = "use the tier default".
+  const [roleModels, setRoleModels] = useState<Record<string, string>>({});
   useEffect(() => {
     if (open && !providers) {
       courseRunApi.providers().then((p) => {
         setProviders(p);
-        // Default to the deployment default provider if it's usable.
+        // Default to the deployment default provider if it's usable. Claude
+        // defaults to per-role tiers (empty model), not a single model.
         const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
         if (def) {
           setProvider(def.id);
-          if (def.models?.length) setModel(def.models[0].id);
+          if (def.id !== "anthropic" && def.models?.length) setModel(def.models[0].id);
         }
       }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
     }
@@ -143,10 +146,16 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
     setBusy(true);
     setError(null);
     const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
+    const pickedRoleModels = Object.fromEntries(Object.entries(roleModels).filter(([, v]) => v.trim()));
     body.providerConfig =
       provider === "mock"
         ? { provider: "mock" }
-        : { provider, model: model.trim(), ...(provider === "openai-compatible" ? { baseUrl: baseUrl.trim() } : {}) };
+        : {
+            provider,
+            ...(model.trim() ? { model: model.trim() } : {}),
+            ...(Object.keys(pickedRoleModels).length ? { roleModels: pickedRoleModels } : {}),
+            ...(provider === "openai-compatible" ? { baseUrl: baseUrl.trim() } : {}),
+          };
     courseRunApi.create(body)
       .then((run) => { setBusy(false); setOpen(false); onStarted(run); })
       .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
@@ -197,8 +206,10 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
           <select id="cg-provider" value={provider} onChange={(e) => {
             const id = e.target.value as ProviderConfig["provider"];
             setProvider(id);
+            setRoleModels({});
             const p = providers?.providers.find((x) => x.id === id);
-            setModel(p?.models?.[0]?.id ?? "");
+            // Claude defaults to per-role tiers (empty = tier defaults).
+            setModel(id === "anthropic" ? "" : (p?.models?.[0]?.id ?? ""));
           }}>
             {(providers?.providers ?? [{ id: "mock", label: "Mock", available: true }]).map((p) => (
               <option key={p.id} value={p.id} disabled={!p.available}>
@@ -212,6 +223,7 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
             <label htmlFor="cg-model">Model</label>
             {chosen?.models?.length ? (
               <select id="cg-model" value={model} onChange={(e) => setModel(e.target.value)}>
+                {provider === "anthropic" && <option value="">Per-role defaults (recommended)</option>}
                 {chosen.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             ) : (
@@ -228,10 +240,38 @@ function StartRunForm({ onStarted }: { onStarted: (run: CourseRunDetail) => void
       </div>
       {provider === "mock" && <p className="gr-mono-note">Mock is deterministic and offline — great for trying the flow. Pick Claude or an OpenAI-compatible endpoint for the real thing (the API key is read from the server environment).</p>}
       {chosen?.note && provider !== "mock" && <p className="gr-mono-note">{chosen.note}</p>}
+      {provider === "anthropic" && providers?.roles?.length ? (
+        <details className="admin-role-models">
+          <summary>Advanced: per-role models</summary>
+          <p className="gr-mono-note">
+            Each pipeline role rides the cheapest Claude tier that fits its job — generative roles on Opus,
+            reviewer roles on Sonnet. Override a role here; the run-wide model (above) overrides everything.
+          </p>
+          <div className="admin-editor-grid">
+            {providers.roles.map((role) => {
+              const tier = providers.roleTiers?.[role];
+              const tierLabel = chosen?.models?.find((m) => m.id === tier)?.label ?? tier ?? "provider default";
+              return (
+                <div className="gr-field" key={role}>
+                  <label htmlFor={`cg-role-${role}`}>{role}</label>
+                  <select
+                    id={`cg-role-${role}`}
+                    value={roleModels[role] ?? ""}
+                    onChange={(e) => setRoleModels((rm) => ({ ...rm, [role]: e.target.value }))}
+                  >
+                    <option value="">{model.trim() ? "Run-wide model" : `Default — ${tierLabel}`}</option>
+                    {(chosen?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
 
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-editor-actions">
-        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || (provider !== "mock" && !model.trim())}>
+        <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || (provider === "openai-compatible" && !model.trim())}>
           {busy ? "Starting…" : "Start run"}
         </button>
         <button className="gr-btn gr-btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
@@ -380,7 +420,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
         <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={onBack}>← All runs</button>
         <div>
           <h3>{run.title ?? run.technology}</h3>
-          <p className="gr-mono-note">{run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : ""} · <StatusChip status={run.status} /></p>
+          <p className="gr-mono-note">{run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : run.provider === "anthropic" ? " (per-role tiers)" : ""} · <StatusChip status={run.status} /></p>
         </div>
       </div>
 
