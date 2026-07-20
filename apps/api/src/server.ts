@@ -299,7 +299,35 @@ function scenarioLevelFor(level: string): ScenarioLevel {
  * Auto-solve runs via the local driver (node + git, no Docker). Set
  * TRELLIS_SKIP_AUTOSOLVE=1 to skip the proof in environments without a shell.
  */
-const materialize: Materializer = async ({ run, lessons }) => {
+/**
+ * A short, learner-facing audience label — NEVER the persona narrative. The
+ * create endpoint defaults targetLearner to the persona's 300-char narrative
+ * (prompt material), which once leaked verbatim onto the /home course card as
+ * a giant caps blob. A typed-in target learner is used only when it reads as
+ * a label; otherwise fall back to the persona name's descriptor
+ * ("Riley — manual QA engineer, never coded" → "Manual QA engineer, never coded").
+ */
+function audienceLabelFor(run: CourseRun): string {
+  const typed = run.request.targetLearner?.trim();
+  if (typed && typed.length <= 80) return typed;
+  const personaName = run.request.persona?.profile?.name ?? "";
+  const descriptor = personaName.split(/\s[—–]\s/)[1]?.trim();
+  if (descriptor) return (descriptor.charAt(0).toUpperCase() + descriptor.slice(1)).slice(0, 80);
+  return "";
+}
+
+/** Learner-facing course description from the approved frame: the ending
+ *  capability is the promise. Replaces the old operator scaffolding text
+ *  ("Generated X course (draft). Review and run Go-live…"), which leaked to
+ *  the /home card once the course went live. */
+function learnerDescriptionFor(run: CourseRun, courseRequestMarkdown: string): string {
+  const tech = run.request.technology;
+  const ending = courseRequestMarkdown.match(/\*\*Ending capability:\*\*\s*(.+)/i)?.[1]?.trim().replace(/\.+$/, "");
+  if (ending) return `Learn ${tech} by doing — ${ending.charAt(0).toLowerCase()}${ending.slice(1)}.`.slice(0, 1000);
+  return `A hands-on, learn-by-doing ${tech} course.`;
+}
+
+const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }) => {
   if (run.request.revision) return materializeRevision(run, run.request.revision, lessons);
   const tech = run.request.technology;
   const published = publishedDir();
@@ -337,7 +365,7 @@ const materialize: Materializer = async ({ run, lessons }) => {
       title: lesson.title,
       blurb: lesson.lab.objective,
       tag: `${tech.toUpperCase()} · GENERATED`,
-      role: run.request.targetLearner ?? "QA & Testing",
+      role: audienceLabelFor(run) || "QA & Testing",
       technologies: [tech],
       level: scenarioLevelFor(lesson.level),
       targetPlatform: run.request.targetPlatform ?? "windows",
@@ -361,8 +389,8 @@ const materialize: Materializer = async ({ run, lessons }) => {
   store.saveCourse({
     courseId,
     title: run.request.title ?? `${tech} course`,
-    description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
-    audience: run.request.targetLearner ?? "",
+    description: learnerDescriptionFor(run, courseRequestMarkdown),
+    audience: audienceLabelFor(run),
     level: lessons[0]?.level ?? "beginner", // legacy single-level (kept for accent/back-compat)
     targetPlatform: run.request.targetPlatform ?? "windows",
     lessons: labIds.map((labId) => {
@@ -437,7 +465,7 @@ async function materializeRevision(
     title: lesson.title,
     blurb: lesson.lab.objective,
     tag: `${tech.toUpperCase()} · GENERATED`,
-    role: run.request.targetLearner ?? course.audience ?? "QA & Testing",
+    role: audienceLabelFor(run) || course.audience || "QA & Testing",
     technologies: [tech],
     level: scenarioLevelFor(lesson.level),
     // A revision inherits the course's desktop — it never re-platforms a lesson.
@@ -1001,6 +1029,12 @@ function parseCourseBody(body: Record<string, unknown>): string | Omit<Course, "
       ...(typeof l.title === "string" && l.title.trim() ? { title: l.title.trim().slice(0, 120) } : {}),
       ...(typeof l.note === "string" && l.note.trim() ? { note: l.note.trim().slice(0, 300) } : {}),
       ...(typeof l.level === "string" && l.level.trim() ? { level: l.level.trim().slice(0, 20) } : {}),
+      // Carry visibility + version-family through an edit — dropping these
+      // silently REVEALED hidden generated lessons (absent = visible) and
+      // orphaned version pointers whenever a course was PUT.
+      ...(typeof l.published === "boolean" ? { published: l.published } : {}),
+      ...(typeof l.family === "string" && l.family.trim() ? { family: l.family.trim().slice(0, 80) } : {}),
+      ...(typeof l.version === "number" && Number.isFinite(l.version) ? { version: l.version } : {}),
     });
   }
   return { title, description, audience, level, lessons };
@@ -2321,8 +2355,33 @@ export const server = createServer(async (req, res) => {
           if (parts[4] === "publish" && existing.lessons.length === 0) {
             return json(res, 400, { error: "cannot go live: this course has no lessons" });
           }
+          // Publishing a course whose lessons are all HIDDEN would show
+          // learners an empty shell ("0 lessons · 0%"). Refuse unless the
+          // caller opts into taking every lesson live with the course.
+          const body = await readBody(req).catch(() => ({} as Record<string, unknown>));
+          const withLessons = body.withLessons === true;
+          const liveCount = existing.lessons.filter((l) => l.published !== false).length;
+          if (parts[4] === "publish" && liveCount === 0 && !withLessons) {
+            return json(res, 409, {
+              error: "cannot go live: every lesson in this course is hidden — learners would see an empty course. Publish lessons first, or pass { withLessons: true } to take all lessons live with the course.",
+            });
+          }
+          const lessons = parts[4] === "publish" && withLessons
+            ? existing.lessons.map((l) => ({ ...l, published: true }))
+            : existing.lessons;
+          if (parts[4] === "publish" && withLessons) {
+            // Same family swap the per-lesson publish route does: only the
+            // LIVE version of a lesson family stays in the Free-practice catalog.
+            for (const l of lessons) {
+              const fam = l.family ?? familyOf(l.labId);
+              for (const s of store.listScenarioEntries()) {
+                if (s.labId !== l.labId && familyOf(s.labId) === fam) store.deleteScenarioEntry(s.labId);
+              }
+            }
+          }
           const course: Course = {
             ...existing,
+            lessons,
             status: parts[4] === "publish" ? "published" : "draft",
             updatedAt: new Date().toISOString(),
           };

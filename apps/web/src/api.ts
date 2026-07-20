@@ -693,7 +693,10 @@ export const courseRunApi = {
   // Hard-delete a run and everything it produced (course, scenarios, generated
   // labs, commissioned capabilities, artifacts). Returns a summary of removals.
   remove: (runId: string) => adminSend<RunDeletionSummary>("DELETE", `/api/admin/course-runs/${encodeURIComponent(runId)}`),
-  publishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`),
+  // withLessons: also flip every lesson live (required when all are hidden —
+  // the API refuses to publish an empty-looking course otherwise).
+  publishCourse: (courseId: string, opts?: { withLessons?: boolean }) =>
+    adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/publish`, opts?.withLessons ? { withLessons: true } : undefined),
   unpublishCourse: (courseId: string) => adminSend("POST", `/api/admin/courses/${encodeURIComponent(courseId)}/unpublish`),
   // Operator view of a course — includes drafts and not-yet-live lessons.
   course: (courseId: string) => adminGet<{ course: Course }>(`/api/admin/courses/${encodeURIComponent(courseId)}`).then((r) => r.course),

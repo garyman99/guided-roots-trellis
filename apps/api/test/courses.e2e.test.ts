@@ -130,9 +130,14 @@ test("per-lesson go-live: lessons publish one at a time; empty courses can't go 
   const emptyId = (empty.body as CB).course.courseId;
   assert.equal((await admin("POST", `/api/admin/courses/${emptyId}/publish`)).status, 400, "no lessons → 400");
 
-  // Take the course live, then reveal exactly one lesson.
-  assert.equal((await admin("POST", `/api/admin/courses/${id}/publish`)).status, 200);
+  // Every lesson hidden → going live alone would show learners an empty
+  // course ("0 lessons · 0%") — refused until a lesson is live or the caller
+  // opts into withLessons.
+  assert.equal((await admin("POST", `/api/admin/courses/${id}/publish`)).status, 409, "all lessons hidden → 409");
+
+  // Reveal exactly one lesson, then the course can go live.
   assert.equal((await admin("POST", `/api/admin/courses/${id}/lessons/inspect-generated-changes/publish`)).status, 200);
+  assert.equal((await admin("POST", `/api/admin/courses/${id}/publish`)).status, 200);
   assert.equal((await admin("POST", `/api/admin/courses/${id}/lessons/no-such-lesson/publish`)).status, 404);
 
   // Public read: course visible, but ONLY the live lesson leaks.
@@ -148,6 +153,26 @@ test("per-lesson go-live: lessons publish one at a time; empty courses can't go 
 
   await admin("DELETE", `/api/admin/courses/${id}`);
   await admin("DELETE", `/api/admin/courses/${emptyId}`);
+});
+
+test("publish with withLessons takes the course AND every hidden lesson live in one action", async () => {
+  type CB = { course: { courseId: string; status?: string; lessons: Array<{ labId: string; published?: boolean }> } };
+  const created = await admin("POST", "/api/admin/courses", {
+    title: "With Lessons Demo",
+    description: "d", audience: "a", level: "beginner",
+    lessons: [{ labId: "inspect-generated-changes" }, { labId: "review-content-changes" }],
+  });
+  const id = (created.body as CB).course.courseId;
+  await admin("POST", `/api/admin/courses/${id}/lessons/inspect-generated-changes/unpublish`);
+  await admin("POST", `/api/admin/courses/${id}/lessons/review-content-changes/unpublish`);
+
+  const pub = await admin("POST", `/api/admin/courses/${id}/publish`, { withLessons: true });
+  assert.equal(pub.status, 200);
+  const course = (pub.body as CB).course;
+  assert.equal(course.status, "published");
+  assert.ok(course.lessons.every((l) => l.published === true), "every lesson went live with the course");
+
+  await admin("DELETE", `/api/admin/courses/${id}`);
 });
 
 test("lesson versioning: family completion + catalog swap on version go-live", async () => {

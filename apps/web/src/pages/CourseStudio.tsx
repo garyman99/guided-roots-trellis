@@ -1502,7 +1502,9 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
 
   const setCourseLive = (publish: boolean) => {
     setBusy("course"); setError(null);
-    const call = publish ? courseRunApi.publishCourse(courseId) : courseRunApi.unpublishCourse(courseId);
+    // When every lesson is still hidden, going live alone would show learners
+    // an empty course (the API refuses) — take the lessons live with it.
+    const call = publish ? courseRunApi.publishCourse(courseId, { withLessons: liveCount === 0 }) : courseRunApi.unpublishCourse(courseId);
     call.then(() => { onCoursesChanged(); loadCourse(); })
       .catch((e) => setError(String((e as Error).message)))
       .finally(() => setBusy(null));
@@ -1535,7 +1537,7 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
           <button className="gr-btn gr-btn-ghost" onClick={() => setCourseLive(false)} disabled={busy === "course"}>Unpublish course</button>
         ) : (
           <button className="gr-btn gr-btn-primary" onClick={() => setCourseLive(true)} disabled={busy === "course" || lessons.length === 0}>
-            Go live
+            {liveCount === 0 && lessons.length > 0 ? `Go live (reveals all ${lessons.length} lessons)` : "Go live"}
           </button>
         )}
         {live && <span className="admin-chip status-mastered">live</span>}
