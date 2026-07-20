@@ -25,7 +25,8 @@ export type CourseGenRole =
   | "pedagogy-reviewer"
   | "cohesion-editor"
   | "experience-analyst"
-  | "persona-interviewer";
+  | "persona-interviewer"
+  | "gate-reviewer";
 
 export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "architect",
@@ -37,6 +38,7 @@ export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "cohesion-editor",
   "experience-analyst",
   "persona-interviewer",
+  "gate-reviewer",
 ];
 
 /**
@@ -56,6 +58,7 @@ export const ROLE_MODEL_TIERS: Record<CourseGenRole, string> = {
   "cohesion-editor": "claude-sonnet-5",
   "experience-analyst": "claude-sonnet-5",
   "persona-interviewer": "claude-sonnet-5",
+  "gate-reviewer": "claude-sonnet-5",
 };
 
 /** The per-run provider choice, as far as model resolution needs it. */

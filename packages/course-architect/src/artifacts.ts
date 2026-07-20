@@ -34,6 +34,7 @@ const ALLOW: RegExp[] = [
   /^critiques\/[a-z0-9-]+\.round([1-9]|10)\.json$/,
   /^critiques\/summary\.json$/,
   /^sim-tests\/[a-z0-9-]+\/(result\.json|simulator-trace\.md)$/,
+  /^gates\/(frame|blueprint|package|publish)\.verdict\.json$/,
 ];
 
 export function isAllowedArtifactPath(relPath: string): boolean {

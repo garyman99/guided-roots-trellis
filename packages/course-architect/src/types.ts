@@ -122,6 +122,12 @@ export interface CourseRunRequest {
   /** The target-user persona, embedded as a full snapshot at create time so
    *  the run is self-contained across persona edits/deletes (Phase 1). */
   persona?: EmbeddedPersona;
+  /** Who decides the gates: a human operator (default) or the gate-reviewer
+   *  role (Autopilot §3.1). */
+  gateMode?: "manual" | "auto";
+  /** Autopilot only: publish the course + shipped lessons right after the
+   *  publish gate approves and materialization succeeds. */
+  autoPublish?: boolean;
   /** Present ⇒ this is a lesson-revision run, not a whole-course generation. */
   revision?: RevisionRequest;
 }

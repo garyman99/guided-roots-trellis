@@ -11,3 +11,4 @@ export * from "./mirror.ts";
 export * from "./experience.ts";
 export * from "./personas.ts";
 export * from "./critique.ts";
+export * from "./autogate.ts";

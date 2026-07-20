@@ -308,6 +308,12 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
       complete: true,
     });
   }
+  // Auto-gate (Autopilot §3.1): the mock gate-reviewer always approves, with a
+  // reservation flagged for the human's after-the-fact review — lets the whole
+  // autopilot pipeline (idea → published course) walk unattended offline.
+  if (prompt.task.startsWith("gate:")) {
+    return JSON.stringify({ decision: "approved", notes: [], reservations: ["mock gate-reviewer: auto-approved"] });
+  }
   // Experience analysis: a deterministic report echoing the metrics it was
   // shown, with one finding per area class so UIs/tests exercise the routing.
   if (prompt.task.startsWith("experience:")) {

@@ -24,6 +24,7 @@ import {
   type GapDisposition,
   type GateId,
   type GateNote,
+  type GateVerdict,
   type PersonaInterviewMessage,
   type PersonaProfile,
   type ProviderConfig,
@@ -46,6 +47,18 @@ const orderOf = (s: RunStatus): number => {
 };
 const ACTIVE_PHASES: RunStatus[] = ["framing", "designing", "authoring", "materializing"];
 const isActive = (s: RunStatus) => ACTIVE_PHASES.includes(s);
+// No progress recorded for over 20 minutes while a phase is running — the
+// host may be down or the phase wedged (docs/plans/autonomous-course-pipeline.md §3.3).
+const STALL_MS = 20 * 60 * 1000;
+const isStalled = (status: RunStatus, updatedAt: string) =>
+  isActive(status) && Date.now() - Date.parse(updatedAt) > STALL_MS;
+function StalledChip() {
+  return (
+    <span className="admin-chip status-abandoned" title="No progress recorded for over 20 minutes — the host may be down or the phase wedged.">
+      stalled?
+    </span>
+  );
+}
 const awaitingGateId = (s: RunStatus): GateId | null =>
   s.startsWith("awaiting-") ? (s.slice("awaiting-".length) as GateId) : null;
 
@@ -492,6 +505,9 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   const [baseUrl, setBaseUrl] = useState("");
   // Advanced per-role overrides; empty string = "use the tier default".
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
+  // Autopilot: gate-reviewer decides gates unattended (docs/plans/autonomous-course-pipeline.md §3.2).
+  const [gateMode, setGateMode] = useState<"manual" | "auto">("manual");
+  const [autoPublish, setAutoPublish] = useState(false);
   useEffect(() => {
     if (open && !providers) {
       courseRunApi.providers().then((p) => {
@@ -513,6 +529,10 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
     setError(null);
     const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
     if (personaId) body.personaId = personaId;
+    if (gateMode === "auto") {
+      body.gateMode = "auto";
+      if (autoPublish) body.autoPublish = true;
+    }
     const pickedRoleModels = Object.fromEntries(Object.entries(roleModels).filter(([, v]) => v.trim()));
     body.providerConfig =
       provider === "mock"
@@ -645,6 +665,31 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
         </details>
       ) : null}
 
+      <h4 className="admin-subhead">Autopilot</h4>
+      <div className="admin-editor-grid">
+        <div className="gr-field">
+          <label htmlFor="cg-gatemode">Gates</label>
+          <select id="cg-gatemode" value={gateMode} onChange={(e) => setGateMode(e.target.value as "manual" | "auto")}>
+            <option value="manual">Manual — I decide each gate</option>
+            <option value="auto">Autopilot — the gate-reviewer agent decides</option>
+          </select>
+        </div>
+        {gateMode === "auto" && (
+          <div className="gr-field">
+            <label htmlFor="cg-autopublish">
+              <input id="cg-autopublish" type="checkbox" checked={autoPublish} onChange={(e) => setAutoPublish(e.target.checked)} />{" "}
+              Publish automatically when the run completes
+            </label>
+          </div>
+        )}
+      </div>
+      {gateMode === "auto" && (
+        <p className="gr-mono-note">
+          Gates are decided by an agent against an acceptance rubric with a bounded change budget.
+          Every decision and its reservations are recorded for after-the-fact review.
+        </p>
+      )}
+
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-editor-actions">
         <button className="gr-btn gr-btn-primary" onClick={submit} disabled={busy || !form.technology.trim() || !personaId || (provider === "openai-compatible" && !model.trim())}>
@@ -709,7 +754,11 @@ function RunsTable({ runs, onOpen, onChanged }: { runs: CourseRunSummary[]; onOp
             <tr key={r.runId} onClick={() => onOpen(r.runId)} title="Open this run">
               <td><strong>{r.title ?? "(untitled)"}</strong> <code className="gr-mono-note">{r.runId.slice(0, 20)}</code></td>
               <td>{r.technology}</td>
-              <td><StatusChip status={r.status} /></td>
+              <td>
+                <StatusChip status={r.status} />{" "}
+                {r.gateMode === "auto" && <span className="admin-chip kind-llm">autopilot</span>}{" "}
+                {isStalled(r.status, r.updatedAt) && <StalledChip />}
+              </td>
               <td>{r.pendingGate ? <span className="admin-chip status-mastered">{r.pendingGate}</span> : "—"}</td>
               <td>{fmtWhen(r.updatedAt)}</td>
               <td>
@@ -798,6 +847,8 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
           <h3>{run.title ?? run.technology}</h3>
           <p className="gr-mono-note">
             {run.runId} · {run.technology} · {run.provider ?? "mock"}{run.model ? ` (${run.model})` : run.provider === "anthropic" ? " (per-role tiers)" : ""} · <StatusChip status={run.status} />
+            {run.gateMode === "auto" && <> <span className="admin-chip kind-llm">autopilot</span></>}
+            {isStalled(run.status, run.updatedAt) && <> <StalledChip /></>}
             {(run.request?.persona as { profile?: { name?: string } } | undefined)?.profile?.name
               ? <> · persona: {(run.request!.persona as { profile: { name: string } }).profile.name}</>
               : null}
@@ -825,6 +876,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       )}
 
       <PhaseRail run={run} />
+      <GateVerdicts run={run} />
       <LivePanel run={run} />
       <RunEconomics events={run.events} />
 
@@ -902,6 +954,68 @@ function PhaseRail({ run }: { run: CourseRunDetail }) {
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/* ---------- autopilot gate verdicts ---------- */
+
+const GATE_NUMBER: Record<GateId, string> = { frame: "G1", blueprint: "G2", package: "G3", publish: "G4" };
+
+function GateVerdicts({ run }: { run: CourseRunDetail }) {
+  const verdictPaths = useMemo(
+    () => run.artifacts.filter((p) => /^gates\/.+\.verdict\.json$/.test(p)),
+    [run.artifacts],
+  );
+  const [verdicts, setVerdicts] = useState<GateVerdict[] | null>(null);
+
+  useEffect(() => {
+    if (verdictPaths.length === 0) { setVerdicts(null); return; }
+    let stop = false;
+    Promise.all(verdictPaths.map((p) => courseRunApi.artifact(run.runId, p).then((a) => JSON.parse(a.content) as GateVerdict)))
+      .then((vs) => { if (!stop) setVerdicts(vs); })
+      .catch(() => { if (!stop) setVerdicts(null); });
+    return () => { stop = true; };
+  }, [run.runId, verdictPaths]);
+
+  if (!verdicts?.length) return null;
+  return (
+    <div className="gr-card">
+      <h3>Autopilot gate decisions</h3>
+      <ul className="admin-claims">
+        {verdicts.map((v) => (
+          <li key={v.gateId}>
+            <details>
+              <summary>
+                <span className={`admin-chip ${v.decision === "approved" ? "status-mastered" : "status-open"}`}>{v.decision}</span>{" "}
+                {GATE_NUMBER[v.gateId] ?? v.gateId} · {v.gateId} — {v.decision} by gate-reviewer · round {v.round}
+                {v.reservations.length > 0 && (
+                  <span className="admin-chip status-open" style={{ marginLeft: 6 }}>{v.reservations.length} reservation{v.reservations.length === 1 ? "" : "s"}</span>
+                )}
+                {v.forced && <span className="admin-chip status-abandoned" style={{ marginLeft: 6 }}>budget exhausted</span>}
+              </summary>
+              {v.notes.length > 0 && (
+                <>
+                  <p className="gr-mono-note">Notes</p>
+                  <ul>
+                    {v.notes.map((n, i) => (
+                      <li key={i}>{n.comment}{n.path ? <code> ({n.path})</code> : null}{n.lessonId ? <code> ({n.lessonId})</code> : null}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {v.reservations.length > 0 && (
+                <>
+                  <p className="gr-mono-note">Reservations</p>
+                  <ul>
+                    {v.reservations.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </>
+              )}
+            </details>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

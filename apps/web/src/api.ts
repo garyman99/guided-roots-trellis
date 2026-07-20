@@ -483,6 +483,19 @@ export interface CourseRunGate {
   notes: GateNote[] | null;
 }
 
+/** One gate's autopilot decision (gates/<gateId>.verdict.json artifact). */
+export interface GateVerdict {
+  gateId: GateId;
+  decision: "approved" | "changes";
+  notes: GateNote[];
+  /** Things it disliked but didn't block on — the paper trail for the human. */
+  reservations: string[];
+  /** True when the change-round budget was exhausted and it approved anyway. */
+  forced?: boolean;
+  at: string;
+  round: number;
+}
+
 export interface CourseRunEvent {
   id?: number;
   at: string;
@@ -501,6 +514,10 @@ export interface CourseRunSummary {
   createdAt: string;
   updatedAt: string;
   lastError: string | null;
+  /** "auto" = gate-reviewer decides gates unattended (Autopilot); absent/"manual" = human decides. */
+  gateMode?: "manual" | "auto";
+  /** Autopilot only: publish the course automatically once the run completes. */
+  autoPublish?: boolean;
 }
 
 export interface ProviderOption {

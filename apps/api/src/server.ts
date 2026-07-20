@@ -120,6 +120,7 @@ import { createPersona, deletePersona, listPersonas, readInterview, readPersona,
 import { appendReplayEvents, deleteReplay, replayFileFor, rrwebEnabled } from "./replayStore.ts";
 import { SimTestManager, spawnSimTestRunner, type SimLessonResult, type SimTestJob } from "./courseSimTest.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
+import { createAutoGateArbiter } from "./autoGateArbiter.ts";
 import { lessonExperience, sessionExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
 import { writeLessonImprovement, listLessonImprovements, deleteLessonImprovementsForFamily } from "./lessonImprovements.ts";
 import { newLearnerId, familyOf, versionOf, versionedLabId } from "../../../packages/shared/src/ids.ts";
@@ -836,6 +837,94 @@ export const courseRuns = new CourseRunScheduler(
 );
 
 /**
+ * Run-lifecycle webhook (Autopilot §3.3): best-effort POST to
+ * TRELLIS_WEBHOOK_URL when set — the seam an external supervisor or a phone
+ * notification bridge attaches to, replacing bespoke polling watchers. Never
+ * blocks the caller and never throws: a dead or misconfigured hook must not
+ * affect the pipeline.
+ */
+function emitRunLifecycle(event: string, runId: string, payload?: Record<string, unknown>): void {
+  const url = process.env.TRELLIS_WEBHOOK_URL;
+  if (!url) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  (timer as { unref?: () => void }).unref?.();
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event, runId, at: new Date().toISOString(), ...payload }),
+    signal: controller.signal,
+  })
+    .catch(() => { /* best-effort — never let a dead webhook touch the pipeline */ })
+    .finally(() => clearTimeout(timer));
+}
+
+/**
+ * Autopilot publish (§3.1): the publish gate approved AND the run asked for
+ * `autoPublish` → the course and every shipped lesson go live immediately,
+ * with the same Go-live semantics as the manual admin action (POST
+ * /api/admin/courses/:id/publish + per-lesson publish) minus the operator
+ * picking lessons one at a time — autopilot ships everything the run produced.
+ * Refuses silently (logged) if materialization produced no course or no
+ * lessons; an empty course has nothing to teach.
+ */
+function publishCourse(runId: string): void {
+  const course = store.listCourses().find((c) => c.sourceRunId === runId);
+  if (!course) {
+    console.error(`[autogate] auto-publish: no course found for run ${runId}`);
+    return;
+  }
+  if (course.lessons.length === 0) {
+    console.error(`[autogate] auto-publish: course ${course.courseId} has no lessons — refusing to go live`);
+    return;
+  }
+  store.saveCourse({
+    ...course,
+    status: "published",
+    lessons: course.lessons.map((l) => ({ ...l, published: true })),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * The Autopilot operator (plan §3.1): decides gates for `gateMode: "auto"`
+ * runs so a run can walk idea → published course unattended. Exported so
+ * tests can call `autoGate.poke()` directly instead of waiting on the
+ * interval below.
+ */
+export const autoGate = createAutoGateArbiter({
+  store,
+  courseRuns,
+  invokerFor: rolesForRun,
+  artifactsFor: runArtifactsFor,
+  applyGapDispositions,
+  publishCourse,
+  emit: emitRunLifecycle,
+});
+
+// A recovered `interrupted` run in auto mode resumes itself — restart is a
+// non-event for autopilot (plan §3.3 P1 fix: availability, not just state,
+// must survive a dead host). Manual-mode runs still wait for an operator.
+for (const runId of courseRunRecovery.recovered) {
+  const run = store.getCourseRun(runId);
+  if (run?.status === "interrupted" && run.request.gateMode === "auto") {
+    try {
+      courseRuns.resume(runId);
+    } catch (err) {
+      console.error(`[autogate] auto-resume failed for run ${runId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
+// Drive the arbiter: once at boot (after the resume above gives it something
+// to see) and then on an interval so a parked auto run is never waiting on
+// anything but the model call itself. unref'd — the poll must not keep the
+// process alive on its own (tests and graceful shutdown both depend on this).
+void autoGate.poke();
+const autoGateInterval = setInterval(() => void autoGate.poke(), 5000);
+autoGateInterval.unref?.();
+
+/**
  * Curated-course seed: the catalog every deployment ships with. Each canonical
  * course is seeded when it's ABSENT by id (so a new course reaches existing
  * deployments on the next boot), and only when every lab it references actually
@@ -1009,6 +1098,10 @@ function courseRunSummary(run: CourseRun) {
     pendingGate,
     provider: pc?.provider ?? resolveCourseGenConfig("architect").provider,
     model: pc?.model ?? (process.env.COURSE_GEN_MODEL || null),
+    // Autopilot badges (plan §3.2): who decides the gates, and whether an
+    // approved publish gate goes live unattended.
+    gateMode: run.request.gateMode ?? "manual",
+    autoPublish: run.request.autoPublish ?? false,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     lastError: run.lastError ?? null,
@@ -1571,6 +1664,12 @@ export const server = createServer(async (req, res) => {
             const providerError = validateProviderConfig(providerConfig);
             if (providerError) return json(res, 400, { error: providerError });
 
+            // Autopilot (plan §3.1/§3.2): who decides the gates, and whether an
+            // approved publish gate goes live unattended. pickStrings only lifts
+            // strings, so these two are wired explicitly and validated.
+            const gateMode = body.gateMode === "auto" ? "auto" : "manual";
+            const autoPublish = body.autoPublish === true;
+
             let revision: NonNullable<CourseRun["request"]["revision"]> | undefined;
             if (body.revision && typeof body.revision === "object") {
               const rv = body.revision as Record<string, unknown>;
@@ -1658,6 +1757,8 @@ export const server = createServer(async (req, res) => {
               ...(providerConfig ? { providerConfig } : {}),
               ...(persona ? { persona } : {}),
               ...(revision ? { revision } : {}),
+              ...(gateMode === "auto" ? { gateMode } : {}),
+              ...(autoPublish ? { autoPublish } : {}),
             });
             // Stamp the seeding report with the run that used it (D6).
             if (revision?.reportFile) {
