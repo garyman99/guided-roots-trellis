@@ -18,6 +18,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -92,6 +93,19 @@ function shutdown(code = 0) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
+// --lan (npm run dev:lan): bind the WEB server to every interface so other
+// devices on the private network can use the app. The API stays on loopback —
+// LAN clients reach it through the web server's /api and /ws proxies, so the
+// unauthenticated-by-default admin surface is never directly exposed.
+const lan = process.argv.includes("--lan") || env.TRELLIS_LAN === "1";
+const lanIps = lan
+  ? Object.values(networkInterfaces()).flat().filter((i) => i && i.family === "IPv4" && !i.internal).map((i) => i.address)
+  : [];
+
 console.log(`[dev] api → http://127.0.0.1:${apiPort} · web → http://localhost:${webPort} (proxying /api to :${apiPort})`);
+if (lan) {
+  for (const ip of lanIps) console.log(`[dev] LAN → http://${ip}:${webPort}`);
+  if (lanIps.length === 0) console.log("[dev] --lan: no external IPv4 interface found; binding 0.0.0.0 anyway");
+}
 start("api", process.execPath, [join(ROOT, "apps", "api", "src", "server.ts")], { PORT: apiPort });
-start("web", "npm", ["--workspace", "@trellis/web", "run", "dev"], { PORT: webPort, API_PORT: apiPort }, { useShell: true });
+start("web", "npm", ["--workspace", "@trellis/web", "run", "dev"], { PORT: webPort, API_PORT: apiPort, ...(lan ? { WEB_HOST: "0.0.0.0" } : {}) }, { useShell: true });

@@ -10,6 +10,10 @@ const apiPort = Number(process.env.API_PORT) || 8787;
 export default defineConfig({
   plugins: [react()],
   server: {
+    // WEB_HOST=0.0.0.0 exposes the dev server on the LAN (npm run dev:lan).
+    // The API keeps listening on loopback — LAN clients reach it through this
+    // server's /api and /ws proxies, so only this port is ever exposed.
+    host: process.env.WEB_HOST || undefined,
     // PORT lets a second session run its own dev server beside 5173.
     port: Number(process.env.PORT) || 5173,
     proxy: {
