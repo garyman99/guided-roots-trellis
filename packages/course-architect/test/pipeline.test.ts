@@ -89,6 +89,22 @@ test("the Git pack yields a real, playable Git course through the pipeline", asy
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
 });
 
+test("every role's summary is emitted as an agent.message event (the chat feed)", async () => {
+  const h = harness();
+  const runId = await driveToApproved(h, "Git");
+  const msgs = h.store.courseRunEvents(runId).filter((e) => e.type === "agent.message");
+  assert.ok(msgs.length >= 8, `expected a message per model call, got ${msgs.length}`);
+  const byRole = new Set(msgs.map((e) => (e.payload as { role: string }).role));
+  for (const role of ["architect", "lesson-author", "technical-reviewer", "pedagogy-reviewer", "cohesion-editor", "learner-advocate"]) {
+    assert.ok(byRole.has(role), `${role} reported to the chat`);
+  }
+  for (const e of msgs) {
+    const p = e.payload as { summary?: string; task?: string };
+    assert.ok(typeof p.summary === "string" && p.summary.trim().length > 0, "every message carries a summary");
+    assert.ok(typeof p.task === "string" && p.task.length > 0, "every message names its task");
+  }
+});
+
 test("a persistently malformed role output interrupts after the configured attempts", async () => {
   let calls = 0;
   const badFraming: MockResponder = (role, prompt) => {

@@ -96,6 +96,20 @@ lesson. A re-run of designing resets the ledger (a new inventory invalidates
 outcomes authored against the old one). Skipped lessons emit `lesson.skipped`.
 Covered by `packages/course-architect/test/resume-authoring.test.ts`.
 
+## Agent chat (operator visibility, 2026-07-20)
+
+Every role prompt instructs the model to add ONE extra top-level field to its
+JSON output: `"summary"` — 1–2 plain-English sentences for the human operator
+(what it produced/decided, most important finding). After validation the
+executor lifts it into the run event log as `agent.message {role, task,
+summary}`; the model's full output still goes to artifacts as before, and a
+model that omits the field still validates (no chat line, nothing else lost).
+The Course studio run detail renders these as an **Agent chat** panel —
+producers (architect/author) left, reviewers right, the learner-advocate
+accented, gate decisions centered — giving high-level visibility without
+parsing full artifacts. The mock responder includes summaries, so the panel
+works offline. Runs that predate the field simply show no panel.
+
 ## Target platform (first-class, 2026-07-20)
 
 The virtual desktop mimics **Windows only** today (macOS is a planned variant

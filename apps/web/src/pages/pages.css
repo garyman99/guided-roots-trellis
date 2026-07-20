@@ -352,6 +352,33 @@
 }
 .persona-msg-admin { color: var(--ink); margin: 0; }
 .persona-msg-interviewer { color: var(--ink-dim); margin: 0; }
+/* Agent chat (Course studio run detail) — each role's summary as a bubble. */
+.cg-chat-log {
+  display: grid; gap: 8px; max-height: 380px; overflow-y: auto;
+  padding: 10px; border: 1px solid var(--line-solid); border-radius: var(--radius);
+}
+.cg-chat-row { display: flex; }
+.cg-chat-row.left { justify-content: flex-start; }
+.cg-chat-row.right { justify-content: flex-end; }
+.cg-chat-row.center { justify-content: center; }
+.cg-chat-bubble {
+  max-width: 78%; padding: 8px 12px; border: 1px solid var(--line-solid);
+  border-radius: var(--radius); background: rgba(10, 15, 11, 0.35);
+}
+.cg-chat-bubble p { margin: 4px 0 0; font-size: var(--fs-small); color: var(--ink); white-space: pre-wrap; }
+.cg-chat-bubble.producer { border-color: var(--green-deep); background: rgba(107, 165, 95, 0.06); }
+.cg-chat-bubble.reviewer { border-color: var(--copper-dim); background: rgba(201, 128, 58, 0.06); }
+.cg-chat-bubble.advocate { border-color: var(--copper-dim); background: rgba(201, 128, 58, 0.12); }
+.cg-chat-bubble.gate { border-style: dashed; background: transparent; }
+.cg-chat-bubble.gate p { color: var(--ink-dim); font-family: var(--mono); font-size: 0.78rem; }
+.cg-chat-who {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: var(--ls-label);
+  text-transform: uppercase; color: var(--ink-faint);
+}
+.cg-chat-task { font-size: 0.66rem; color: var(--ink-dim); text-transform: none; }
+.cg-chat-time { font-size: 0.6rem; color: var(--ink-faint); }
+
 .admin-role-models summary { cursor: pointer; color: var(--ink-dim); font-size: var(--fs-small); }
 .admin-role-models { margin: 8px 0; }
 .admin-kv dt {

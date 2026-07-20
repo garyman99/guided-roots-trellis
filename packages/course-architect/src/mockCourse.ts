@@ -207,22 +207,30 @@ function packFor(context?: Record<string, unknown>): CoursePack | null {
 export const defaultMockResponder: MockResponder = (role, prompt) => {
   const ctx = prompt.context;
   const pack = packFor(ctx);
-  if (prompt.task === "course-request") return JSON.stringify(pack?.request ?? mockCourseRequest(ctx));
-  if (prompt.task === "blueprint") return JSON.stringify(pack?.blueprint ?? mockBlueprint(ctx));
+  const tech = reqOf(ctx).technology ?? "the technology";
+  // Every response carries the operator-facing `summary` the executor lifts
+  // into the run's chat feed (agent.message), mirroring what live models are
+  // instructed to add — so the chat panel works offline too.
+  if (prompt.task === "course-request") {
+    return JSON.stringify({ ...(pack?.request ?? mockCourseRequest(ctx)), summary: `Framed a ${tech} course: who it serves, where they start, and what they can do at the end.` });
+  }
+  if (prompt.task === "blueprint") {
+    return JSON.stringify({ ...(pack?.blueprint ?? mockBlueprint(ctx)), summary: `Blueprinted the ${tech} course: lesson inventory, prerequisite graph, and conventions are ready for review.` });
+  }
   if (prompt.task.startsWith("lesson:")) {
     const lessonId = (ctx?.lesson as LessonInventoryEntry | undefined)?.lessonId;
-    if (pack && lessonId && pack.lessons[lessonId]) return JSON.stringify(pack.lessons[lessonId]);
-    return JSON.stringify(mockLessonPlan(ctx));
+    const plan = pack && lessonId && pack.lessons[lessonId] ? pack.lessons[lessonId] : mockLessonPlan(ctx);
+    return JSON.stringify({ ...plan, summary: `Drafted the "${lessonId ?? "lesson"}" plan with demonstration, guided practice, and a lab spec.` });
   }
   // The learner-advocate critique (Phase 2): satisfied on round 1 keeps the
   // offline pipeline fast; tests that exercise iteration pass their own responder.
   if (prompt.task.startsWith("critique:")) {
-    return JSON.stringify({ satisfied: true, personaFit: { ok: true, issues: [] }, goalFit: { ok: true, issues: [] }, requiredChanges: [] });
+    return JSON.stringify({ satisfied: true, personaFit: { ok: true, issues: [] }, goalFit: { ok: true, issues: [] }, requiredChanges: [], summary: "No persona-fit or goal-fit objections — the draft stays within the persona's level and serves its stated goal." });
   }
   // Reviews are structured; a passing verdict keeps the default course moving.
-  if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved" });
-  if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [] });
-  if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [] });
+  if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved", summary: "Pedagogy approved — full marks across the rubric." });
+  if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [], summary: "Technically sound — no correctness or currency issues found." });
+  if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [], summary: "Reads as one coherent journey — no cohesion issues." });
   // Lesson-revision runs: the goal (G1 artifact) and the improvement plan
   // (G2 artifact — a 1-lesson inventory the normal authoring path consumes).
   if (prompt.task === "revision-goal") {

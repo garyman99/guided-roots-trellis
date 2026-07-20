@@ -211,6 +211,33 @@ function taskInstruction(task: string): string {
   return `Produce the "${task}" artifact as strict JSON.`;
 }
 
+/** Standing rule appended to EVERY prompt: alongside the exact task fields,
+ *  each role reports a 1–2 sentence human-readable summary. It rides the run's
+ *  event log as `agent.message` and feeds the Course studio chat panel — the
+ *  operator's high-level view of the agents talking, without the full output. */
+const SUMMARY_NOTE = [
+  "",
+  "IN ADDITION to the exact fields above, include ONE extra top-level field in",
+  'the same JSON object: "summary" — 1–2 plain-English sentences addressed to',
+  "the human operator, saying what you produced or decided and your most",
+  "important finding or concern (e.g. the blockers if you rejected something).",
+  "It is shown in a chat feed; be concrete and brief, not a field-by-field recap.",
+].join("\n");
+
+/** Pull the operator-facing summary off a role's raw parsed output (top level,
+ *  or inside a single-key wrapper object — mirroring validateWithUnwrap). */
+function extractSummary(parsed: unknown): string | null {
+  const top = (parsed ?? {}) as Record<string, unknown>;
+  let s: unknown = top.summary;
+  if (typeof s !== "string" && !Array.isArray(parsed) && parsed && typeof parsed === "object") {
+    const values = Object.values(top);
+    if (values.length === 1 && values[0] && typeof values[0] === "object") {
+      s = (values[0] as Record<string, unknown>).summary;
+    }
+  }
+  return typeof s === "string" && s.trim() ? s.trim().slice(0, 600) : null;
+}
+
 /** Standing rule appended to EVERY prompt: the one desktop this course ships
  *  in. Keeps authors writing for the platform the virtual desktop actually
  *  mimics, and stops reviewers/critics flagging missing support for other
@@ -249,7 +276,7 @@ function prompt(task: string, context: Record<string, unknown>, extra = ""): Rol
   const targetPlatform = String(context.targetPlatform ?? fromRequest ?? DEFAULT_TARGET_PLATFORM);
   const ctx = { targetPlatform, ...context };
   const personaNote = context.persona ? PERSONA_NOTE : "";
-  return { task, context: ctx, system: "", user: `CONTEXT:\n${JSON.stringify(ctx, null, 2)}\n\n${extra}${personaNote}${platformNote(targetPlatform)}${taskInstruction(task)}` };
+  return { task, context: ctx, system: "", user: `CONTEXT:\n${JSON.stringify(ctx, null, 2)}\n\n${extra}${personaNote}${platformNote(targetPlatform)}${taskInstruction(task)}${SUMMARY_NOTE}` };
 }
 
 /** The request as prompt context: persona lifted out as a bounded view (the raw
@@ -297,7 +324,13 @@ async function invokeValidated<T>(
     try {
       // camelizeKeys tolerates snake_case; validateWithUnwrap tolerates a
       // single-key wrapper object.
-      return validateWithUnwrap(camelizeKeys(parseJson<unknown>(res.text)), validate);
+      const parsed = camelizeKeys(parseJson<unknown>(res.text));
+      const value = validateWithUnwrap(parsed, validate);
+      // The role's operator-facing summary → the run's chat feed. Optional:
+      // a model that omits it still validates; there's just no chat line.
+      const summary = extractSummary(parsed);
+      if (summary) ctx.emit("agent.message", { role, task: p.task, summary });
+      return value;
     } catch (err) {
       lastErr = err;
       if (attempt === maxAttempts) break;

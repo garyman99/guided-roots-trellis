@@ -1149,6 +1149,7 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       <PhaseRail run={run} />
       <GateVerdicts run={run} />
       <LivePanel run={run} />
+      <AgentChat run={run} />
       <RunEconomics events={run.events} />
 
       {gate && <GateBar run={run} gate={gate} onDecided={setRun} />}
@@ -1936,6 +1937,67 @@ function ArtifactViewer({ run }: { run: CourseRunDetail }) {
 }
 
 /* ---------- activity feed ---------- */
+
+/* ---------- agent chat (operator's high-level view) ---------- */
+
+/** Who's talking: producers on the left, judges on the right, gates centered. */
+const CHAT_ROLES: Record<string, { label: string; side: "left" | "right"; cls: string }> = {
+  architect: { label: "Architect", side: "left", cls: "producer" },
+  "domain-analyst": { label: "Domain analyst", side: "left", cls: "producer" },
+  "lesson-author": { label: "Lesson author", side: "left", cls: "producer" },
+  "technical-reviewer": { label: "Technical reviewer", side: "right", cls: "reviewer" },
+  "pedagogy-reviewer": { label: "Pedagogy reviewer", side: "right", cls: "reviewer" },
+  "cohesion-editor": { label: "Cohesion editor", side: "right", cls: "reviewer" },
+  "learner-advocate": { label: "Learner advocate", side: "right", cls: "advocate" },
+};
+
+interface ChatMsg { at: string; who: string; side: "left" | "right" | "center"; cls: string; task?: string; text: string }
+
+/** agent.message events (each role's 1–2 sentence self-report) interleaved
+ *  with gate decisions, rendered as a conversation. Older runs predate the
+ *  summary field and simply have no messages — the panel hides itself. */
+function AgentChat({ run }: { run: CourseRunDetail }) {
+  const logRef = useRef<HTMLDivElement | null>(null);
+  const msgs: ChatMsg[] = [];
+  for (const e of run.events) {
+    if (e.type === "agent.message") {
+      const p = e.payload as { role?: string; task?: string; summary?: string } | undefined;
+      if (!p?.summary) continue;
+      const meta = CHAT_ROLES[p.role ?? ""] ?? { label: p.role ?? "agent", side: "left" as const, cls: "producer" };
+      msgs.push({ at: e.at, who: meta.label, side: meta.side, cls: meta.cls, task: p.task, text: p.summary });
+    } else if (e.type === "gate.decided") {
+      const p = e.payload as { gateId?: string; decision?: string; by?: string; noteCount?: number } | undefined;
+      if (!p?.gateId) continue;
+      const notes = p.noteCount ? ` — ${p.noteCount} note${p.noteCount === 1 ? "" : "s"}` : "";
+      msgs.push({ at: e.at, who: p.by ?? "operator", side: "center", cls: "gate", text: `${p.gateId} gate: ${p.decision}${notes}` });
+    }
+  }
+  // Keep the newest exchange in view as messages stream in.
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [msgs.length]);
+  if (msgs.length === 0) return null;
+
+  return (
+    <div className="gr-card">
+      <h3>Agent chat <span className="gr-mono-note">{msgs.length} messages · each agent's own summary, not its full output</span></h3>
+      <div className="cg-chat-log" ref={logRef}>
+        {msgs.map((m, i) => (
+          <div key={i} className={`cg-chat-row ${m.side}`}>
+            <div className={`cg-chat-bubble ${m.cls}`}>
+              <span className="cg-chat-who">
+                {m.who}
+                {m.task && <code className="cg-chat-task">{m.task}</code>}
+                <span className="cg-chat-time">{new Date(m.at).toLocaleTimeString()}</span>
+              </span>
+              <p>{m.text}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ActivityFeed({ events }: { events: CourseRunDetail["events"] }) {
   if (events.length === 0) return null;
