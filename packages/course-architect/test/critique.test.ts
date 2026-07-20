@@ -68,11 +68,11 @@ test("validateCritiqueVerdict rejects a dissatisfied verdict without requiredCha
 });
 
 test("critiqueRounds is env-tunable and clamped", () => {
-  assert.equal(critiqueRounds({}), 5);
+  assert.equal(critiqueRounds({}), 2);
   assert.equal(critiqueRounds({ COURSE_GEN_CRITIQUE_ROUNDS: "3" }), 3);
   assert.equal(critiqueRounds({ COURSE_GEN_CRITIQUE_ROUNDS: "99" }), 10);
   assert.equal(critiqueRounds({ COURSE_GEN_CRITIQUE_ROUNDS: "0" }), 1);
-  assert.equal(critiqueRounds({ COURSE_GEN_CRITIQUE_ROUNDS: "bogus" }), 5);
+  assert.equal(critiqueRounds({ COURSE_GEN_CRITIQUE_ROUNDS: "bogus" }), 2);
 });
 
 /* ── pipeline integration ── */

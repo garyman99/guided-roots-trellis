@@ -136,6 +136,13 @@ export interface CourseRunRequest {
   autoPublish?: boolean;
   /** Present ⇒ this is a lesson-revision run, not a whole-course generation. */
   revision?: RevisionRequest;
+  /** Budget guardrails (plan §3.2) — a run that exceeds either aborts its
+   *  current phase and parks `interrupted` with a budget-exhausted reason
+   *  (BudgetExceededError, enforced in budget.ts). Absent ⇒ unbounded. */
+  maxModelCalls?: number;
+  /** Rough estimated USD spend across every model.invoked event so far (see
+   *  budget.ts's per-model $/output-token table). A guardrail, not accounting. */
+  maxEstimatedCostUSD?: number;
 }
 
 /** Structured request-changes comment; the exact text an executor must address. */
@@ -217,6 +224,10 @@ export interface PhaseContext {
   changeNotes: GateNote[] | null;
   /** Append a run event (activity feed). */
   emit: (type: string, payload?: Record<string, unknown>) => void;
+  /** The run's full event log so far (every phase, not just this one) — the
+   *  seam budget enforcement reads to tally cumulative model.invoked calls/cost
+   *  without the executor needing a store reference (plan §3.2). */
+  events: () => CourseRunEvent[];
 }
 
 /**

@@ -554,6 +554,9 @@ export interface CourseRunDetail extends CourseRunSummary {
   request: Record<string, unknown> & {
     /** Present ⇒ a lesson-revision run (versioning plan Phase D). */
     revision?: { courseId: string; family: string; fromLabId: string; fromVersion: number; reportFile?: string; notes?: string };
+    /** Budget guardrails (plan §3.2) — absent ⇒ unbounded. */
+    maxModelCalls?: number;
+    maxEstimatedCostUSD?: number;
   };
   pendingPhase: string | null;
   events: CourseRunEvent[];

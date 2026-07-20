@@ -1264,6 +1264,19 @@ export const server = createServer(async (req, res) => {
   const parts = url.pathname.split("/").filter(Boolean);
 
   try {
+    // GET /api/health — unauthenticated liveness probe (plan §3.3): reports
+    // the one course-generation run currently occupying the executor slot
+    // (executing a phase or next up in the queue), if any. Registered first —
+    // ahead of every auth-gated route and the static-serve fallthrough.
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      const runs = store.listCourseRuns();
+      const active =
+        runs.find((r) => isActive(r.status)) ??
+        runs.filter((r) => r.status === "queued").sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0] ??
+        null;
+      return json(res, 200, { ok: true, activeRun: active?.runId ?? null, lastProgressAt: active?.updatedAt ?? null });
+    }
+
     // POST /api/learners — persistent learner identity + consent tiers
     if (req.method === "POST" && url.pathname === "/api/learners") {
       const body = await readBody(req);
@@ -1679,6 +1692,14 @@ export const server = createServer(async (req, res) => {
             const gateMode = body.gateMode === "auto" ? "auto" : "manual";
             const autoPublish = body.autoPublish === true;
 
+            // Budget guardrails (plan §3.2): optional caps enforced by the
+            // course-architect executor. Only accept finite, positive numbers —
+            // anything else (missing, NaN, <= 0) leaves the run unbounded.
+            const finitePositive = (v: unknown): number | undefined =>
+              typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+            const maxModelCalls = finitePositive(body.maxModelCalls);
+            const maxEstimatedCostUSD = finitePositive(body.maxEstimatedCostUSD);
+
             let revision: NonNullable<CourseRun["request"]["revision"]> | undefined;
             if (body.revision && typeof body.revision === "object") {
               const rv = body.revision as Record<string, unknown>;
@@ -1768,6 +1789,8 @@ export const server = createServer(async (req, res) => {
               ...(revision ? { revision } : {}),
               ...(gateMode === "auto" ? { gateMode } : {}),
               ...(autoPublish ? { autoPublish } : {}),
+              ...(maxModelCalls !== undefined ? { maxModelCalls } : {}),
+              ...(maxEstimatedCostUSD !== undefined ? { maxEstimatedCostUSD } : {}),
             });
             // Stamp the seeding report with the run that used it (D6).
             if (revision?.reportFile) {

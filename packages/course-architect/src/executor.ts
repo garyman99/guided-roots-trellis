@@ -35,6 +35,7 @@ import {
   type LessonPlanDoc,
 } from "./schemas.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, type CapabilityGapReport } from "./gaps.ts";
+import { enforceBudget } from "./budget.ts";
 import { personaPromptView } from "./personas.ts";
 import {
   critiqueInstruction,
@@ -258,7 +259,12 @@ async function invokeValidated<T>(
         }
       : undefined;
     const res = await deps.roles.invoke(role, { ...p, system: sys }, onDelta);
-    ctx.emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0 });
+    ctx.emit("model.invoked", { role, task: p.task, attempt, outputTokens: res.usage.outputTokens ?? 0, model: res.model });
+    // Budget guardrail (plan §3.2): checked right after the call is recorded,
+    // so cumulative usage includes it. Throws BudgetExceededError, which the
+    // scheduler treats like any other phase failure — the run parks
+    // `interrupted` with a clear, resumable reason.
+    enforceBudget(ctx.run.request, ctx.events());
     try {
       // camelizeKeys tolerates snake_case; validateWithUnwrap tolerates a
       // single-key wrapper object.

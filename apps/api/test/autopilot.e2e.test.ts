@@ -22,7 +22,7 @@ process.env.TRELLIS_PERSONAS_DIR = mkdtempSync(join(tmpdir(), "trellis-autopilot
 
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
-import { server, manager, store, autoGate } from "../src/server.ts";
+import { server, manager, store, autoGate, courseRuns } from "../src/server.ts";
 
 let base = "";
 before(async () => {
@@ -62,6 +62,7 @@ interface RunDetail {
   status: string;
   gateMode: string;
   autoPublish: boolean;
+  lastError: string | null;
   gates: Array<{ gateId: string; decision: string | null; decidedBy: string | null }>;
   artifacts: string[];
 }
@@ -165,4 +166,69 @@ test("autopilot: exhausted change budget force-approves with a reservation, forc
   } finally {
     delete process.env.COURSE_GEN_AUTOGATE_MAX_CHANGES;
   }
+});
+
+/* ── run budget enforcement (plan §3.2) ── */
+
+test("run budget: an absurdly low maxModelCalls parks the run interrupted with a budget-exhausted reason", async () => {
+  const personaId = await readyPersona("Budget");
+  const created = await admin("POST", "/api/admin/course-runs", {
+    technology: "Git",
+    personaId,
+    providerConfig: { provider: "mock" },
+    maxModelCalls: 1, // the framing phase alone makes 2+ calls (architect + critique)
+  });
+  assert.equal(created.status, 201);
+  const runId = (created.body as { run: RunDetail }).run.runId;
+
+  await courseRuns.settle();
+  const detail = await admin("GET", `/api/admin/course-runs/${runId}`);
+  const run = (detail.body as { run: RunDetail }).run;
+  assert.equal(run.status, "interrupted", `expected the run to park interrupted on budget; got ${JSON.stringify(run)}`);
+  assert.match(run.lastError ?? "", /budget/i);
+  assert.match(run.lastError ?? "", /max 1/);
+});
+
+test("run budget: a generous maxModelCalls does not interfere with a normal run", async () => {
+  const personaId = await readyPersona("Generous");
+  const created = await admin("POST", "/api/admin/course-runs", {
+    technology: "Git",
+    personaId,
+    providerConfig: { provider: "mock" },
+    maxModelCalls: 10_000,
+  });
+  const runId = (created.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle();
+  const detail = await admin("GET", `/api/admin/course-runs/${runId}`);
+  const run = (detail.body as { run: RunDetail }).run;
+  assert.equal(run.status, "awaiting-frame", `expected the run to reach the frame gate; got ${JSON.stringify(run)}`);
+});
+
+/* ── GET /api/health (plan §3.3) ── */
+
+test("GET /api/health reports the active run and null when idle", async () => {
+  const idle = await fetch(base + "/api/health").then((r) => r.json());
+  assert.equal(idle.ok, true);
+  assert.equal(idle.activeRun, null);
+  assert.equal(idle.lastProgressAt, null);
+
+  const personaId = await readyPersona("Health");
+  const created = await admin("POST", "/api/admin/course-runs", { technology: "Git", personaId, providerConfig: { provider: "mock" } });
+  const runId = (created.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle(); // let the mock pipeline park it wherever it lands
+
+  // Force the run mid-phase directly on the store — deterministic, no race
+  // with the scheduler's own async pump (the mock pipeline runs too fast to
+  // reliably observe "queued"/"framing" over HTTP otherwise).
+  const existing = store.getCourseRun(runId)!;
+  const forcedAt = "2026-01-01T00:00:00.000Z";
+  store.updateCourseRun({ ...existing, status: "framing", pendingPhase: "framing", updatedAt: forcedAt });
+
+  const active = await fetch(base + "/api/health").then((r) => r.json());
+  assert.equal(active.ok, true);
+  assert.equal(active.activeRun, runId);
+  assert.equal(active.lastProgressAt, forcedAt);
+
+  // Restore terminal state so this run doesn't confuse later assertions.
+  store.updateCourseRun({ ...existing, status: "archived", pendingPhase: null });
 });

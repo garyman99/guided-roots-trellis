@@ -10,8 +10,9 @@
  *   goalFit    — will this output actually achieve its stated (scoped) goal?
  *
  * An unsatisfied verdict feeds `requiredChanges` back to the producing role,
- * which refines and is re-judged — up to MAX_CRITIQUE_ROUNDS (default 5, env
- * COURSE_GEN_CRITIQUE_ROUNDS). Unsatisfied-after-cap keeps the LAST output and
+ * which refines and is re-judged — up to MAX_CRITIQUE_ROUNDS (default 2, env
+ * COURSE_GEN_CRITIQUE_ROUNDS overrides, clamped to 1..10). Unsatisfied-after-cap
+ * keeps the LAST output and
  * records the verdict trail; the human gate decides (framing/designing) or the
  * lesson lands in needs-revision (authoring).
  *
@@ -29,7 +30,7 @@ export interface CritiqueVerdict {
   requiredChanges: string[];
 }
 
-export const MAX_CRITIQUE_ROUNDS = 5;
+export const MAX_CRITIQUE_ROUNDS = 2;
 
 /** The round cap: env-tunable, clamped to a sane 1..10. */
 export function critiqueRounds(env: Record<string, string | undefined> = process.env): number {

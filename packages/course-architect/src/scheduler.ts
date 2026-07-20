@@ -180,6 +180,7 @@ export class CourseRunScheduler {
           phase,
           changeNotes,
           emit: (type, payload) => this.emit(run.runId, type, payload),
+          events: () => this.store.courseRunEvents(run.runId),
         }),
         phase,
       );

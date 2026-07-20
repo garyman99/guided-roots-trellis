@@ -511,6 +511,9 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   // Autopilot: gate-reviewer decides gates unattended (docs/plans/autonomous-course-pipeline.md §3.2).
   const [gateMode, setGateMode] = useState<"manual" | "auto">("manual");
   const [autoPublish, setAutoPublish] = useState(false);
+  // Budget guardrails (plan §3.2) — optional; blank leaves the run unbounded.
+  const [maxModelCalls, setMaxModelCalls] = useState("");
+  const [maxEstimatedCostUSD, setMaxEstimatedCostUSD] = useState("");
   useEffect(() => {
     if (open && !providers) {
       courseRunApi.providers().then((p) => {
@@ -536,6 +539,10 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
       body.gateMode = "auto";
       if (autoPublish) body.autoPublish = true;
     }
+    const calls = Number(maxModelCalls);
+    if (maxModelCalls.trim() && Number.isFinite(calls) && calls > 0) body.maxModelCalls = calls;
+    const cost = Number(maxEstimatedCostUSD);
+    if (maxEstimatedCostUSD.trim() && Number.isFinite(cost) && cost > 0) body.maxEstimatedCostUSD = cost;
     const pickedRoleModels = Object.fromEntries(Object.entries(roleModels).filter(([, v]) => v.trim()));
     body.providerConfig =
       provider === "mock"
@@ -717,6 +724,29 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
             </label>
           </div>
         )}
+        <div className="gr-field">
+          <label htmlFor="cg-max-calls">Max model calls (optional)</label>
+          <input
+            id="cg-max-calls"
+            type="number"
+            min={1}
+            value={maxModelCalls}
+            onChange={(e) => setMaxModelCalls(e.target.value)}
+            placeholder="unbounded"
+          />
+        </div>
+        <div className="gr-field">
+          <label htmlFor="cg-max-cost">Max est. cost (USD, optional)</label>
+          <input
+            id="cg-max-cost"
+            type="number"
+            min={0}
+            step="0.01"
+            value={maxEstimatedCostUSD}
+            onChange={(e) => setMaxEstimatedCostUSD(e.target.value)}
+            placeholder="unbounded"
+          />
+        </div>
       </div>
       {gateMode === "auto" && (
         <p className="gr-mono-note">
