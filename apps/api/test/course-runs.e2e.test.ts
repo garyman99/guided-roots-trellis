@@ -8,7 +8,7 @@ process.env.NODE_ENV = "test";
 process.env.TRELLIS_PERSISTENCE = "off";
 process.env.INSTRUCTOR_PROVIDER = "mock";
 process.env.TRELLIS_ADMIN_TOKEN = "test-admin-token";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const RUNS_DIR = mkdtempSync(join(tmpdir(), "trellis-runs-e2e-"));
@@ -134,6 +134,30 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   const req = cp.requirements[0];
   assert.equal(req.ok, false);
   assert.ok(!/did not report/i.test(req.detail ?? ""), `the verify requirement resolves to a real check (got: ${req.detail})`);
+});
+
+test("PATCH edits a parked run's targetPlatform and mirrors it to run.json", async () => {
+  const created = await admin("POST", "/api/admin/course-runs", { technology: "Git" });
+  assert.equal(created.status, 201);
+  const runId = (created.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle(); // parked at the frame gate
+
+  type WithRequest = RunDetail & { request: { targetPlatform?: string }; events: Array<{ type: string }> };
+  let run = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: WithRequest }).run;
+  assert.equal(run.request.targetPlatform, "windows", "create stamps the default");
+
+  assert.equal((await admin("PATCH", `/api/admin/course-runs/${runId}`, { targetPlatform: "linux" })).status, 400);
+
+  const patched = await admin("PATCH", `/api/admin/course-runs/${runId}`, { targetPlatform: "mac" });
+  assert.equal(patched.status, 200);
+  assert.equal((patched.body as { run: WithRequest }).run.request.targetPlatform, "mac");
+
+  run = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: WithRequest }).run;
+  assert.equal(run.request.targetPlatform, "mac", "persisted");
+  assert.ok(run.events.some((e) => e.type === "run.request-updated"), "audit event recorded");
+  // The durable disk mirror carries the edit too (survives a lost DB).
+  const mirrored = JSON.parse(readFileSync(join(RUNS_DIR, runId, "run.json"), "utf8")) as { request: { targetPlatform?: string } };
+  assert.equal(mirrored.request.targetPlatform, "mac");
 });
 
 test("deleting a run cascades to its course, scenarios, and on-disk artifacts", async () => {

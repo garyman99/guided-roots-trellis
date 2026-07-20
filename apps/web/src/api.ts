@@ -552,6 +552,8 @@ export interface ProviderConfig {
 
 export interface CourseRunDetail extends CourseRunSummary {
   request: Record<string, unknown> & {
+    /** Desktop the course targets. Absent (pre-field runs) = "windows". */
+    targetPlatform?: "windows" | "mac";
     /** Present ⇒ a lesson-revision run (versioning plan Phase D). */
     revision?: { courseId: string; family: string; fromLabId: string; fromVersion: number; reportFile?: string; notes?: string };
     /** Budget guardrails (plan §3.2) — absent ⇒ unbounded. */
@@ -684,6 +686,9 @@ export const courseRunApi = {
   decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string, gaps?: GapDecision[]) =>
     adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by, ...(gaps && gaps.length ? { gaps } : {}) }).then((r) => r.run),
   resume: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/resume`).then((r) => r.run),
+  // Edit a parked run's request — today only targetPlatform is editable.
+  updateRequest: (runId: string, patch: { targetPlatform: "windows" | "mac" }) =>
+    adminSend<{ run: CourseRunDetail }>("PATCH", `/api/admin/course-runs/${encodeURIComponent(runId)}`, patch).then((r) => r.run),
   archive: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/archive`).then((r) => r.run),
   // Hard-delete a run and everything it produced (course, scenarios, generated
   // labs, commissioned capabilities, artifacts). Returns a summary of removals.

@@ -1930,6 +1930,24 @@ export const server = createServer(async (req, res) => {
               courseRuns.decideGate(runId, gateId, decision, notes, by);
               return json(res, 200, { run: courseRunDetail(runId) });
             }
+            // PATCH request fields: /course-runs/:id — edit the run's request
+            // while it is PARKED (interrupted or awaiting a gate). Today only
+            // targetPlatform is editable; the change lands in the DB AND the
+            // run.json disk mirror, and takes effect on the next (re-)run of a
+            // phase (prompts read run.request live).
+            if (req.method === "PATCH" && parts.length === 4) {
+              const body = await readBody(req);
+              if (body.targetPlatform !== "windows" && body.targetPlatform !== "mac") {
+                return json(res, 400, { error: 'targetPlatform must be "windows" or "mac"' });
+              }
+              if (isActive(run.status)) {
+                return json(res, 409, { error: `run is executing (${run.status}); it must be parked at a gate or interrupted to edit` });
+              }
+              const at = new Date().toISOString();
+              mirroredRunStore.updateCourseRun({ ...run, request: { ...run.request, targetPlatform: body.targetPlatform }, updatedAt: at });
+              mirroredRunStore.appendCourseRunEvent({ runId, at, type: "run.request-updated", payload: { targetPlatform: body.targetPlatform } });
+              return json(res, 200, { run: courseRunDetail(runId) });
+            }
             // POST resume / archive
             if (req.method === "POST" && parts.length === 5 && (parts[4] === "resume" || parts[4] === "archive")) {
               if (parts[4] === "resume") courseRuns.resume(runId);

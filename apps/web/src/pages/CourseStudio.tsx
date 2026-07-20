@@ -1089,6 +1089,13 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
   if (!run) return <p className="admin-loading">Loading run…</p>;
 
   const gate = awaitingGateId(run.status);
+  // The request is editable only while the run is PARKED (interrupted or at a
+  // gate) — the API 409s otherwise. Pre-field runs have no targetPlatform;
+  // absent = windows everywhere.
+  const parked = !isActive(run.status) && run.status !== "queued";
+  const platform = run.request?.targetPlatform ?? "windows";
+  const setPlatform = (value: "windows" | "mac") =>
+    courseRunApi.updateRequest(runId, { targetPlatform: value }).then(setRun).catch((e) => window.alert(`Couldn't update the platform: ${String((e as Error).message)}`));
 
   return (
     <div className="admin-stack">
@@ -1103,6 +1110,19 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
             {(run.request?.persona as { profile?: { name?: string } } | undefined)?.profile?.name
               ? <> · persona: {(run.request!.persona as { profile: { name: string } }).profile.name}</>
               : null}
+            {" · platform: "}
+            {parked ? (
+              <select
+                value={platform}
+                title="Desktop the course targets. Editable while the run is parked; the next (re-)run of a phase authors for this platform."
+                onChange={(e) => setPlatform(e.target.value as "windows" | "mac")}
+              >
+                <option value="windows">windows</option>
+                <option value="mac">mac (desktop variant not built yet)</option>
+              </select>
+            ) : (
+              platform
+            )}
           </p>
         </div>
       </div>
