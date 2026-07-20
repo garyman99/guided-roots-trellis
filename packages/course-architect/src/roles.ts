@@ -26,6 +26,7 @@ export type CourseGenRole =
   | "cohesion-editor"
   | "experience-analyst"
   | "persona-interviewer"
+  | "persona-suggester"
   | "gate-reviewer";
 
 export const COURSE_GEN_ROLES: CourseGenRole[] = [
@@ -38,6 +39,7 @@ export const COURSE_GEN_ROLES: CourseGenRole[] = [
   "cohesion-editor",
   "experience-analyst",
   "persona-interviewer",
+  "persona-suggester",
   "gate-reviewer",
 ];
 
@@ -59,6 +61,7 @@ export const ROLE_TIER: Record<CourseGenRole, ModelTier> = {
   "cohesion-editor": "judgment",
   "experience-analyst": "judgment",
   "persona-interviewer": "judgment",
+  "persona-suggester": "judgment",
   "gate-reviewer": "judgment",
 };
 

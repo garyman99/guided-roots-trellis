@@ -308,6 +308,42 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
       complete: true,
     });
   }
+  // Course-idea intake (plan §3.2, the front door): deterministic so the
+  // whole idea → autopilot flow is testable offline. Reuse the first READY
+  // persona shown if the library has one; otherwise draft a complete new one.
+  if (prompt.task === "suggest:persona") {
+    const idea = (ctx?.idea as string | undefined)?.trim() || "a new technology";
+    const readyPersonas = (ctx?.readyPersonas as Array<{ personaId: string; name: string }> | undefined) ?? [];
+    const technology = idea.match(/[A-Za-z][A-Za-z0-9.+#-]*/)?.[0] ?? idea.slice(0, 40);
+    if (readyPersonas.length > 0) {
+      const first = readyPersonas[0];
+      return JSON.stringify({
+        technology,
+        match: "existing",
+        personaId: first.personaId,
+        profile: null,
+        rationale: `"${first.name}" already matches who this course is for — no need to draft a new persona.`,
+      });
+    }
+    return JSON.stringify({
+      technology,
+      match: "new",
+      personaId: null,
+      profile: {
+        name: `Persona: ${idea.slice(0, 60)}`,
+        anticipatedKnowledgeLevel: "Knows adjacent, everyday tooling but has never used this technology directly.",
+        anticipatedCapabilityLevel: "Can follow precise numbered steps; cannot yet adapt when a step's output differs from the example.",
+        background: idea,
+        goals: ["Become independently productive with the core workflow", "Stop relying on a teammate for routine tasks"],
+        frustrations: ["Docs that assume unstated background", "Errors with no hint at the cause"],
+        vocabularyComfort: "Everyday tooling terms are safe; this technology's jargon needs defining on first use.",
+        toolFamiliarity: ["web browser", "text editor"],
+        behaviorUnderFriction: "Re-reads the instructions once, retries once, then asks for help rather than experimenting.",
+        narrative: `${idea}. New to this technology but motivated: follows precise steps well, needs terms defined on first use, and asks for help quickly when stuck rather than thrashing.`,
+      },
+      rationale: `No existing persona fits "${idea}" — drafted a new one anchored on the stated context.`,
+    });
+  }
   // Auto-gate (Autopilot §3.1): the mock gate-reviewer always approves, with a
   // reservation flagged for the human's after-the-fact review — lets the whole
   // autopilot pipeline (idea → published course) walk unattended offline.

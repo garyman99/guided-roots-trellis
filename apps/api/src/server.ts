@@ -102,8 +102,12 @@ import {
   validatePersonaInterviewTurn,
   validatePersonaDraft,
   personaReadyErrors,
+  PERSONA_SUGGESTER_SYSTEM,
+  courseIdeaInstruction,
+  validateCourseIdeaSuggestion,
   type EmbeddedPersona,
   type PersonaProfile,
+  type CourseIdeaSuggestion,
   type ExperienceReport,
   type CapabilityGapReport,
   type CourseGenRole,
@@ -1584,6 +1588,67 @@ export const server = createServer(async (req, res) => {
             });
           }
         }
+      }
+
+      // ── POST /api/admin/course-intake — the pipeline's front door (plan §3.2):
+      //    one idea → a persona-suggester call → operator confirms → autopilot
+      //    run. Reuses the same providerConfig seam as the persona interview. ──
+      if (req.method === "POST" && parts[2] === "course-intake" && parts.length === 3) {
+        const body = await readBody(req);
+        const idea = typeof body.idea === "string" ? body.idea.trim().slice(0, 2000) : "";
+        if (!idea) return json(res, 400, { error: "idea is required" });
+        const providerConfig = parseProviderConfig(body.providerConfig);
+        const providerError = validateProviderConfig(providerConfig);
+        if (providerError) return json(res, 400, { error: providerError });
+
+        // Bounded catalog: only READY personas, only the fields the prompt needs.
+        const readyPersonas = listPersonas(personasDir())
+          .filter((p) => p.status === "ready")
+          .map((p) => ({
+            personaId: p.personaId,
+            name: p.name,
+            anticipatedKnowledgeLevel: p.anticipatedKnowledgeLevel,
+            anticipatedCapabilityLevel: p.anticipatedCapabilityLevel,
+            narrative: p.narrative,
+          }));
+
+        const prompt = {
+          system: PERSONA_SUGGESTER_SYSTEM,
+          task: "suggest:persona",
+          context: { idea, readyPersonas },
+          user: [
+            `## Course idea (+ who it's for)`,
+            idea,
+            ``,
+            `## Existing READY personas in the library`,
+            readyPersonas.length ? JSON.stringify(readyPersonas, null, 2) : "(none yet)",
+            ``,
+            courseIdeaInstruction(),
+          ].join("\n"),
+        };
+
+        let suggestion: CourseIdeaSuggestion;
+        try {
+          suggestion = await invokeValidatedJson(
+            invokerForProvider(providerConfig),
+            "persona-suggester",
+            prompt,
+            validateCourseIdeaSuggestion,
+            { maxAttempts: Number(process.env.COURSE_GEN_MAX_ATTEMPTS ?? 3) },
+          );
+        } catch (err) {
+          return json(res, 502, { error: err instanceof Error ? err.message : String(err) });
+        }
+
+        // A suggested "existing" persona must actually exist and be ready —
+        // the model naming an id doesn't make it so.
+        if (suggestion.match === "existing") {
+          const p = suggestion.personaId ? readPersona(personasDir(), suggestion.personaId) : null;
+          if (!p) return json(res, 502, { error: `suggester picked persona "${suggestion.personaId}" which does not exist` });
+          if (p.status !== "ready") return json(res, 502, { error: `suggester picked persona "${suggestion.personaId}" which is not ready` });
+        }
+
+        return json(res, 200, { suggestion });
       }
 
       // ── /api/admin/lessons/:labId/experience… — recorded-experience metrics,

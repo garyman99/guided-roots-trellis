@@ -12,11 +12,13 @@ import {
   courseRunApi,
   personaApi,
   simTestApi,
+  suggestCoursePersona,
   type SimLessonResult,
   type SimTestJobView,
   type Course,
   type CapabilityGapReport,
   type CapabilityRequest,
+  type CourseIdeaSuggestion,
   type CourseRunDetail,
   type CourseRunSummary,
   type LiveActivity,
@@ -163,6 +165,8 @@ function RunsView({ runs, requests, personas, onGoPersonas, onOpen, onStarted, o
 }) {
   return (
     <div className="admin-stack">
+      <CourseIdeaCard personas={personas} onStarted={onStarted} />
+
       <StartRunForm onStarted={onStarted} personas={personas} onGoPersonas={onGoPersonas} />
 
       {requests.length > 0 && <CommissionOutbox requests={requests} />}
@@ -475,6 +479,177 @@ function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: ()
         </article>
       </div>
     </div>
+  );
+}
+
+/* ================= course idea intake (plan §3.2, the front door) ================= */
+
+function CourseIdeaCard({ personas, onStarted }: {
+  personas: PersonaProfile[];
+  onStarted: (run: CourseRunDetail) => void;
+}) {
+  const [idea, setIdea] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [suggestion, setSuggestion] = useState<CourseIdeaSuggestion | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // A minimal provider picker — the run itself gets the full advanced picker
+  // via StartRunForm; this front door just needs to reach a model.
+  const [providers, setProviders] = useState<ProvidersPayload | null>(null);
+  const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  useEffect(() => {
+    if (!providers) {
+      courseRunApi.providers().then((p) => {
+        setProviders(p);
+        const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
+        if (def) setProvider(def.id);
+      }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
+    }
+  }, [providers]);
+
+  const providerConfig = (): ProviderConfig => {
+    if (provider === "mock") return { provider: "mock" };
+    return {
+      provider,
+      ...(model.trim() ? { model: model.trim() } : {}),
+      ...(provider === "openai-compatible" && baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
+    };
+  };
+
+  const existingPersona = suggestion?.match === "existing" ? personas.find((p) => p.personaId === suggestion.personaId) ?? null : null;
+
+  const suggest = () => {
+    if (!idea.trim() || suggesting) return;
+    setSuggesting(true);
+    setError(null);
+    setSuggestion(null);
+    suggestCoursePersona(idea.trim(), providerConfig())
+      .then((s) => { setSuggesting(false); setSuggestion(s); })
+      .catch((e) => { setSuggesting(false); setError(String((e as Error).message)); });
+  };
+
+  const dismiss = () => { setSuggestion(null); setError(null); };
+
+  const useAndStart = async () => {
+    if (!suggestion) return;
+    setStarting(true);
+    setError(null);
+    try {
+      let personaId = suggestion.personaId;
+      if (suggestion.match === "new" && suggestion.profile) {
+        const created = await personaApi.create(suggestion.profile.name);
+        await personaApi.update(created.personaId, { profile: suggestion.profile, status: "ready" });
+        personaId = created.personaId;
+      }
+      if (!personaId) throw new Error("no persona to start the run with");
+      const run = await courseRunApi.create({
+        technology: suggestion.technology,
+        personaId,
+        gateMode: "auto",
+        autoPublish: true,
+        // The run rides the same provider the suggestion used — otherwise a
+        // live idea would silently generate on the server default.
+        providerConfig: providerConfig(),
+      });
+      setStarting(false);
+      setIdea("");
+      setSuggestion(null);
+      onStarted(run);
+    } catch (e) {
+      setStarting(false);
+      setError(String((e as Error).message));
+    }
+  };
+
+  return (
+    <article className="gr-card admin-course-editor">
+      <h3>Course idea</h3>
+      <p className="gr-mono-note">
+        Type a course idea and who it's for — one field. A persona-suggester agent proposes an existing
+        library persona or drafts a complete new one; confirm it and an autopilot run starts unattended:
+        idea in, published course out.
+      </p>
+      <div className="gr-field">
+        <label htmlFor="ci-idea">Course idea + who it's for</label>
+        <textarea
+          id="ci-idea"
+          rows={3}
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          placeholder='e.g. "Docker for backend devs who have never containerized anything"'
+          disabled={suggesting}
+        />
+      </div>
+      {providers && providers.providers.length > 1 && (
+        <div className="admin-editor-actions">
+          <select
+            value={provider}
+            onChange={(e) => {
+              const id = e.target.value as ProviderConfig["provider"];
+              setProvider(id);
+              const p = providers.providers.find((x) => x.id === id);
+              setModel(id === "anthropic" ? "" : (p?.models?.[0]?.id ?? ""));
+            }}
+            aria-label="Suggestion model provider"
+          >
+            {providers.providers.map((p) => (
+              <option key={p.id} value={p.id} disabled={!p.available}>{p.label}</option>
+            ))}
+          </select>
+          {provider === "openai-compatible" && (
+            <>
+              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="model id" aria-label="Suggestion model id" />
+              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="base URL, e.g. http://localhost:1234/v1" aria-label="Suggestion base URL" style={{ minWidth: 260 }} />
+            </>
+          )}
+        </div>
+      )}
+      {error && <p className="admin-error">{error}</p>}
+      <div className="admin-editor-actions">
+        <button className="gr-btn gr-btn-primary" onClick={suggest} disabled={suggesting || !idea.trim()}>
+          {suggesting ? "Thinking…" : "Suggest persona"}
+        </button>
+      </div>
+
+      {suggestion && (
+        <div className="gr-card" style={{ marginTop: 12 }}>
+          <p><strong>Technology:</strong> {suggestion.technology}</p>
+          <p>{suggestion.rationale}</p>
+          {suggestion.match === "existing" ? (
+            <div>
+              <span className="admin-chip status-mastered">existing persona</span>{" "}
+              {existingPersona ? (
+                <>
+                  <strong>{existingPersona.name}</strong>
+                  <p className="gr-mono-note">{existingPersona.narrative}</p>
+                </>
+              ) : (
+                <p className="gr-mono-note">{suggestion.personaId}</p>
+              )}
+            </div>
+          ) : suggestion.profile ? (
+            <div>
+              <span className="admin-chip">new persona</span>{" "}
+              <strong>{suggestion.profile.name}</strong>
+              <ul>
+                <li><strong>Knows:</strong> {suggestion.profile.anticipatedKnowledgeLevel}</li>
+                <li><strong>Can do:</strong> {suggestion.profile.anticipatedCapabilityLevel}</li>
+              </ul>
+              <p className="gr-mono-note">{suggestion.profile.narrative}</p>
+            </div>
+          ) : null}
+          <div className="admin-editor-actions">
+            <button className="gr-btn gr-btn-primary" onClick={useAndStart} disabled={starting}>
+              {starting ? "Starting…" : "Use & start autopilot"}
+            </button>
+            <button className="gr-btn gr-btn-ghost" onClick={dismiss} disabled={starting}>Dismiss</button>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 

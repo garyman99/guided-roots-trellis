@@ -741,6 +741,37 @@ export const personaApi = {
     adminGet<{ live: LiveActivity | null; running: boolean }>(`/api/admin/personas/${encodeURIComponent(id)}/interview/live`),
 };
 
+/* ── course idea intake (autonomous-course-pipeline plan §3.2, the front door) ── */
+
+export interface CourseIdeaSuggestion {
+  technology: string;
+  match: "existing" | "new";
+  personaId: string | null;
+  profile: PersonaDraft | null;
+  rationale: string;
+}
+
+/** The content fields of a persona draft (mirrors course-architect's PersonaDraft). */
+export interface PersonaDraft {
+  name: string;
+  anticipatedKnowledgeLevel: string;
+  anticipatedCapabilityLevel: string;
+  background: string;
+  goals: string[];
+  frustrations: string[];
+  vocabularyComfort: string;
+  toolFamiliarity: string[];
+  behaviorUnderFriction: string;
+  narrative: string;
+}
+
+export function suggestCoursePersona(idea: string, providerConfig?: ProviderConfig): Promise<CourseIdeaSuggestion> {
+  return adminSend<{ suggestion: CourseIdeaSuggestion }>("POST", "/api/admin/course-intake", {
+    idea,
+    ...(providerConfig ? { providerConfig } : {}),
+  }).then((r) => r.suggestion);
+}
+
 /* ── pre-publish simulated user test (quality-rework Phase 4) ── */
 
 export interface SimLessonResult {
