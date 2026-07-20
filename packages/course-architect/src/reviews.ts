@@ -76,10 +76,22 @@ export interface ReviewOutcome {
   failingCategories: PedagogyCategory[];
   /** Human-readable reasons the lesson didn't pass (empty when it passed). */
   blockers: string[];
+  /** Advocate reservations: fed to the author as feedback, recorded for the
+   *  gate, never blocking (absent only on pre-advisory outcomes). */
+  advisory?: string[];
 }
 
-/** Decide whether a lesson's reviews clear the bar (advocate is the 4th
- *  reviewer when present — a persona-unfit lesson fails like any other). */
+/**
+ * Decide whether a lesson's reviews clear the bar.
+ *
+ * The learner-advocate is ADVISORY here, not blocking (field finding,
+ * 2026-07-19: as a blocking 4th reviewer against a strict persona it condemned
+ * 7/7 lessons that scored 5/5 on pedagogy with approving technical/cohesion
+ * reviews — an adversarial critic never says "done"). Its issues ride
+ * `advisory` — fed back to the author on a failing round and recorded as
+ * reservations for the human/auto gate — while pass/fail stays with the
+ * verdict-giving reviewers.
+ */
 export function evaluateReviews(
   lessonId: string,
   technical: TechnicalReview,
@@ -94,13 +106,12 @@ export function evaluateReviews(
   if (technical.verdict === "revise") blockers.push(`technical: ${technical.issues?.join("; ") || "revise"}`);
   if (cohesion.verdict === "revise") blockers.push(`cohesion: ${cohesion.issues?.join("; ") || "revise"}`);
   for (const cat of failingCategories) blockers.push(`pedagogy.${cat}=${pedagogy.scores[cat]} (< ${REVISION_THRESHOLD}, unjustified)`);
+  const advisory: string[] = [];
   if (advocate && !advocate.satisfied) {
-    for (const i of advocate.personaFit.issues) blockers.push(`persona-fit: ${i}`);
-    for (const i of advocate.goalFit.issues) blockers.push(`goal-fit: ${i}`);
-    for (const c of advocate.requiredChanges) blockers.push(`learner-advocate: ${c}`);
-    if (advocate.personaFit.issues.length + advocate.goalFit.issues.length + advocate.requiredChanges.length === 0) {
-      blockers.push("learner-advocate: unsatisfied");
-    }
+    for (const i of advocate.personaFit.issues) advisory.push(`persona-fit: ${i}`);
+    for (const i of advocate.goalFit.issues) advisory.push(`goal-fit: ${i}`);
+    for (const c of advocate.requiredChanges) advisory.push(`learner-advocate: ${c}`);
+    if (advisory.length === 0) advisory.push("learner-advocate: unsatisfied");
   }
-  return { lessonId, passed: blockers.length === 0, technical, pedagogy, cohesion, ...(advocate ? { advocate } : {}), failingCategories, blockers };
+  return { lessonId, passed: blockers.length === 0, technical, pedagogy, cohesion, ...(advocate ? { advocate } : {}), failingCategories, blockers, advisory };
 }

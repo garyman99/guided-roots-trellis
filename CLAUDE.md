@@ -1,5 +1,16 @@
 # Working in this repo (multiple concurrent agent sessions)
 
+## Product posture: PRE-SHIP — be bold (owner directive, 2026-07-19)
+
+**Nothing has shipped. There are no users.** Until the owner explicitly says
+"this has shipped," do NOT be conservative: no backwards-compatibility
+shims, no data migrations, no preserving generated data (courses, runs,
+personas, replays) when a better architecture wants to sweep them away —
+deleting and regenerating is FINE and expected. When the potential impact is
+big, prefer the bold restructuring over the cautious patch. The owner will
+declare the moment compatibility starts to matter; until then, design as if
+the slate is clean.
+
 This repository is edited by **more than one Claude Code session at the same
 time**. They share ONE git object store but MUST work in **separate git
 worktrees** — otherwise one session's `git checkout` silently rewrites the

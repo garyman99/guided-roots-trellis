@@ -13,7 +13,15 @@
         "DOCKER_HOST": "npipe:////./pipe/docker_engine",
         "LAB_DOCKER_CPUS": "2",
         "LAB_DOCKER_MEMORY": "1g",
-        "LAB_DOCKER_PIDS": "512"
+        "LAB_DOCKER_PIDS": "512",
+        "COURSE_GEN_PHASE_TIMEOUT_MS": "21600000",
+        "COURSE_GEN_TIMEOUT_MS": "580000",
+        "COURSE_GEN_MAX_TOKENS": "16384",
+        "COURSE_GEN_CRITIQUE_ROUNDS": "2",
+        "SIMULATOR_PROVIDER": "openai-compatible",
+        "SIMULATOR_BASE_URL": "http://192.168.50.118:48720/v1",
+        "SIMULATOR_MODEL": "claude-sonnet-5",
+        "TRELLIS_WEB_URL": "http://localhost:5173"
       }
     },
     {

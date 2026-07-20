@@ -280,6 +280,19 @@ function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: ()
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProvidersPayload | null>(null);
   const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
+  // Model/baseUrl for the interview provider (openai-compatible needs both;
+  // Claude falls back to the interviewer's tier default when model is empty).
+  const [ivModel, setIvModel] = useState("");
+  const [ivBaseUrl, setIvBaseUrl] = useState("");
+
+  const interviewProviderConfig = (): ProviderConfig => {
+    if (provider === "mock") return { provider: "mock" };
+    return {
+      provider,
+      ...(ivModel.trim() ? { model: ivModel.trim() } : {}),
+      ...(provider === "openai-compatible" && ivBaseUrl.trim() ? { baseUrl: ivBaseUrl.trim() } : {}),
+    };
+  };
 
   const fromProfile = (p: PersonaProfile): Record<string, string> =>
     Object.fromEntries(PERSONA_FIELDS.map((f) => [f.key, f.list ? (p[f.key] as string[]).join("\n") : String(p[f.key] ?? "")]));
@@ -320,7 +333,7 @@ function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: ()
     setError(null);
     setInterview((iv) => [...iv, { role: "admin", text, at: new Date().toISOString() }]);
     setMessage("");
-    personaApi.interview(personaId, text, provider === "mock" ? { provider: "mock" } : { provider })
+    personaApi.interview(personaId, text, interviewProviderConfig())
       .then(({ persona: p, reply, complete }) => {
         setSending(false);
         setPersona(p);
@@ -385,11 +398,28 @@ function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: ()
               {sending ? "Interviewing…" : "Send"}
             </button>
             {providers && providers.providers.length > 1 && (
-              <select value={provider} onChange={(e) => setProvider(e.target.value as ProviderConfig["provider"])} aria-label="Interview model provider">
-                {providers.providers.map((p) => (
-                  <option key={p.id} value={p.id} disabled={!p.available}>{p.label}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={provider}
+                  onChange={(e) => {
+                    const id = e.target.value as ProviderConfig["provider"];
+                    setProvider(id);
+                    const p = providers.providers.find((x) => x.id === id);
+                    setIvModel(id === "anthropic" ? "" : (p?.models?.[0]?.id ?? ""));
+                  }}
+                  aria-label="Interview model provider"
+                >
+                  {providers.providers.map((p) => (
+                    <option key={p.id} value={p.id} disabled={!p.available}>{p.label}</option>
+                  ))}
+                </select>
+                {provider === "openai-compatible" && (
+                  <>
+                    <input value={ivModel} onChange={(e) => setIvModel(e.target.value)} placeholder="model id" aria-label="Interview model id" />
+                    <input value={ivBaseUrl} onChange={(e) => setIvBaseUrl(e.target.value)} placeholder="base URL, e.g. http://localhost:1234/v1" aria-label="Interview base URL" style={{ minWidth: 260 }} />
+                  </>
+                )}
+              </>
             )}
           </div>
         </article>

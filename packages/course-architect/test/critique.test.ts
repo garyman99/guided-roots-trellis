@@ -126,45 +126,44 @@ test("frame critique: feedback reaches the architect and the round trail is on d
   assert.deepEqual(summary, [{ subject: "frame", rounds: 2, satisfied: true }]);
 });
 
-test("a persona-unfit lesson exhausts the cap, lands in needs-revision, and is excluded from the course", async () => {
+test("an advocate-condemned lesson still SHIPS — reservations recorded, not blocking (field finding 2026-07-19)", async () => {
   process.env.COURSE_GEN_CRITIQUE_ROUNDS = "2"; // keep the run small
   try {
     const responder: MockResponder = (role: CourseGenRole, p: RolePrompt) => {
-      // The advocate condemns ONE lesson every round; everything else passes.
+      // The advocate condemns ONE lesson every round; the verdict reviewers pass it.
       if (p.task === "critique:lesson-git-101") return JSON.stringify(UNSATISFIED);
       return defaultMockResponder(role, p);
     };
     const h = harness(responder);
     const run = h.sched.create({ technology: "Git" });
     await h.sched.settle();
-    for (const gate of ["frame", "blueprint", "package"] as const) {
+    for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
       h.sched.decideGate(run.runId, gate, "approved", null, "op");
       await h.sched.settle();
     }
-    // Materializing ran with only the passing lesson: git-101 was excluded.
-    h.sched.decideGate(run.runId, "publish", "approved", null, "op");
-    await h.sched.settle();
     assert.equal(h.store.getCourseRun(run.runId)!.status, "approved");
 
     const arts = h.artifactsFor(run.runId);
-    const reviews = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean; blockers: string[] }>;
-    const failed = reviews.find((r) => r.lessonId === "git-101")!;
-    assert.equal(failed.passed, false);
-    assert.ok(failed.blockers.some((b) => b.startsWith("persona-fit:")), "advocate issues became blockers");
+    const reviews = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean; blockers: string[]; advisory?: string[] }>;
+    const condemned = reviews.find((r) => r.lessonId === "git-101")!;
+    // Pass/fail belongs to technical/pedagogy/cohesion — all approving here.
+    assert.equal(condemned.passed, true, "advocate dissatisfaction alone does not fail a lesson");
+    assert.equal(condemned.blockers.length, 0);
+    // …but the advocate's reservations ARE recorded for the gate.
+    assert.ok(condemned.advisory?.some((b) => b.startsWith("persona-fit:")), "advocate issues recorded as advisory");
     assert.ok(reviews.find((r) => r.lessonId === "git-102")!.passed);
 
-    // Two rounds of critique artifacts for the condemned lesson (the cap).
+    // One critique round per attempt; the lesson passed on attempt 1, so one artifact.
     assert.ok(arts.exists("critiques/lesson-git-101.round1.json"));
-    assert.ok(arts.exists("critiques/lesson-git-101.round2.json"));
-    assert.ok(!arts.exists("critiques/lesson-git-101.round3.json"));
     const summary = JSON.parse(arts.read("critiques/summary.json")!) as CritiqueSummaryEntry[];
-    assert.deepEqual(summary.find((e) => e.subject === "lesson-git-101"), { subject: "lesson-git-101", rounds: 2, satisfied: false });
+    assert.deepEqual(summary.find((e) => e.subject === "lesson-git-101"), { subject: "lesson-git-101", rounds: 1, satisfied: false });
 
-    // The events narrate the loop for the activity feed.
+    // The events narrate the verdicts for the activity feed.
     const events = h.store.courseRunEvents(run.runId);
     assert.ok(events.some((e) => e.type === "critique.round"));
     assert.ok(events.some((e) => e.type === "critique.unsatisfied"));
-    assert.ok(events.some((e) => e.type === "lesson.needs-revision"));
+    // BOTH lessons shipped.
+    assert.ok(events.some((e) => e.type === "lesson.authored" && (e.payload as { lessonId: string }).lessonId === "git-101"));
   } finally {
     delete process.env.COURSE_GEN_CRITIQUE_ROUNDS;
   }

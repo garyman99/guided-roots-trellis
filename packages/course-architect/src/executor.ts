@@ -564,16 +564,17 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       continue;
     }
     // Author → 4 reviews (technical, pedagogy, cohesion + the learner-advocate's
-    // persona-fit/goal-fit critique) → on failure, re-author with ALL reviewers'
-    // feedback and re-judge — one unified loop up to the critique round cap
-    // (Phase 2). A real author converges in 1-2 rounds; the cap bounds cost, and
-    // a lesson still failing lands in needs-revision (excluded from the course).
+    // persona-fit/goal-fit critique) → on failure, re-author with the blocking
+    // reviewers' feedback PLUS the advocate's advisory notes, up to the critique
+    // round cap. Pass/fail belongs to the verdict reviewers; the advocate
+    // advises and its reservations are recorded for the gate (see
+    // evaluateReviews — an adversarial critic never says "done").
     const subject = `lesson-${lesson.lessonId}`;
     let outcome: ReviewOutcome | null = null;
     let attemptsUsed = 0;
     for (let attempt = 1; attempt <= maxRounds; attempt++) {
       attemptsUsed = attempt;
-      const feedback = outcome?.blockers ?? null;
+      const feedback = outcome ? [...outcome.blockers, ...(outcome.advisory ?? [])] : null;
       const plan = await invokeValidated(
         deps,
         ctx,
