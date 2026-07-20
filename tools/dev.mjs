@@ -93,19 +93,25 @@ function shutdown(code = 0) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-// --lan (npm run dev:lan): bind the WEB server to every interface so other
-// devices on the private network can use the app. The API stays on loopback —
-// LAN clients reach it through the web server's /api and /ws proxies, so the
-// unauthenticated-by-default admin surface is never directly exposed.
+// --lan (npm run dev:lan): bind the WEB server to the machine's private-LAN
+// address so other devices on the home network can use the app. The API stays
+// on loopback — LAN clients reach it through the web server's /api and /ws
+// proxies, so the unauthenticated-by-default admin surface is never exposed.
+// Only the REAL LAN interface is bound (192.168.* by default; TRELLIS_LAN_HOST
+// overrides) — virtual adapters (Hyper-V/WSL 172.*) are neither bound nor
+// advertised. Note: in --lan mode use the LAN URL on this machine too;
+// localhost is deliberately not bound.
 const lan = process.argv.includes("--lan") || env.TRELLIS_LAN === "1";
-const lanIps = lan
-  ? Object.values(networkInterfaces()).flat().filter((i) => i && i.family === "IPv4" && !i.internal).map((i) => i.address)
-  : [];
+const lanIps = Object.values(networkInterfaces())
+  .flat()
+  .filter((i) => i && i.family === "IPv4" && !i.internal)
+  .map((i) => i.address);
+const lanHost = lan ? (env.TRELLIS_LAN_HOST || lanIps.find((ip) => ip.startsWith("192.168.")) || lanIps[0] || "0.0.0.0") : null;
+// The sim-test/recorder preflight fetches TRELLIS_WEB_URL from the API process;
+// with the web server bound to the LAN address, localhost would fail.
+const webUrl = lan ? `http://${lanHost === "0.0.0.0" ? "localhost" : lanHost}:${webPort}` : `http://localhost:${webPort}`;
 
-console.log(`[dev] api → http://127.0.0.1:${apiPort} · web → http://localhost:${webPort} (proxying /api to :${apiPort})`);
-if (lan) {
-  for (const ip of lanIps) console.log(`[dev] LAN → http://${ip}:${webPort}`);
-  if (lanIps.length === 0) console.log("[dev] --lan: no external IPv4 interface found; binding 0.0.0.0 anyway");
-}
-start("api", process.execPath, [join(ROOT, "apps", "api", "src", "server.ts")], { PORT: apiPort });
-start("web", "npm", ["--workspace", "@trellis/web", "run", "dev"], { PORT: webPort, API_PORT: apiPort, ...(lan ? { WEB_HOST: "0.0.0.0" } : {}) }, { useShell: true });
+console.log(`[dev] api → http://127.0.0.1:${apiPort} · web → ${webUrl} (proxying /api to :${apiPort})`);
+if (lan) console.log(`[dev] LAN mode: web bound to ${lanHost} — share ${webUrl} (localhost is not bound)`);
+start("api", process.execPath, [join(ROOT, "apps", "api", "src", "server.ts")], { PORT: apiPort, TRELLIS_WEB_URL: webUrl });
+start("web", "npm", ["--workspace", "@trellis/web", "run", "dev"], { PORT: webPort, API_PORT: apiPort, ...(lan ? { WEB_HOST: lanHost } : {}) }, { useShell: true });
