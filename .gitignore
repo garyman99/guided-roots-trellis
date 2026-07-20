@@ -14,3 +14,4 @@ curriculum/experience/
 curriculum/lesson-improvements/
 curriculum/personas/
 .env
+.playwright-browsers/

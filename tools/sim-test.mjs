@@ -25,7 +25,7 @@
  */
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { personaSpec, RecorderDriverClient, runSimulationLoop, loadSimulatorPrompt, SIMULATOR_PROMPT_ID, SIMULATOR_PROMPT_VERSION } from "../packages/simulator/src/index.ts";
 import { anthropicGenerateText } from "../packages/model-runtime/src/anthropicClient.ts";
@@ -88,8 +88,15 @@ const recDir = join(runDir, "recording");
 mkdirSync(recDir, { recursive: true });
 
 const url = `${WEB}/?lab=${args.lab}`;
+// Prefer the repo-local browser install (tools/recorder README): the default
+// %LOCALAPPDATA%\ms-playwright can be invisible to server-spawned children
+// (observed 2026-07-20 — existsSync ENOENT on a dir other processes see), and
+// a repo path is readable in every context that can read the repo.
+const localBrowsers = join(ROOT, ".playwright-browsers");
+const driverEnv = existsSync(localBrowsers) ? { ...process.env, PLAYWRIGHT_BROWSERS_PATH: localBrowsers } : process.env;
 const driverProc = spawn(process.execPath, [join(ROOT, "tools", "recorder", "sim-driver.mjs"), "--port", String(PORT), "--out", recDir, "--url", url], {
   cwd: join(ROOT, "tools", "recorder"),
+  env: driverEnv,
   stdio: ["ignore", "pipe", "pipe"],
 });
 let ready = null;
@@ -103,7 +110,7 @@ driverProc.stderr.on("data", (c) => (driverLog += c));
 for (let i = 0; i < 100 && !ready; i++) await new Promise((r) => setTimeout(r, 200));
 if (!ready) {
   driverProc.kill();
-  fail("environment_failure", `recorder driver did not become ready: ${driverLog.slice(0, 300)}`);
+  fail("environment_failure", `recorder driver did not become ready: ${driverLog.slice(0, 1600)}`);
 }
 const EVAL_TOKEN = ready.evalToken; // coordinator-only; never enters the model context
 await new Promise((r) => setTimeout(r, 2500)); // let the app boot its session

@@ -49,7 +49,33 @@ const PRIVILEGED = new Set(["eval"]);
 
 mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({ headless: true });
+let browser;
+try {
+  browser = await chromium.launch({ headless: true });
+} catch (err) {
+  // Launch diagnostics: the "Executable doesn't exist" class of failure is
+  // ENVIRONMENT-dependent (who spawned us) — print what THIS process resolves
+  // so the parent's error report is actionable, then rethrow.
+  const { existsSync, readdirSync } = await import("node:fs");
+  const exe = chromium.executablePath();
+  const dirOf = (p) => { try { return readdirSync(p); } catch (e) { return `unreadable: ${e.code}`; } };
+  const mpw = `${process.env.LOCALAPPDATA}\\ms-playwright`;
+  console.error(
+    `[sim-driver] launch failed. diagnostics: ` +
+      JSON.stringify({
+        executablePath: exe,
+        exists: existsSync(exe),
+        PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? null,
+        LOCALAPPDATA: process.env.LOCALAPPDATA ?? null,
+        node: process.version,
+        cwd: process.cwd(),
+        msPlaywrightDir: dirOf(mpw),
+        chromiumDir: dirOf(`${mpw}\\chromium-1228`),
+        chromeWin64: dirOf(`${mpw}\\chromium-1228\\chrome-win64`).length ?? dirOf(`${mpw}\\chromium-1228\\chrome-win64`),
+      }),
+  );
+  throw err;
+}
 const context = await browser.newContext({
   viewport: { width: WIDTH, height: HEIGHT },
   deviceScaleFactor: 1,
