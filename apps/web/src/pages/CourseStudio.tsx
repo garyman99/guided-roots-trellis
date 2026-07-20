@@ -665,6 +665,9 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, string>>({ technology: "", title: "", outcome: "", inScope: "", outOfScope: "" });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // The desktop the course targets — the virtual desktop mimics Windows only
+  // today; the mac option unlocks when the macOS-styled desktop ships.
+  const [targetPlatform, setTargetPlatform] = useState("windows");
   // The target user is a PERSONA, not a free-text field (Phase 1).
   const ready = personas.filter((p) => p.status === "ready");
   const [personaId, setPersonaId] = useState("");
@@ -709,6 +712,7 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
     setBusy(true);
     setError(null);
     const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
+    body.targetPlatform = targetPlatform;
     if (personaId) body.personaId = personaId;
     if (gateMode === "auto") {
       body.gateMode = "auto";
@@ -780,6 +784,13 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
         <div className="gr-field">
           <label htmlFor="cg-out">Out of scope</label>
           <input id="cg-out" value={form.outOfScope} onChange={(e) => set("outOfScope", e.target.value)} />
+        </div>
+        <div className="gr-field">
+          <label htmlFor="cg-platform">Target platform</label>
+          <select id="cg-platform" value={targetPlatform} onChange={(e) => setTargetPlatform(e.target.value)}>
+            <option value="windows">Windows (virtual desktop)</option>
+            <option value="mac" disabled>macOS — coming soon</option>
+          </select>
         </div>
       </div>
       <h4 className="admin-subhead">Model provider</h4>
@@ -1756,7 +1767,13 @@ function LessonBoard({ run }: { run: CourseRunDetail }) {
   const authored = new Set(run.events.filter((e) => e.type === "lesson.authored").map((e) => (e.payload as { lessonId: string }).lessonId));
   const blocked = new Set(run.events.filter((e) => e.type === "lesson.blocked").map((e) => (e.payload as { lessonId: string }).lessonId));
   const needsRevision = new Set(run.events.filter((e) => e.type === "lesson.needs-revision").map((e) => (e.payload as { lessonId: string }).lessonId));
-  const stateOf = (id: string) => (authored.has(id) ? "authored" : needsRevision.has(id) ? "needs-revision" : blocked.has(id) ? "blocked" : "pending");
+  // reviews/summary.json is the authoring ledger (written after every lesson,
+  // reused on resume) — when a lesson has an entry there it is ground truth;
+  // events are the fallback for lessons the ledger hasn't reached yet.
+  const stateOf = (id: string) =>
+    reviews[id]
+      ? (reviews[id].passed ? "authored" : "needs-revision")
+      : authored.has(id) ? "authored" : needsRevision.has(id) ? "needs-revision" : blocked.has(id) ? "blocked" : "pending";
   const stateClass = (s: string) => (s === "authored" ? "status-mastered" : s === "blocked" || s === "needs-revision" ? "status-abandoned" : "");
   const hasReviews = Object.keys(reviews).length > 0;
 

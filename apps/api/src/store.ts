@@ -127,6 +127,9 @@ export interface Course {
   audience: string;
   /** Level-ladder rung shown on /home: intro | beginner | intermediate | advanced | expert. */
   level: string;
+  /** Desktop environment the course's labs target. Absent = "windows" — the
+   *  only variant the virtual desktop implements today ("mac" is future). */
+  targetPlatform?: "windows" | "mac";
   lessons: CourseLesson[];
   /**
    * Learner visibility. Absent = published (backward compatible: every course

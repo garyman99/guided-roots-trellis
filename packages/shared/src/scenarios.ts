@@ -13,6 +13,11 @@
 
 export type ScenarioLevel = "beginner" | "intermediate" | "advanced";
 
+/** Desktop environment the virtual desktop mimics for a scenario. Absent =
+ *  "windows" — the only variant implemented today ("mac" is the planned
+ *  macOS-styled desktop behind the WindowControls/data-os seam). */
+export type ScenarioTargetPlatform = "windows" | "mac";
+
 export interface Scenario {
   labId: string;
   /** Learner-facing name on the home page (may differ from the lab's title). */
@@ -26,6 +31,8 @@ export interface Scenario {
   technologies: string[];
   /** Marketplace facet: how much footing it assumes. */
   level: ScenarioLevel;
+  /** Desktop the lab runs in. Absent = "windows" (see ScenarioTargetPlatform). */
+  targetPlatform?: ScenarioTargetPlatform;
 }
 
 export const SCENARIO_SEED: Scenario[] = [

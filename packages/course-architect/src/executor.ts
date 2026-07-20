@@ -17,6 +17,7 @@
  */
 import type { RunArtifacts } from "./artifacts.ts";
 import type { CourseRun, LiveActivity, PhaseContext, PhaseExecutor } from "./types.ts";
+import { DEFAULT_TARGET_PLATFORM } from "./types.ts";
 import type { CourseGenRole, RoleDelta, RoleInvoker, RolePrompt } from "./roles.ts";
 import {
   ValidationError,
@@ -210,6 +211,24 @@ function taskInstruction(task: string): string {
   return `Produce the "${task}" artifact as strict JSON.`;
 }
 
+/** Standing rule appended to EVERY prompt: the one desktop this course ships
+ *  in. Keeps authors writing for the platform the virtual desktop actually
+ *  mimics, and stops reviewers/critics flagging missing support for other
+ *  platforms (the field finding that prompted first-class targetPlatform). */
+function platformNote(platform: string): string {
+  return [
+    `CONTEXT.targetPlatform ("${platform}") is the ONLY desktop environment this`,
+    "course ships in: labs run inside the product's virtual desktop, which mimics",
+    "that operating system (currently Windows only; macOS is a future variant).",
+    "Author and judge everything for that platform — its conventions, paths,",
+    "shortcuts, and terminology — and NEVER raise missing support for any other",
+    "platform as an issue or required change: cross-platform coverage is out of",
+    "scope by design.",
+    "",
+    "",
+  ].join("\n");
+}
+
 /** Standing rule appended whenever the context carries a persona (Phase 1). */
 const PERSONA_NOTE = [
   "CONTEXT.persona is the target-user persona this course serves. Every",
@@ -221,17 +240,27 @@ const PERSONA_NOTE = [
   "",
 ].join("\n");
 
-/** Build a role prompt carrying structured context (mock reads it directly). */
+/** Build a role prompt carrying structured context (mock reads it directly).
+ *  targetPlatform is injected into every context (from the request when the
+ *  caller passed one, else the default) so ALL roles — authors, reviewers,
+ *  critics — see the same platform ground truth. */
 function prompt(task: string, context: Record<string, unknown>, extra = ""): RolePrompt {
+  const fromRequest = (context.request as Record<string, unknown> | undefined)?.targetPlatform;
+  const targetPlatform = String(context.targetPlatform ?? fromRequest ?? DEFAULT_TARGET_PLATFORM);
+  const ctx = { targetPlatform, ...context };
   const personaNote = context.persona ? PERSONA_NOTE : "";
-  return { task, context, system: "", user: `CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${extra}${personaNote}${taskInstruction(task)}` };
+  return { task, context: ctx, system: "", user: `CONTEXT:\n${JSON.stringify(ctx, null, 2)}\n\n${extra}${personaNote}${platformNote(targetPlatform)}${taskInstruction(task)}` };
 }
 
 /** The request as prompt context: persona lifted out as a bounded view (the raw
- *  embedded snapshot carries ids/timestamps the model has no use for). */
+ *  embedded snapshot carries ids/timestamps the model has no use for), and
+ *  targetPlatform made explicit (defaulted) rather than sometimes-absent. */
 function requestContext(req: CourseRunRequest): { request: Record<string, unknown>; persona?: Record<string, unknown> } {
   const { persona, ...rest } = req;
-  return { request: rest as Record<string, unknown>, ...(persona ? { persona: personaPromptView(persona.profile) } : {}) };
+  return {
+    request: { targetPlatform: DEFAULT_TARGET_PLATFORM, ...(rest as Record<string, unknown>) },
+    ...(persona ? { persona: personaPromptView(persona.profile) } : {}),
+  };
 }
 
 /** Invoke a role, retrying ONCE with the validation errors appended (plan §4).
@@ -280,11 +309,12 @@ async function invokeValidated<T>(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-function renderCourseRequestMd(doc: CourseRequestDoc): string {
+function renderCourseRequestMd(doc: CourseRequestDoc, targetPlatform: string): string {
   return [
     `# ${doc.title}`,
     ``,
     `**Technology:** ${doc.technology}`,
+    `**Target platform:** ${targetPlatform}`,
     `**Target learner:** ${doc.targetLearner}`,
     `**Starting point:** ${doc.startingPoint}`,
     `**Ending capability:** ${doc.endingCapability}`,
@@ -329,6 +359,7 @@ async function runCritiqued<T>(
   render: (value: T) => string,
 ): Promise<CritiqueLoopResult<T>> {
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
+  const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
   const result = await critiqueLoop<T>({
     maxRounds: critiqueRounds(),
     produce,
@@ -337,7 +368,7 @@ async function runCritiqued<T>(
         deps,
         ctx,
         "learner-advocate",
-        prompt(`critique:${subject}`, { subject, round, goal, persona, content: render(value) }),
+        prompt(`critique:${subject}`, { targetPlatform, subject, round, goal, persona, content: render(value) }),
         validateCritiqueVerdict,
       ),
     onRound: (round, verdict) => {
@@ -366,6 +397,7 @@ function writePersonaArtifact(ctx: PhaseContext, arts: RunArtifacts): void {
 async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   writePersonaArtifact(ctx, arts);
   const req = ctx.run.request;
+  const platform = req.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
   const goal = [
     `Frame a ${req.technology} course the target persona can complete.`,
     req.outcome ? `Stated outcome: ${req.outcome}` : "Derive an outcome appropriate to the persona.",
@@ -390,9 +422,9 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
         }),
         validateCourseRequest,
       ),
-    renderCourseRequestMd,
+    (d) => renderCourseRequestMd(d, platform),
   );
-  arts.write("course-request.md", renderCourseRequestMd(doc));
+  arts.write("course-request.md", renderCourseRequestMd(doc, platform));
   recordCritiqueSummary(arts, [{ subject: "frame", rounds, satisfied }]);
   ctx.emit("artifact.written", { path: "course-request.md" });
 }
@@ -487,6 +519,7 @@ async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunA
   recordCritiqueSummary(arts, [{ subject: "blueprint", rounds, satisfied }]);
   arts.write("plan-review.md", plan.changePlan);
   arts.write("lesson-inventory.json", JSON.stringify([plan.lesson], null, 2));
+  resetAuthoringLedger(arts);
   const report = computeCapabilityGaps([plan.lesson], deps.availableCapabilities);
   arts.write("capability-gaps.json", JSON.stringify(report, null, 2));
   if (report.gaps.length > 0) {
@@ -530,6 +563,7 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       ].join("\n"),
   );
   writeBlueprint(arts, bp);
+  resetAuthoringLedger(arts);
   recordCritiqueSummary(arts, [{ subject: "blueprint", rounds, satisfied }]);
 
   // Capability gaps: diff the inventory's required capabilities vs the registry.
@@ -541,6 +575,12 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   for (const path of ["domain-map.md", "progression-spine.md", "course-conventions.md", "plan-review.md", "prerequisite-graph.json", "lesson-inventory.json"]) {
     ctx.emit("artifact.written", { path });
   }
+}
+
+/** A fresh blueprint invalidates any prior authoring ledger — lessons authored
+ *  against the OLD inventory must not be "already authored" on the next pass. */
+function resetAuthoringLedger(arts: RunArtifacts): void {
+  if (arts.exists("reviews/summary.json")) arts.write("reviews/summary.json", "[]", { archive: false });
 }
 
 function writeBlueprint(arts: RunArtifacts, bp: Blueprint): void {
@@ -557,16 +597,48 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   const report = parseJson<CapabilityGapReport>(arts.read("capability-gaps.json") ?? '{"available":[],"gaps":[]}');
   const blocked = lessonsBlockedByGaps(report);
 
-  const authored: string[] = [];
-  const needsRevision: string[] = [];
-  const summary: ReviewOutcome[] = [];
+  // Prior-pass ledger (interrupt/resume, or a changes-requested re-run):
+  // reviews/summary.json is rewritten after EVERY lesson below, so a re-entered
+  // phase picks up where it failed — a lesson that already PASSED is reused,
+  // not re-authored; only needs-revision/unreached lessons are (re)attempted.
+  // Gate notes override: a note naming a lesson re-opens it, a note with no
+  // lessonId re-opens every lesson. Designing resets this ledger (a new
+  // inventory invalidates outcomes authored against the old one).
+  let prior = new Map<string, ReviewOutcome>();
+  try {
+    prior = new Map(parseJson<ReviewOutcome[]>(arts.read("reviews/summary.json") ?? "[]").map((o) => [o.lessonId, o]));
+  } catch { /* unreadable ledger — author everything */ }
+  const notes = ctx.changeNotes ?? [];
+  const reopenAll = notes.some((n) => !n.lessonId);
+  const reopened = new Set(notes.map((n) => n.lessonId).filter((id): id is string => !!id));
+
+  // Seeded with prior outcomes so a crash mid-pass never forgets lessons the
+  // walk hasn't reached yet; each (re)processed lesson overwrites its entry.
+  const outcomes = new Map<string, ReviewOutcome>();
+  for (const lesson of inventory) {
+    const p = prior.get(lesson.lessonId);
+    if (p) outcomes.set(lesson.lessonId, p);
+  }
+  const writeLedger = () => {
+    const rows = inventory.map((l) => outcomes.get(l.lessonId)).filter((o): o is ReviewOutcome => !!o);
+    arts.write("reviews/summary.json", JSON.stringify(rows, null, 2), { archive: false });
+  };
+
   const critiqueEntries: CritiqueSummaryEntry[] = [];
   const maxRounds = critiqueRounds();
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
+  const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
 
   for (const lesson of inventory) {
     if (blocked.has(lesson.lessonId)) {
+      outcomes.delete(lesson.lessonId);
       ctx.emit("lesson.blocked", { lessonId: lesson.lessonId, reason: "capability-gap" });
+      continue;
+    }
+    const previous = prior.get(lesson.lessonId);
+    const mustRedo = reopenAll || reopened.has(lesson.lessonId);
+    if (previous?.passed && !mustRedo) {
+      ctx.emit("lesson.skipped", { lessonId: lesson.lessonId, reason: "already-authored" });
       continue;
     }
     // Author → 4 reviews (technical, pedagogy, cohesion + the learner-advocate's
@@ -576,11 +648,18 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     // advises and its reservations are recorded for the gate (see
     // evaluateReviews — an adversarial critic never says "done").
     const subject = `lesson-${lesson.lessonId}`;
+    // First-attempt feedback: gate notes aimed at this lesson (or phase-wide),
+    // plus — when re-attempting a lesson a prior pass left needs-revision —
+    // that pass's blockers, so the re-author doesn't start blind.
+    const seedFeedback = [
+      ...notes.filter((n) => !n.lessonId || n.lessonId === lesson.lessonId).map((n) => n.comment),
+      ...(previous && !previous.passed ? [...previous.blockers, ...(previous.advisory ?? [])] : []),
+    ];
     let outcome: ReviewOutcome | null = null;
     let attemptsUsed = 0;
     for (let attempt = 1; attempt <= maxRounds; attempt++) {
       attemptsUsed = attempt;
-      const feedback = outcome ? [...outcome.blockers, ...(outcome.advisory ?? [])] : null;
+      const feedback = outcome ? [...outcome.blockers, ...(outcome.advisory ?? [])] : seedFeedback.length ? seedFeedback : null;
       const plan = await invokeValidated(
         deps,
         ctx,
@@ -593,20 +672,20 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       // materializing knows which real lab (lab.kind) to build.
       arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify({ ...lesson, lab: plan.lab }, null, 2));
 
-      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview);
+      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview);
       const pedagogy = await invokeValidated(
         deps,
         ctx,
         "pedagogy-reviewer",
-        prompt(`review:pedagogy:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown, persona }),
+        prompt(`review:pedagogy:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, persona }),
         validatePedagogyReview,
       );
-      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
+      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
       const advocate = await invokeValidated(
         deps,
         ctx,
         "learner-advocate",
-        prompt(`critique:${subject}`, { subject, round: attempt, goal: lesson.purpose, persona, content: plan.markdown }),
+        prompt(`critique:${subject}`, { targetPlatform, subject, round: attempt, goal: lesson.purpose, persona, content: plan.markdown }),
         validateCritiqueVerdict,
       );
       arts.write(`critiques/${subject}.round${attempt}.json`, JSON.stringify(advocate, null, 2));
@@ -626,20 +705,24 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       if (attempt < maxRounds) ctx.emit("lesson.revising", { lessonId: lesson.lessonId, blockers: outcome.blockers });
     }
 
-    summary.push(outcome!);
+    outcomes.set(lesson.lessonId, outcome!);
+    writeLedger();
     critiqueEntries.push({ subject, rounds: attemptsUsed, satisfied: outcome!.advocate?.satisfied ?? true });
     if (outcome!.advocate && !outcome!.advocate.satisfied) ctx.emit("critique.unsatisfied", { subject, rounds: attemptsUsed });
     if (outcome!.passed) {
-      authored.push(lesson.lessonId);
       ctx.emit("lesson.authored", { lessonId: lesson.lessonId });
     } else {
-      needsRevision.push(lesson.lessonId);
       ctx.emit("lesson.needs-revision", { lessonId: lesson.lessonId, blockers: outcome!.blockers });
     }
   }
 
+  // Final rollups over reused + freshly-processed outcomes alike.
+  const summary = inventory.map((l) => outcomes.get(l.lessonId)).filter((o): o is ReviewOutcome => !!o);
+  const authored = summary.filter((o) => o.passed).map((o) => o.lessonId);
+  const needsRevision = summary.filter((o) => !o.passed).map((o) => o.lessonId);
+
   if (critiqueEntries.length) recordCritiqueSummary(arts, critiqueEntries);
-  arts.write("reviews/summary.json", JSON.stringify(summary, null, 2));
+  writeLedger();
   arts.write("reviews/quality-gates.json", JSON.stringify(qualityGates(inventory, authored, needsRevision, blocked, summary), null, 2));
   arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, needsRevision, blocked));
   if (authored.length === 0) throw new ValidationError(["no lessons passed review — every lesson is blocked on a capability gap or needs revision"]);

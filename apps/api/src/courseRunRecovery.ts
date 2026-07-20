@@ -162,12 +162,14 @@ function requestFromArtifacts(runId: string, arts: RunArtifacts): CourseRunReque
     return m ? m[1].trim() : undefined;
   };
   const heading = md.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  const platform = field("Target platform");
   return {
     technology: field("Technology") ?? technologyFromRunId(runId),
     title: heading,
     targetLearner: field("Target learner"),
     outcome: field("Ending capability"),
     learnerStartingExperience: field("Starting point"),
+    targetPlatform: platform === "mac" ? "mac" : "windows",
   };
 }
 

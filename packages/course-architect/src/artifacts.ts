@@ -80,14 +80,20 @@ export class RunArtifacts {
   /**
    * Write an artifact. If one already exists at this path, archive it as the
    * next `<base>.v<N>.<ext>` first, then write the new content. Returns the
-   * revision number (1 = first write).
+   * revision number (1 = first write). Pass `archive: false` for ledger-style
+   * artifacts rewritten many times per phase (e.g. reviews/summary.json after
+   * every lesson) — the current file is overwritten in place, no revision kept.
    */
-  write(relPath: string, content: string): WriteResult {
+  write(relPath: string, content: string, opts: { archive?: boolean } = {}): WriteResult {
     if (!isAllowedArtifactPath(relPath)) throw new Error(`disallowed artifact path: ${relPath}`);
     const abs = this.abs(relPath);
     mkdirSync(dirname(abs), { recursive: true });
 
     let revision = 1;
+    if (existsSync(abs) && opts.archive === false) {
+      writeFileSync(abs, content);
+      return { path: relPath, revision: this.revisions(relPath).length + 1 };
+    }
     if (existsSync(abs)) {
       // The current file's ordinal = (archived count) + 1. Archive it under
       // that ordinal, so the new current becomes the next ordinal.

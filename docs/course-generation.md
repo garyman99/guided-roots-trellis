@@ -83,6 +83,34 @@ Net guarantee: shut the app down mid-run, lose the DB entirely, restart — the
 run reappears in Course studio at its last point of progress. Covered by
 `packages/course-architect/test/mirror.test.ts`.
 
+### Authoring resumes mid-phase (2026-07-20)
+
+`reviews/summary.json` is the **authoring ledger**: it's rewritten after every
+lesson (not just at phase end), so a re-entered authoring phase — Resume after
+an interrupt (e.g. the model endpoint died), or a changes-requested Package
+gate — **skips lessons that already passed** instead of re-authoring from
+lesson 1. Only needs-revision and unreached lessons are (re)attempted, seeded
+with the prior pass's blockers. Gate notes override: a note naming a
+`lessonId` re-opens that lesson; a note with no `lessonId` re-opens every
+lesson. A re-run of designing resets the ledger (a new inventory invalidates
+outcomes authored against the old one). Skipped lessons emit `lesson.skipped`.
+Covered by `packages/course-architect/test/resume-authoring.test.ts`.
+
+## Target platform (first-class, 2026-07-20)
+
+The virtual desktop mimics **Windows only** today (macOS is a planned variant
+behind the WindowControls/`data-os` seam). `targetPlatform` (`"windows" |
+"mac"`, default `"windows"`) is first-class end to end so the pipeline authors
+FOR the platform and reviewers stop flagging missing-Mac-support as a defect:
+
+- `CourseRunRequest.targetPlatform` — stamped at run creation (revisions
+  inherit their course's platform).
+- Every role prompt context carries `targetPlatform`, plus a standing note that
+  cross-platform coverage is out of scope by design.
+- `course-request.md` records `**Target platform:** …` (recovery re-reads it).
+- Published `Course.targetPlatform` and catalog `Scenario.targetPlatform`
+  (absent = windows for pre-existing rows).
+
 ## Running it
 
 ### Mock (offline, default)

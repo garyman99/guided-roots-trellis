@@ -340,6 +340,7 @@ const materialize: Materializer = async ({ run, lessons }) => {
       role: run.request.targetLearner ?? "QA & Testing",
       technologies: [tech],
       level: scenarioLevelFor(lesson.level),
+      targetPlatform: run.request.targetPlatform ?? "windows",
     });
     labIds.push(labId);
   }
@@ -363,6 +364,7 @@ const materialize: Materializer = async ({ run, lessons }) => {
     description: `Generated ${tech} course (draft). Review and run Go-live to publish.`,
     audience: run.request.targetLearner ?? "",
     level: lessons[0]?.level ?? "beginner", // legacy single-level (kept for accent/back-compat)
+    targetPlatform: run.request.targetPlatform ?? "windows",
     lessons: labIds.map((labId) => {
       const priorLesson = priorByFamily.get(labId);
       if (priorLesson && (priorLesson.version ?? 1) > 1) return priorLesson;
@@ -438,6 +440,8 @@ async function materializeRevision(
     role: run.request.targetLearner ?? course.audience ?? "QA & Testing",
     technologies: [tech],
     level: scenarioLevelFor(lesson.level),
+    // A revision inherits the course's desktop — it never re-platforms a lesson.
+    targetPlatform: course.targetPlatform ?? run.request.targetPlatform ?? "windows",
   });
 
   const at = new Date().toISOString();
@@ -1840,8 +1844,17 @@ export const server = createServer(async (req, res) => {
               if (course?.persona) persona = course.persona as unknown as EmbeddedPersona;
             }
 
+            // Target platform is first-class: always stamped on the request so
+            // prompts/artifacts/courses state which desktop they were authored
+            // for. Only "windows" exists today; "mac" is accepted for the future.
+            // A revision inherits its course's platform — it never re-platforms.
+            const targetPlatform = revision
+              ? (store.getCourse(revision.courseId)?.targetPlatform ?? "windows")
+              : body.targetPlatform === "mac" ? "mac" : "windows";
+
             const run = courseRuns.create({
               technology: technology.slice(0, 80),
+              targetPlatform,
               ...pickStrings(body, ["title", "targetLearner", "learnerStartingExperience", "outcome", "inScope", "outOfScope", "breadth", "depth", "ecosystem"]),
               // The persona narrative doubles as the legacy targetLearner string
               // (catalog role labels, prompts) unless the form set one explicitly.
@@ -2095,6 +2108,7 @@ export const server = createServer(async (req, res) => {
                 const technology = scenario?.technologies?.[0] ?? course.title ?? family;
                 const revisionRun = courseRuns.create({
                   technology: technology.slice(0, 80),
+                  targetPlatform: course.targetPlatform ?? "windows",
                   title: `Revision: ${family} v${slot.version ?? versionOf(slot.labId)} → v${(slot.version ?? versionOf(slot.labId)) + 1}`,
                   ...(providerConfig ? { providerConfig } : {}),
                   ...(course.persona ? { persona: course.persona as unknown as EmbeddedPersona } : {}),

@@ -13,6 +13,17 @@
 import type { CourseGenRole } from "./roles.ts";
 import type { EmbeddedPersona } from "./personas.ts";
 
+/**
+ * The desktop environment a course targets. The product's virtual desktop
+ * currently mimics WINDOWS only — "mac" is reserved for the planned macOS
+ * variant (the WindowControls/data-os seam). First-class so every prompt,
+ * artifact, and published course states which desktop it was authored for,
+ * and so reviewers stop flagging missing other-platform support as a defect.
+ */
+export const TARGET_PLATFORMS = ["windows", "mac"] as const;
+export type TargetPlatform = (typeof TARGET_PLATFORMS)[number];
+export const DEFAULT_TARGET_PLATFORM: TargetPlatform = "windows";
+
 /** The work phases, in order. Exactly one gate follows each. */
 export const PHASES = ["framing", "designing", "authoring", "materializing"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -114,6 +125,9 @@ export interface RevisionRequest {
 /** Phase-1 request form (plan §6.1) — sparse by design; the architect fills gaps. */
 export interface CourseRunRequest {
   technology: string;
+  /** Desktop environment the course targets. Absent ⇒ "windows" (the only
+   *  variant the virtual desktop implements today). */
+  targetPlatform?: TargetPlatform;
   title?: string;
   targetLearner?: string;
   learnerStartingExperience?: string;
