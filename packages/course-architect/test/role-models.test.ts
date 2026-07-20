@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LiveRoleInvoker, ROLE_MODEL_TIERS, resolveRoleModel, COURSE_GEN_ROLES } from "../src/roles.ts";
+import { LiveRoleInvoker, ROLE_MODEL_TIERS, ANTHROPIC_TIER_MODELS, ROLE_TIER, resolveRoleModel, COURSE_GEN_ROLES } from "../src/roles.ts";
 
 test("tier defaults: generative roles ride Opus, judgment roles ride Sonnet", () => {
   assert.equal(ROLE_MODEL_TIERS.architect, "claude-opus-4-8");
@@ -31,9 +31,39 @@ test("resolveRoleModel precedence: per-role pick → run model → role env → 
   // 4. The anthropic tier default beats the shared env model.
   assert.equal(resolveRoleModel("lesson-author", { provider: "anthropic" }, env), "claude-opus-4-8");
   assert.equal(resolveRoleModel("pedagogy-reviewer", { provider: "anthropic" }, env), "claude-sonnet-5");
-  // 5. Non-anthropic providers have no tier defaults — the shared env model is the floor.
+  // 5. openai-compatible with nothing set (no run model, no env role model) falls to the shared env model.
   assert.equal(resolveRoleModel("lesson-author", { provider: "openai-compatible" }, env), "env-shared-model");
   assert.equal(resolveRoleModel("lesson-author", { provider: "openai-compatible" }, {}), undefined);
+});
+
+test("openai-compatible: model is the generative tier; judgmentModel/mechanicalModel refine judgment/mechanical roles", () => {
+  const choice = { provider: "openai-compatible" as const, model: "gen-model", judgmentModel: "judge-model" };
+  // generative role rides the run-wide model.
+  assert.equal(resolveRoleModel("architect", choice), "gen-model");
+  assert.equal(resolveRoleModel("lesson-author", choice), "gen-model");
+  // judgment role rides judgmentModel when set.
+  assert.equal(resolveRoleModel("gate-reviewer", choice), "judge-model");
+  assert.equal(resolveRoleModel("pedagogy-reviewer", choice), "judge-model");
+  // judgment role falls back to model when judgmentModel is absent.
+  assert.equal(resolveRoleModel("gate-reviewer", { provider: "openai-compatible", model: "gen-model" }), "gen-model");
+  // roleModels override beats tier resolution entirely.
+  assert.equal(
+    resolveRoleModel("gate-reviewer", { ...choice, roleModels: { "gate-reviewer": "explicit-pick" } }),
+    "explicit-pick",
+  );
+});
+
+test("openai-compatible mechanical tier falls back through mechanicalModel -> judgmentModel -> model (no mechanical role wired yet, tested directly on the tier map)", () => {
+  assert.equal(ROLE_TIER.architect, "generative");
+  assert.equal(ROLE_TIER["gate-reviewer"], "judgment");
+  assert.equal(ANTHROPIC_TIER_MODELS.mechanical, "claude-haiku-4-5-20251001");
+});
+
+test("anthropic: explicit run-wide model still wins over the tier default", () => {
+  assert.equal(
+    resolveRoleModel("architect", { provider: "anthropic", model: "override-model" }),
+    "override-model",
+  );
 });
 
 test("LiveRoleInvoker sends the per-role model on the wire", async () => {

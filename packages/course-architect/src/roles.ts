@@ -42,53 +42,102 @@ export const COURSE_GEN_ROLES: CourseGenRole[] = [
 ];
 
 /**
- * Default Claude model per role — the cheapest tier that fits the job.
- * Generative roles (whole documents, high leverage) ride Opus; judgment roles
- * (review against explicit criteria) ride Sonnet. Applies only when the run
- * picked the anthropic provider without an explicit model; see
- * resolveRoleModel for the full precedence chain.
+ * Tier ladder for ALL providers (plan §3.4). Generative roles (whole
+ * documents, high leverage) ride the top tier; judgment roles (review against
+ * explicit criteria) ride the middle tier; mechanical roles (rote, fixture-ish
+ * work) would ride the cheapest tier — no role maps there yet.
  */
-export const ROLE_MODEL_TIERS: Record<CourseGenRole, string> = {
-  architect: "claude-opus-4-8",
-  "lesson-author": "claude-opus-4-8",
-  "domain-analyst": "claude-sonnet-5",
-  "learner-advocate": "claude-sonnet-5",
-  "technical-reviewer": "claude-sonnet-5",
-  "pedagogy-reviewer": "claude-sonnet-5",
-  "cohesion-editor": "claude-sonnet-5",
-  "experience-analyst": "claude-sonnet-5",
-  "persona-interviewer": "claude-sonnet-5",
-  "gate-reviewer": "claude-sonnet-5",
+export type ModelTier = "generative" | "judgment" | "mechanical";
+
+export const ROLE_TIER: Record<CourseGenRole, ModelTier> = {
+  architect: "generative",
+  "lesson-author": "generative",
+  "domain-analyst": "judgment",
+  "learner-advocate": "judgment",
+  "technical-reviewer": "judgment",
+  "pedagogy-reviewer": "judgment",
+  "cohesion-editor": "judgment",
+  "experience-analyst": "judgment",
+  "persona-interviewer": "judgment",
+  "gate-reviewer": "judgment",
 };
+
+/**
+ * Default Claude model per tier. Applies only when the run picked the
+ * anthropic provider without an explicit model; see resolveRoleModel for the
+ * full precedence chain.
+ */
+export const ANTHROPIC_TIER_MODELS: Record<ModelTier, string> = {
+  generative: "claude-opus-4-8",
+  judgment: "claude-sonnet-5",
+  mechanical: "claude-haiku-4-5-20251001",
+};
+
+/**
+ * Back-compat view of the anthropic tier defaults, per role (was the
+ * hand-written source of truth; now derived from ROLE_TIER + ANTHROPIC_TIER_MODELS).
+ * Kept so existing imports (server.ts's advanced-picker prefill, tests) keep compiling.
+ */
+export const ROLE_MODEL_TIERS: Record<CourseGenRole, string> = Object.fromEntries(
+  COURSE_GEN_ROLES.map((role) => [role, ANTHROPIC_TIER_MODELS[ROLE_TIER[role]]]),
+) as Record<CourseGenRole, string>;
 
 /** The per-run provider choice, as far as model resolution needs it. */
 export interface RoleModelChoice {
   provider: CourseGenProvider;
-  /** Explicit run-wide model — the operator's override for every role. */
+  /** Explicit run-wide model — the operator's override for every role.
+   *  For openai-compatible, this IS the generative-tier model. */
   model?: string;
+  /** openai-compatible only: judgment-tier model; falls back to `model`. */
+  judgmentModel?: string;
+  /** openai-compatible only: mechanical-tier model; falls back to judgmentModel, then `model`. */
+  mechanicalModel?: string;
   /** Per-role overrides from the run's advanced picker. */
   roleModels?: Partial<Record<CourseGenRole, string>>;
 }
 
 /**
- * Which model a role should use. Precedence: the run's per-role pick, then the
- * run's explicit run-wide model, then COURSE_GEN_<ROLE>_MODEL env, then the
- * anthropic tier default, then the shared COURSE_GEN_MODEL env. Undefined means
- * the caller has no model for this role (an error for live providers).
+ * Which model a role should use.
+ *
+ * Precedence:
+ * 1. The run's per-role pick (roleModels[role]) — wins over everything.
+ * 2. Provider-relative resolution:
+ *    - anthropic: explicit run-wide `model` (if set) wins over the tier
+ *      default — the OLD behavior, preserved. Then COURSE_GEN_<ROLE>_MODEL
+ *      env, then the anthropic tier default, then the shared COURSE_GEN_MODEL
+ *      env.
+ *    - openai-compatible: `model` IS the generative tier; judgment-tier roles
+ *      use `judgmentModel` (falling back to `model`); mechanical-tier roles
+ *      use `mechanicalModel` (falling back to `judgmentModel`, then `model`).
+ *      Then COURSE_GEN_<ROLE>_MODEL env, then the shared COURSE_GEN_MODEL env.
+ *    - anything else (mock/unset): explicit `model`, then env, as before.
+ *
+ * Undefined means the caller has no model for this role (an error for live
+ * providers).
  */
 export function resolveRoleModel(
   role: CourseGenRole,
   choice: RoleModelChoice,
   env: Record<string, string | undefined> = process.env,
 ): string | undefined {
+  if (choice.roleModels?.[role]) return choice.roleModels[role];
   const roleKey = role.toUpperCase().replace(/-/g, "_");
-  return (
-    choice.roleModels?.[role] ??
-    choice.model ??
-    env[`COURSE_GEN_${roleKey}_MODEL`] ??
-    (choice.provider === "anthropic" ? ROLE_MODEL_TIERS[role] : undefined) ??
-    env.COURSE_GEN_MODEL
-  );
+  const envRoleModel = env[`COURSE_GEN_${roleKey}_MODEL`];
+  const tier = ROLE_TIER[role];
+
+  if (choice.provider === "anthropic") {
+    return choice.model ?? envRoleModel ?? ANTHROPIC_TIER_MODELS[tier] ?? env.COURSE_GEN_MODEL;
+  }
+  if (choice.provider === "openai-compatible") {
+    const tiered =
+      tier === "generative"
+        ? choice.model
+        : tier === "judgment"
+          ? (choice.judgmentModel ?? choice.model)
+          : (choice.mechanicalModel ?? choice.judgmentModel ?? choice.model);
+    return tiered ?? envRoleModel ?? env.COURSE_GEN_MODEL;
+  }
+  return choice.model ?? envRoleModel ?? env.COURSE_GEN_MODEL;
 }
 
 export interface RolePrompt {

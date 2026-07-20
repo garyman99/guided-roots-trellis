@@ -10,6 +10,7 @@
     "api": "node apps/api/src/server.ts",
     "web": "npm --workspace @trellis/web run dev",
     "dev": "node tools/dev.mjs",
+    "serve": "npm run build -w apps/web && node tools/serve.mjs",
     "build:labs": "node tools/build-labs.mjs",
     "free-ports": "node free-ports.mjs",
     "dev:clean": "node free-ports.mjs && node tools/dev.mjs",

@@ -541,6 +541,10 @@ export interface ProvidersPayload {
 export interface ProviderConfig {
   provider: "mock" | "anthropic" | "openai-compatible";
   model?: string;
+  /** openai-compatible only: judgment-tier model (falls back to `model`). */
+  judgmentModel?: string;
+  /** openai-compatible only: mechanical-tier model (falls back to `judgmentModel`, then `model`). */
+  mechanicalModel?: string;
   /** Per-role model overrides; wins over `model` for that role. */
   roleModels?: Record<string, string>;
   baseUrl?: string;

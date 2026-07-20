@@ -72,8 +72,14 @@ export function isTerminal(status: RunStatus): boolean {
 export interface RunProviderConfig {
   provider: "mock" | "anthropic" | "openai-compatible";
   /** Explicit run-wide model. Absent for anthropic ⇒ per-role tier defaults
-   *  (ROLE_MODEL_TIERS); still required for openai-compatible. */
+   *  (ANTHROPIC_TIER_MODELS); still required for openai-compatible, where it
+   *  also serves as the generative-tier model. */
   model?: string;
+  /** openai-compatible only: judgment-tier model (falls back to `model`). */
+  judgmentModel?: string;
+  /** openai-compatible only: mechanical-tier model (falls back to
+   *  `judgmentModel`, then `model`). */
+  mechanicalModel?: string;
   /** Per-role model overrides from the advanced picker; wins over `model`. */
   roleModels?: Partial<Record<CourseGenRole, string>>;
   /** openai-compatible only (e.g. a local LM Studio / Ollama endpoint). */

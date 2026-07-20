@@ -503,6 +503,9 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   const [provider, setProvider] = useState<ProviderConfig["provider"]>("mock");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  // openai-compatible only: refine the judgment/mechanical tiers; generative rides `model`.
+  const [judgmentModel, setJudgmentModel] = useState("");
+  const [mechanicalModel, setMechanicalModel] = useState("");
   // Advanced per-role overrides; empty string = "use the tier default".
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
   // Autopilot: gate-reviewer decides gates unattended (docs/plans/autonomous-course-pipeline.md §3.2).
@@ -540,6 +543,8 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
         : {
             provider,
             ...(model.trim() ? { model: model.trim() } : {}),
+            ...(provider === "openai-compatible" && judgmentModel.trim() ? { judgmentModel: judgmentModel.trim() } : {}),
+            ...(provider === "openai-compatible" && mechanicalModel.trim() ? { mechanicalModel: mechanicalModel.trim() } : {}),
             ...(Object.keys(pickedRoleModels).length ? { roleModels: pickedRoleModels } : {}),
             ...(provider === "openai-compatible" ? { baseUrl: baseUrl.trim() } : {}),
           };
@@ -603,6 +608,8 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
             const id = e.target.value as ProviderConfig["provider"];
             setProvider(id);
             setRoleModels({});
+            setJudgmentModel("");
+            setMechanicalModel("");
             const p = providers?.providers.find((x) => x.id === id);
             // Claude defaults to per-role tiers (empty = tier defaults).
             setModel(id === "anthropic" ? "" : (p?.models?.[0]?.id ?? ""));
@@ -633,9 +640,37 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
             <input id="cg-baseurl" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:1234/v1" />
           </div>
         )}
+        {provider === "openai-compatible" && (
+          <div className="gr-field">
+            <label htmlFor="cg-judgment-model">Judgment model (optional)</label>
+            <input
+              id="cg-judgment-model"
+              value={judgmentModel}
+              onChange={(e) => setJudgmentModel(e.target.value)}
+              placeholder="defaults to the model above"
+            />
+          </div>
+        )}
+        {provider === "openai-compatible" && (
+          <div className="gr-field">
+            <label htmlFor="cg-mechanical-model">Mechanical model (optional)</label>
+            <input
+              id="cg-mechanical-model"
+              value={mechanicalModel}
+              onChange={(e) => setMechanicalModel(e.target.value)}
+              placeholder="defaults to the judgment model"
+            />
+          </div>
+        )}
       </div>
       {provider === "mock" && <p className="gr-mono-note">Mock is deterministic and offline — great for trying the flow. Pick Claude or an OpenAI-compatible endpoint for the real thing (the API key is read from the server environment).</p>}
       {chosen?.note && provider !== "mock" && <p className="gr-mono-note">{chosen.note}</p>}
+      {provider === "openai-compatible" && (
+        <p className="gr-mono-note">
+          The model above rides the generative tier (architect, lesson-author). Set a judgment model to give
+          reviewer/analyst roles a cheaper alias; a mechanical model refines it further (falls back to judgment, then the model above).
+        </p>
+      )}
       {provider === "anthropic" && providers?.roles?.length ? (
         <details className="admin-role-models">
           <summary>Advanced: per-role models</summary>

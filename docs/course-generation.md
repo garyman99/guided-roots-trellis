@@ -193,6 +193,30 @@ PR), after which the gap is satisfied automatically.
 - **Per-lesson levels are set at materialization**, so courses generated before
   that landed group under the scenario-facet fallback; re-materialize to fix.
 
+## Serving (production-ish single process)
+
+`npm run dev` is two processes (vite dev + api) — fine interactively, but an
+autopilot run (auto-gated, unattended) needs to survive that dev session
+dying. `npm run serve` builds `apps/web` once, then starts the API alone with
+`TRELLIS_STATIC_DIR` pointed at `apps/web/dist`, so ONE process serves both the
+built SPA and the API on `PORT` (default 8787).
+
+- **`TRELLIS_STATIC_DIR`** (`apps/api/src/staticServe.ts`) — absolute or
+  repo-relative path to a built web app. When set, any request that isn't
+  `/api/...` or `/ws/...` and isn't matched by an API route falls through to
+  static serving: exact files by content-type, `/assets/*` cached
+  `immutable`, everything else (including SPA routes like `/home`, `/lab`)
+  `no-cache`, unknown extension-less paths fall back to `index.html`, and a
+  path with an extension that doesn't exist 404s. Off (unset) in normal
+  dev/test — this is purely additive.
+- **`tools/serve.mjs`** is the launcher `npm run serve` runs after the build —
+  it resolves `apps/web/dist`, refuses to start if `index.html` is missing,
+  and spawns the API with `TRELLIS_STATIC_DIR` set.
+- **`tools/install-service.ps1`** is a Windows Scheduled Task recipe (not run
+  automatically) that registers "TrellisServe" to run `npm run serve` at
+  startup and on logon, restarting on failure. `-Uninstall` removes it. Read
+  the script's header before running it.
+
 ## Per-lesson go-live
 
 A materialized course ships as a **draft with every lesson hidden**

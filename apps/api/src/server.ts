@@ -66,6 +66,7 @@ import { join, dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { acceptUpgrade } from "./miniWs.ts";
+import { tryServeStatic } from "./staticServe.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
@@ -499,7 +500,13 @@ function invokerForProvider(cfg: RunProviderConfig | undefined): RoleInvoker {
   const roleModels: Partial<Record<CourseGenRole, string>> = {};
   const unresolved: CourseGenRole[] = [];
   for (const role of COURSE_GEN_ROLES) {
-    const model = resolveRoleModel(role, { provider, model: cfg?.model, roleModels: cfg?.roleModels });
+    const model = resolveRoleModel(role, {
+      provider,
+      model: cfg?.model,
+      judgmentModel: cfg?.judgmentModel,
+      mechanicalModel: cfg?.mechanicalModel,
+      roleModels: cfg?.roleModels,
+    });
     if (model) roleModels[role] = model;
     else unresolved.push(role);
   }
@@ -1059,6 +1066,8 @@ function parseProviderConfig(raw: unknown): RunProviderConfig | undefined {
   return {
     provider,
     ...(typeof o.model === "string" && o.model.trim() ? { model: o.model.trim().slice(0, 120) } : {}),
+    ...(typeof o.judgmentModel === "string" && o.judgmentModel.trim() ? { judgmentModel: o.judgmentModel.trim().slice(0, 120) } : {}),
+    ...(typeof o.mechanicalModel === "string" && o.mechanicalModel.trim() ? { mechanicalModel: o.mechanicalModel.trim().slice(0, 120) } : {}),
     ...(roleModels ? { roleModels } : {}),
     ...(typeof o.baseUrl === "string" && o.baseUrl.trim() ? { baseUrl: o.baseUrl.trim().slice(0, 300) } : {}),
   };
@@ -2581,6 +2590,10 @@ export const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       }
     }
+
+    // Fall-through: the built web app (TRELLIS_STATIC_DIR), when enabled —
+    // see staticServe.ts. Disabled (dev, and most tests) it's a no-op.
+    if (tryServeStatic(req, res, url.pathname)) return;
 
     json(res, 404, { error: "not found" });
   } catch (err) {
