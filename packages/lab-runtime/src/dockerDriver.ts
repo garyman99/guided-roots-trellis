@@ -165,16 +165,33 @@ class DockerLabHandle implements LabHandle {
    *  ever TYPED into the learner's shell. Retries briefly: the first resize
    *  usually arrives while the shell (pwsh especially) is still booting and
    *  no pts exists yet. One session = one interactive pty, so sizing every
-   *  pts is exact in practice and harmless otherwise. */
-  async resizePty(cols: number, rows: number): Promise<void> {
-    const c = Math.max(20, Math.min(500, Math.floor(cols)));
-    const r = Math.max(5, Math.min(200, Math.floor(rows)));
-    const script = `n=0; for p in /dev/pts/[0-9]*; do [ -e "$p" ] || continue; stty cols ${c} rows ${r} < "$p" 2>/dev/null && n=$((n+1)); done; echo $n`;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const res = await this.exec(["sh", "-c", script]);
-      if (res.exitCode === 0 && res.stdout.trim() !== "0") return;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
+   *  pts is exact in practice and harmless otherwise. SINGLE-FLIGHT: bursts
+   *  of resizes (layout thrash, a driven browser) update the target instead
+   *  of stacking concurrent docker-exec retry loops. */
+  private resizeTarget: { c: number; r: number } | null = null;
+  private resizeLoop: Promise<void> | null = null;
+
+  resizePty(cols: number, rows: number): Promise<void> {
+    this.resizeTarget = {
+      c: Math.max(20, Math.min(500, Math.floor(cols))),
+      r: Math.max(5, Math.min(200, Math.floor(rows))),
+    };
+    this.resizeLoop ??= (async () => {
+      try {
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const t = this.resizeTarget!;
+          const script = `n=0; for p in /dev/pts/[0-9]*; do [ -e "$p" ] || continue; stty cols ${t.c} rows ${t.r} < "$p" 2>/dev/null && n=$((n+1)); done; echo $n`;
+          const res = await this.exec(["sh", "-c", script]);
+          // Done only when the CURRENT target was applied; a target that moved
+          // mid-apply gets another pass (attempt budget shared, so bounded).
+          if (res.exitCode === 0 && res.stdout.trim() !== "0" && this.resizeTarget === t) return;
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      } finally {
+        this.resizeLoop = null;
+      }
+    })();
+    return this.resizeLoop;
   }
 
   async reset(): Promise<void> {
