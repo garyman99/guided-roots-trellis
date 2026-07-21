@@ -22,6 +22,12 @@ docker build -t trellis-lab-base docker/generated-lab-base
 docker build -t trellis-lab-node-selenium docker/lab-node-selenium
 ```
 
+On this dev machine the daemon is **Rancher Desktop** (moby), and the `docker`
+CLI default context (`desktop-linux`) is Docker Desktop, which is down — so
+target Rancher's `default` context: `docker --context default build …` (or
+`export DOCKER_HOST=npipe:////./pipe/docker_engine`). See the `docker-setup`
+memory.
+
 Bump `COURSE_NPM_PACKAGES` in the Dockerfile when the course's dependency set
 changes, and rebuild to re-warm the cache.
 
@@ -31,13 +37,24 @@ Chromium does not survive the default container caps (ADR-0003 D30). A deploymen
 running this image raises `LAB_DOCKER_CPUS` / `LAB_DOCKER_MEMORY` /
 `LAB_DOCKER_PIDS`.
 
-## Status — authored, NOT yet proven or wired
+## Status — built and PROVEN offline (2026-07-21, via Rancher)
 
-- **Unproven until built:** this image can't be baked in the authoring
-  environment (no daemon/network for chromium + the npm warm step). Per ADR-0003
-  D26, docker auto-solve skips LOUDLY where no image exists — a build is the proof.
-- **Not yet wired to an EnvSpec:** a course still runs on the shared
-  `trellis-lab-base`. The remaining P2 work is the `EnvSpec` declaration + having
-  the docker driver select this per-course image (and auto-solve/sim against it),
-  so `lab.kind` browser lessons run here. Until then this is the commissioned
-  artifact the wiring will point at.
+Verified inside the built image under `--network none`:
+
+- **Chromium 150 + ChromeDriver 150** present and version-matched (`CHROME_BIN`,
+  `CHROMEDRIVER_BIN` set).
+- **Offline npm works:** a `package.json` declaring the four packages installs
+  with NO network — `npm install` → `added 25 packages`, resolved entirely from
+  the baked cache. The lesson's real install command prints its real success line.
+- **Real browser automation, offline:** `selenium-webdriver` drove headless
+  chromium against `file:///opt/lab/fixtures/index.html`, read the title, filled
+  a field, clicked submit, and read back the confirmation — end to end, no network.
+
+So the "make the box real" premise (L7) holds: this course runs offline with a
+real browser and real npm.
+
+**Selection is wired** (a course sets `request.environmentImage`, materialize
+stamps `lab.json.image`, the docker runtime resolves it). *Remaining:* run a
+generated selenium run pointed at this image and let `autosolve.docker.test.ts`
+prove a real lab on it (rather than skipping), plus grow a fuller `EnvSpec`
+(packages/fixtures as data) behind the tag.

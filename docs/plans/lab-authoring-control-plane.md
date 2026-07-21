@@ -147,10 +147,14 @@ browser Environments.
   path is wired: a course declares `request.environmentImage`; materialize stamps
   it onto every generated lab's manifest (`stampLabImage`); the docker runtime
   resolves it (`generatedLabImage` — the lab's own image beats the shared base).
-  Resolver + stamper are unit-tested. *Remaining:* bake the image (needs a
-  daemon/network — unproven until built, per ADR-0003 D26) and exercise a real
-  docker run/auto-solve against it; a fuller `EnvSpec` (packages/fixtures as
-  data, blueprint-declared) can grow behind the image tag.
+  Resolver + stamper are unit-tested. ✅ *Image built + PROVEN offline* (2026-07-21,
+  via Rancher): under `--network none`, chromium 150 + chromedriver present,
+  `npm install` of the four packages resolves from the baked cache (`added 25
+  packages`), and `selenium-webdriver` drove headless chromium against the
+  fixture site end to end. The L7 "make the box real" premise holds. *Remaining:*
+  point a generated selenium run at the image and let `autosolve.docker.test.ts`
+  prove a real lab on it; grow a fuller `EnvSpec` (packages/fixtures as data)
+  behind the tag.
 - **P3 — Sim-test as the per-lesson experience gate.** Run the sim after
   auto-solve; classify with the improvement-loop analyst; wire `content`/
   `lab-design` into the bounded re-author, `guide-behavior`/`platform` to the
