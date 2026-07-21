@@ -135,6 +135,9 @@ export interface LabManifest {
   title: string;
   objective: string;
   scenario: string;
+  /** Learner-facing terminal shell. Absent → bash. "pwsh" = real PowerShell 7
+   *  (the bench for targetPlatform=windows courses; docker driver only). */
+  shell?: "bash" | "pwsh";
   /** The simulated agent's confident self-description of its change. */
   agentMessage?: string;
   /**
@@ -1433,7 +1436,7 @@ export class SessionManager {
     session.guideProviderId = guideId;
     if (!manifest.workspace) {
       session.handle = await this.driver.create(
-        { labDir, labId, variant: variant ? { defect: variant.defect } : undefined, ...this.labRuntime(labDir) },
+        { labDir, labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir) },
         session.id,
       );
     }
@@ -1568,7 +1571,7 @@ export class SessionManager {
 
     if (!manifest.workspace) {
       session.handle = await this.driver.create(
-        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined, ...this.labRuntime(labDir) },
+        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir) },
         session.id,
       );
       const filesSnapshot = this.store.snapshotFor(session.id, "files");

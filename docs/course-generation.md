@@ -110,6 +110,29 @@ accented, gate decisions centered — giving high-level visibility without
 parsing full artifacts. The mock responder includes summaries, so the panel
 works offline. Runs that predate the field simply show no panel.
 
+## The PowerShell bench (2026-07-20)
+
+`targetPlatform: windows` courses get a REAL PowerShell 7 terminal, not a
+unix-style one (the field finding that unblocked the Selenium course: lessons
+taught PowerShell against a bash bench). How it works:
+
+- The shared generated-lab image (`docker/generated-lab-base`) bakes pwsh 7.4
+  (plus libicu). Rebuild: `docker build -t trellis-lab-base docker/generated-lab-base`.
+- `lab.json` gains `shell: "pwsh" | "bash"` (absent = bash). Materialization
+  stamps `pwsh` for windows-target courses (revisions inherit); hand-authored
+  labs are untouched.
+- The docker driver's learner terminal runs
+  `pwsh -NoLogo -NoExit -Command '. /opt/lab/instrument/trellis-profile.ps1'` —
+  the pwsh counterpart of trellis-bashrc.sh, emitting the SAME command records
+  (prompt-hook + Get-History; startup dot-source and leading-space platform
+  commands are never recorded). Verifiers/auto-solve stay on `bash -lc`.
+- The authoring platform note now pins the bench exactly: pwsh 7 command
+  shapes and error text, `/workspace` forward-slash paths, no cmd.exe.
+- Proven end-to-end (2026-07-20): ws terminal shows `PS /workspace>`,
+  `Get-ChildItem: Cannot find path '/nope' because it does not exist.`, and
+  the session's recentCommands carry the typed pwsh commands with exit codes.
+  Note pwsh cold-starts in a few seconds under the container CPU cap.
+
 ## Target platform (first-class, 2026-07-20)
 
 The virtual desktop mimics **Windows only** today (macOS is a planned variant

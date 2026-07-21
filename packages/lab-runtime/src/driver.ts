@@ -63,6 +63,14 @@ export interface LabDefinition {
    * that doesn't bake the lab's files. Absent → the image is assumed to bake them.
    */
   stageDir?: string;
+  /**
+   * The LEARNER-FACING interactive shell (docker driver). Absent → bash.
+   * "pwsh" runs real PowerShell 7 (installed in the image) so a
+   * targetPlatform=windows course teaches against an authentic PowerShell
+   * bench — prompt, aliases, error shapes. Machine-facing exec (verifiers,
+   * auto-solve, workspace init) stays bash either way.
+   */
+  shell?: "bash" | "pwsh";
 }
 
 export interface LabDriver {

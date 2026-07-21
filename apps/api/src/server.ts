@@ -344,11 +344,13 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     }
 
     // A lesson-specific real lab (lab.kind) when the generator asked for one;
-    // otherwise the generic "complete the stub" lab.
+    // otherwise the generic "complete the stub" lab. Windows-target courses get
+    // the real PowerShell 7 bench (lab.json shell:"pwsh").
+    const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
     const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
     const files = isGitLabKind(lesson.lab.kind)
-      ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId)
-      : buildGeneratedLabFiles(labLesson, run.runId);
+      ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, labShell)
+      : buildGeneratedLabFiles(labLesson, run.runId, labShell);
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {
@@ -442,10 +444,12 @@ async function materializeRevision(
     throw new Error(`lab id collision: "${labId}" is a hand-authored lab in this build`);
   }
 
+  // A revision keeps its course's bench: windows-target courses stay on pwsh.
+  const revShell = ((course.targetPlatform ?? run.request.targetPlatform) ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
   const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
   const files = isGitLabKind(lesson.lab.kind)
-    ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId)
-    : buildGeneratedLabFiles(labLesson, run.runId);
+    ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, revShell)
+    : buildGeneratedLabFiles(labLesson, run.runId, revShell);
   const labDir = writeGeneratedLab(publishedDir(), labId, files);
 
   const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];

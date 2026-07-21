@@ -39,8 +39,9 @@ const ok = content.trim() === "SOLVED";
 console.log(JSON.stringify({ ok, checks: [{ id: "solution-complete", ok, ...(ok ? {} : { detail: "Replace TODO in solution.txt with SOLVED." }) }] }));
 `;
 
-/** Files (relative path → content) for a lesson's lab. */
-export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string): Record<string, string> {
+/** Files (relative path → content) for a lesson's lab. `shell` selects the
+ *  learner-facing terminal ("pwsh" for targetPlatform=windows courses). */
+export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string, shell?: "bash" | "pwsh"): Record<string, string> {
   const labId = lesson.lessonId;
   const readme = [
     `# ${lesson.title}`,
@@ -57,6 +58,7 @@ export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string
 
   const labJson = {
     id: labId,
+    ...(shell ? { shell } : {}),
     // Lesson-version identity: a revision ships as `<family>-v<N>` (immutable
     // versions); v1 keeps the bare family id.
     version: versionOf(labId),

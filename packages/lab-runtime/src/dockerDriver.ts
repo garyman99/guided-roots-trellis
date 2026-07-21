@@ -106,13 +106,20 @@ class DockerLabHandle implements LabHandle {
 
   attachTerminal(): TerminalAttachment {
     if (!this.terminal) {
+      // The learner-facing shell: real PowerShell 7 for pwsh labs
+      // (targetPlatform=windows courses), instrumented bash otherwise. Both
+      // load the platform's instrumentation (docker-cp'd at create time).
+      const shellCmd =
+        this.def.shell === "pwsh"
+          ? "pwsh -NoLogo -NoExit -Command '. /opt/lab/instrument/trellis-profile.ps1'"
+          : "bash --rcfile /opt/lab/instrument/trellis-bashrc.sh -i";
       // `script(1)` inside the container allocates the pty, so we don't need
       // `docker exec -t` (which would require a tty on the API side).
       this.terminal = spawn(
         "docker",
         [
           "exec", "-i", ...this.baseEnvArgs(), this.container,
-          "script", "-qfc", "bash --rcfile /opt/lab/instrument/trellis-bashrc.sh -i", "/dev/null",
+          "script", "-qfc", shellCmd, "/dev/null",
         ],
         { stdio: ["pipe", "pipe", "pipe"] },
       );

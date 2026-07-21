@@ -243,14 +243,25 @@ function extractSummary(parsed: unknown): string | null {
  *  mimics, and stops reviewers/critics flagging missing support for other
  *  platforms (the field finding that prompted first-class targetPlatform). */
 function platformNote(platform: string): string {
+  const bench =
+    platform === "windows"
+      ? [
+          "THE BENCH IS EXACT: the lab terminal runs PowerShell 7 (pwsh) — not",
+          "cmd.exe and not Windows PowerShell 5.1. Write every command, prompt",
+          "illustration, and error-message quote for pwsh 7 specifically (e.g.",
+          '"Get-ChildItem: Cannot find path …" — cmdlet name, no space before the',
+          "colon). The project workspace is /workspace with forward-slash paths;",
+          "never instruct C:\\ paths or cmd.exe-only commands.",
+        ]
+      : [];
   return [
     `CONTEXT.targetPlatform ("${platform}") is the ONLY desktop environment this`,
     "course ships in: labs run inside the product's virtual desktop, which mimics",
     "that operating system (currently Windows only; macOS is a future variant).",
-    "Author and judge everything for that platform — its conventions, paths,",
-    "shortcuts, and terminology — and NEVER raise missing support for any other",
-    "platform as an issue or required change: cross-platform coverage is out of",
-    "scope by design.",
+    "Author and judge everything for that platform — its conventions, shortcuts,",
+    "and terminology — and NEVER raise missing support for any other platform as",
+    "an issue or required change: cross-platform coverage is out of scope by design.",
+    ...bench,
     "",
     "",
   ].join("\n");
