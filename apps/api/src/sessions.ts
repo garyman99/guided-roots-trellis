@@ -319,6 +319,10 @@ export class Session {
   private lastSize: { cols: number; rows: number } | null = null;
   private lastSpawnAt = 0;
   private resetting = false;
+  // 1-based cursor position tracked from the pty output, so the synthetic CPR
+  // answer (pwsh sessions) reports where the cursor REALLY is. See filterOutput.
+  private curRow = 1;
+  private curCol = 1;
   private destroyed = false;
 
   /** Interventions currently "used up": type → firedAt ms. Re-armed on resolution. */
@@ -440,32 +444,80 @@ export class Session {
   // the terminal replies with a cursor-position report (CPR `ESC[<row>;<col>R`).
   // Over this browser pty (docker → API → websocket → LAN → xterm and back) the
   // round-trip is too slow: pwsh hangs at the prompt (blank terminal), and when
-  // late replies finally arrive PSReadLine misparses them and prints the
-  // `13;106R` garbage. So the API ANSWERS the query itself, instantly, on the
-  // shell's own stdin — no network round-trip, no block, no garbage. Reply
-  // col=1 because a prompt always begins on a fresh line; that keeps line
-  // rendering aligned for the common case. We also strip the query from the
-  // browser stream (so xterm never double-answers) and strip any CPR the
-  // browser does send up (a learner never types one). Scoped to pwsh; bash and
-  // curses apps (nano, less) that legitimately use CPR are byte-for-byte
-  // untouched.
+  // late replies finally arrive PSReadLine misparses them into `13;106R`
+  // garbage. So the API ANSWERS the query itself, instantly, on the shell's own
+  // stdin — no round-trip, no block, no garbage.
+  //
+  // But the answer must carry the REAL cursor position: a fixed reply (col 1)
+  // made PSReadLine render the learner's input over the prompt ("node -vkspace>"
+  // — input overwriting `PS /workspa`). So we track the cursor by scanning the
+  // pty OUTPUT (printables advance the column, CR/LF reset it, the common CSI
+  // cursor-moves are honoured, colour/erase escapes are skipped) and reply with
+  // that. Scoped to pwsh; bash and curses apps are byte-for-byte untouched.
   private get filtersCursorReports(): boolean {
     return this.manifest.shell === "pwsh";
   }
   private filterOutput(chunk: Buffer): Buffer {
     if (!this.filtersCursorReports) return chunk;
     const s = chunk.toString("latin1");
-    if (!s.includes("\x1b[6n")) return chunk;
-    const queries = (s.match(/\x1b\[6n/g) ?? []).length;
-    // Answer each query on the shell's stdin so pwsh proceeds immediately.
-    for (let i = 0; i < queries; i++) this.attachment?.write("\x1b[1;1R");
-    return Buffer.from(s.replaceAll("\x1b[6n", ""), "latin1");
+    const cols = this.lastSize?.cols ?? 120;
+    const rows = this.lastSize?.rows ?? 30;
+    let outHadQuery = false;
+    let filtered = "";
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === "\x1b" && s[i + 1] === "[") {
+        // CSI: read params up to the final byte (0x40–0x7e).
+        let j = i + 2;
+        while (j < s.length && !(s.charCodeAt(j) >= 0x40 && s.charCodeAt(j) <= 0x7e)) j++;
+        const final = s[j];
+        const params = s.slice(i + 2, j);
+        const nums = params.split(";").map((p) => parseInt(p, 10));
+        const n = Number.isFinite(nums[0]) && nums[0] > 0 ? nums[0] : 1;
+        if (final === "n" && params === "6") {
+          // DSR cursor query → answer with the tracked position; drop the query.
+          this.attachment?.write(`\x1b[${Math.min(Math.max(this.curRow, 1), rows)};${Math.min(Math.max(this.curCol, 1), cols)}R`);
+          outHadQuery = true;
+          i = j;
+          continue;
+        }
+        switch (final) {
+          case "G": this.curCol = n; break;                                   // CHA — absolute column
+          case "C": this.curCol += n; break;                                  // CUF — right
+          case "D": this.curCol = Math.max(1, this.curCol - n); break;        // CUB — left
+          case "A": this.curRow = Math.max(1, this.curRow - n); break;        // CUU — up
+          case "B": this.curRow += n; break;                                  // CUD — down
+          case "H": case "f":                                                 // CUP — absolute
+            this.curRow = Number.isFinite(nums[0]) && nums[0] > 0 ? nums[0] : 1;
+            this.curCol = Number.isFinite(nums[1]) && nums[1] > 0 ? nums[1] : 1;
+            break;
+          // m (colour), J/K (erase), h/l (modes), s/u (save/restore) — no move.
+        }
+        filtered += s.slice(i, j + 1);
+        i = j;
+        continue;
+      }
+      if (ch === "\x1b") { filtered += ch + (s[i + 1] ?? ""); i += 1; continue; } // ESC + single (ESC=, ESC>)
+      if (ch === "\r") this.curCol = 1;
+      else if (ch === "\n") this.curRow++;
+      else if (ch === "\b") this.curCol = Math.max(1, this.curCol - 1);
+      else if (ch === "\t") this.curCol = Math.min(cols, (Math.floor((this.curCol - 1) / 8) + 1) * 8 + 1);
+      else if (ch >= " ") { this.curCol++; if (this.curCol > cols) { this.curCol = 1; this.curRow++; } }
+      if (this.curRow > rows) this.curRow = rows; // scrolled — cursor pinned to the bottom row
+      filtered += ch;
+    }
+    return outHadQuery ? Buffer.from(filtered, "latin1") : chunk;
   }
   private filterInput(data: string): string {
     if (!this.filtersCursorReports) return data;
     // CPR only — `ESC[<digits>;<digits>R`. Arrow keys (`ESC[A`) etc. have no
     // digits+semicolon, so real keystrokes are untouched.
     return data.replace(/\x1b\[\d+;\d+R/g, "");
+  }
+  /** Reset the tracked cursor when a fresh shell/screen starts. */
+  private resetCursor(): void {
+    this.curRow = 1;
+    this.curCol = 1;
   }
 
   private banner(text: string): void {
@@ -475,6 +527,7 @@ export class Session {
   ensureTerminal(): void {
     if (this.attachment || this.destroyed || !this.handle) return;
     this.lastSpawnAt = Date.now();
+    this.resetCursor();
     const term = this.handle.attachTerminal();
     this.attachment = term;
     term.onData((chunk) => this.broadcast(chunk));
