@@ -22,7 +22,10 @@ import { validateBlueprint, findCycle, ValidationError, type LessonInventoryEntr
 
 const CAPS = new Set(["file-viewed", "file-edited", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
 
-function harness(responder: MockResponder = defaultMockResponder) {
+function harness(
+  responder: MockResponder = defaultMockResponder,
+  proveLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string }>,
+) {
   let tick = 0;
   const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();
   let n = 0;
@@ -41,6 +44,7 @@ function harness(responder: MockResponder = defaultMockResponder) {
       materialized.push(result);
       return result;
     },
+    ...(proveLesson ? { proveLesson: (i: { lessonId: string }) => proveLesson(i) } : {}),
   });
   const sched = new CourseRunScheduler(store, executor, { now, idSuffix });
   return { sched, store, artifactsFor, materialized };
@@ -87,6 +91,23 @@ test("the Git pack yields a real, playable Git course through the pipeline", asy
   assert.equal(JSON.parse(arts.read("briefs/git-102.json")!).lab.kind, "git-discard");
   // Both passed review and were handed to the materializer.
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
+});
+
+test("shift-left prove gate: a lab that can't prove itself is blocked, not shipped", async () => {
+  // Prove fails for git-102 only. It passes review but its lab never proves, so
+  // it must land needs-revision and NOT ship — while git-101 (which proves)
+  // ships normally. This is the L8 gate catching an unprovable lab in authoring.
+  const proveLesson = async ({ lessonId }: { lessonId: string }) =>
+    lessonId === "git-102" ? { ok: false, detail: "verifier passes on the broken template" } : { ok: true };
+  const h = harness(defaultMockResponder, proveLesson);
+  const runId = await driveToApproved(h, "Git");
+  const arts = h.artifactsFor(runId);
+  const ledger = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean; blockers: string[] }>;
+  const g102 = ledger.find((o) => o.lessonId === "git-102")!;
+  assert.equal(g102.passed, false, "git-102 did not prove → needs-revision");
+  assert.ok(g102.blockers.some((b) => b.includes("did not prove")), "the auto-solve failure is a blocker fed to the re-author");
+  // Only the provable lesson shipped.
+  assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101"]);
 });
 
 test("the Selenium pack authors a real node-deps setup lab through the pipeline", async () => {

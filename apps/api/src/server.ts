@@ -61,7 +61,8 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync, statSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, mkdtempSync, writeFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -118,6 +119,7 @@ import {
   type GapDisposition,
   type LiveActivity,
   type Materializer,
+  type LessonProver,
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
@@ -331,6 +333,43 @@ function learnerDescriptionFor(run: CourseRun, courseRequestMarkdown: string): s
   return `A hands-on, learn-by-doing ${tech} course.`;
 }
 
+/** Route an authored lab spec to its real builder (git/node) or the generic
+ *  stub. Shared by materialize, the revision path, and the shift-left prover so
+ *  all three build the SAME files for a given lesson. */
+function buildLabFilesFor(
+  lab: { objective: string; kind?: string; expectedPackages?: string[] },
+  labLesson: { lessonId: string; title: string; objective: string },
+  runId: string,
+  shell?: "bash" | "pwsh",
+): Record<string, string> {
+  return isGitLabKind(lab.kind)
+    ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
+    : isNodeLabKind(lab.kind)
+      ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
+      : buildGeneratedLabFiles(labLesson, runId, shell);
+}
+
+/**
+ * The shift-left prover (plan L8): build ONE lesson's authored lab in a
+ * throwaway workspace and auto-solve it, so the authoring phase can fail a lab
+ * that can't prove itself and drive a re-author — long before materialize.
+ */
+const proveLesson: LessonProver = async ({ run, lessonId, lab }) => {
+  if (process.env.TRELLIS_SKIP_AUTOSOLVE === "1") return { ok: true, detail: "auto-solve skipped (TRELLIS_SKIP_AUTOSOLVE)" };
+  const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
+  const labLesson = { lessonId, title: lessonId, objective: lab.objective };
+  const files = buildLabFilesFor(lab, labLesson, run.runId, labShell);
+  const root = mkdtempSync(join(tmpdir(), `trellis-prove-${lessonId}-`));
+  try {
+    const labDir = writeGeneratedLab(root, lessonId, files);
+    const reports = await autoSolveGeneratedLab(labDir, lessonId);
+    const ok = reports.length > 0 && reports.every((r) => r.ok);
+    return ok ? { ok } : { ok, detail: reports.map((r) => r.detail).filter(Boolean).join("; ") || "auto-solve failed" };
+  } finally {
+    try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
+  }
+};
+
 const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }) => {
   if (run.request.revision) return materializeRevision(run, run.request.revision, lessons);
   const tech = run.request.technology;
@@ -352,11 +391,7 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     // the real PowerShell 7 bench (lab.json shell:"pwsh").
     const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
     const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
-    const files = isGitLabKind(lesson.lab.kind)
-      ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, labShell)
-      : isNodeLabKind(lesson.lab.kind)
-        ? buildNodeLabFiles(lesson.lab.kind, labLesson, lesson.lab.expectedPackages ?? [], run.runId, labShell)
-        : buildGeneratedLabFiles(labLesson, run.runId, labShell);
+    const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, labShell);
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {
@@ -453,11 +488,7 @@ async function materializeRevision(
   // A revision keeps its course's bench: windows-target courses stay on pwsh.
   const revShell = ((course.targetPlatform ?? run.request.targetPlatform) ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
   const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
-  const files = isGitLabKind(lesson.lab.kind)
-    ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, revShell)
-    : isNodeLabKind(lesson.lab.kind)
-      ? buildNodeLabFiles(lesson.lab.kind, labLesson, lesson.lab.expectedPackages ?? [], run.runId, revShell)
-      : buildGeneratedLabFiles(labLesson, run.runId, revShell);
+  const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, revShell);
   const labDir = writeGeneratedLab(publishedDir(), labId, files);
 
   const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];
@@ -876,6 +907,7 @@ export const courseRuns = new CourseRunScheduler(
     artifactsFor: runArtifactsFor,
     availableCapabilities: capabilityIdSet(),
     materialize,
+    proveLesson, // shift-left: prove each lesson's lab during authoring (plan L8)
     onActivity: (runId, activity) => {
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);

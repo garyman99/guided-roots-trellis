@@ -77,6 +77,15 @@ export interface MaterializeResult {
 /** Builds published labs, persists the draft course + scenario entries (injected). */
 export type Materializer = (input: MaterializeInput) => Promise<MaterializeResult>;
 
+/** Builds ONE lesson's authored lab in a throwaway workspace and auto-solves it,
+ *  returning whether it proved (and why not). Injected so the executor stays
+ *  free of the api-side lab builders + driver. */
+export type LessonProver = (input: {
+  run: CourseRun;
+  lessonId: string;
+  lab: LessonPlanDoc["lab"];
+}) => Promise<{ ok: boolean; detail?: string }>;
+
 export interface ExecutorDeps {
   /** Resolve the model provider for a run — selected per-run (mock/live). */
   rolesFor: (run: CourseRun) => RoleInvoker;
@@ -84,6 +93,14 @@ export interface ExecutorDeps {
   /** Flat set of registry capability ids (apps, auto-rules, checkpoint kinds…). */
   availableCapabilities: Set<string>;
   materialize: Materializer;
+  /**
+   * Shift-left machine gate (plan L8/L9): build a single lesson's authored lab
+   * and prove it (broken-as-shipped AND solvable) DURING authoring, so an
+   * unprovable lab drives a re-author here instead of being silently dropped at
+   * materialize. Optional — when absent (e.g. unit harnesses), the prove gate is
+   * skipped and authoring behaves as before.
+   */
+  proveLesson?: LessonProver;
   /** Real-time view: the current model call's streaming thinking/text (or null
    *  to clear). Held in memory by the host and polled by the UI. */
   onActivity?: (runId: string, activity: LiveActivity | null) => void;
@@ -748,6 +765,24 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       });
 
       outcome = evaluateReviews(lesson.lessonId, technical, pedagogy, cohesion, advocate);
+      // Shift-left prove gate: a review-passing lesson must ALSO prove its lab
+      // (broken-as-shipped AND solvable) before it counts as authored. An
+      // auto-solve failure becomes a blocker that drives the SAME re-author loop
+      // — caught here, mid-authoring, not silently dropped at materialize.
+      if (outcome.passed && deps.proveLesson) {
+        const proof = await deps.proveLesson({ run: ctx.run, lessonId: lesson.lessonId, lab: plan.lab });
+        ctx.emit("lesson.proved", { lessonId: lesson.lessonId, attempt, ok: proof.ok, ...(proof.detail ? { detail: proof.detail } : {}) });
+        if (!proof.ok) {
+          outcome = {
+            ...outcome,
+            passed: false,
+            blockers: [
+              ...outcome.blockers,
+              `The lab did not prove (auto-solve): ${proof.detail ?? "broken-as-shipped or solvable check failed"}. Fix the lab so its verifier fails on the shipped template and passes after a correct solution.`,
+            ],
+          };
+        }
+      }
       writeReviewArtifacts(arts, lesson.lessonId, outcome);
       ctx.emit("lesson.reviewed", { lessonId: lesson.lessonId, attempt, passed: outcome.passed, scores: pedagogy.scores, blockers: outcome.blockers });
       if (outcome.passed) break;

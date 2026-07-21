@@ -121,8 +121,16 @@ browser Environments.
   task + ordinary-JS verifier asserting `package.json` declares the four deps —
   is broken-as-shipped AND solvable under the existing auto-solve harness,
   offline on the local driver, and the gate rejects an under-declaring solution.
-  This validates L1/L2/L3/L7 with no model authoring, browser, or Docker. *Still
-  in P0:* make initial generation itself per-lesson (the L8 incremental spine).
+  This validates L1/L2/L3/L7 with no model authoring, browser, or Docker.
+  ✅ *Incremental spine landed:* auto-solve is now a shift-left machine gate
+  INSIDE the per-lesson authoring loop (`proveLesson` injected into the executor;
+  server builds the lesson's lab in a throwaway workspace and auto-solves it). A
+  lab that can't prove itself flips the lesson to needs-revision with the
+  auto-solve failure as a blocker fed to the SAME re-author loop — caught in
+  authoring, never silently dropped at materialize (test: an unprovable lesson
+  is blocked while provable ones ship). *Remaining L8:* operator reopen of an
+  earlier lesson from a later cohesion finding. *Remaining L9 (→P3):* the sim
+  experience gate.
 - **P1 — Fail-closed gate + real lab kinds through the `lab.kind` seam.**
   🟡 *Started:* the `node-deps` real lab kind landed (`apps/api/src/nodeLabs.ts`,
   wired into `materialize`/`materializeRevision` alongside the git kinds), with a
