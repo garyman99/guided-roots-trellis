@@ -57,6 +57,9 @@ export interface StatePayload {
   };
   tasks: TaskStatus[];
   checkpointReady: boolean;
+  /** Monotonic count of completed terminal commands — the file explorer
+   *  refreshes when this changes (a command may have altered the workspace). */
+  commandCount: number;
   transcript: Array<{ id: number; role: "learner" | "instructor"; text: string; level?: number; at: string }>;
   checkpoint: { id: string; title: string; requirements: Array<{ id: string; kind: string; label: string }> };
   lab: {

@@ -2587,6 +2587,12 @@ export const server = createServer(async (req, res) => {
           agentTimeline: session
             .events()
             .flatMap((e) => (e.type === "agent.action" ? [{ at: e.timestamp, action: e.action, detail: e.detail }] : [])),
+          // Monotonic count of completed terminal commands. The file explorer
+          // watches this: a command finishing (e.g. `mkdir foo`) is the event
+          // that a file may have appeared, so it re-lists ONLY then — not on a
+          // blind timer. (Instrumentation emits terminal.command.completed for
+          // every command; this is that event surfaced for the UI.)
+          commandCount: session.events().reduce((n, e) => (e.type === "terminal.command.completed" ? n + 1 : n), 0),
           lab: {
             id: session.manifest.id,
             title: session.manifest.title,

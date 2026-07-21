@@ -139,6 +139,30 @@ export function CodeStudio({
     refreshTree();
   }, [refreshTree]);
 
+  // Re-list files WHEN A TERMINAL COMMAND COMPLETES — that's the event a file
+  // may have appeared/vanished (`mkdir foo`, `rm bar`, `npm init`). The server
+  // surfaces a monotonic commandCount (from the terminal.command.completed
+  // events instrumentation already records); we poll that small status only to
+  // learn it changed, then re-list once — not a blind file-list poll. (A fully
+  // push-based fs-watch could replace the status poll later.)
+  const lastCmdCount = useRef<number | null>(null);
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      try {
+        const s = await api.state(creds);
+        if (stop) return;
+        if (lastCmdCount.current !== null && s.commandCount !== lastCmdCount.current) refreshTree();
+        lastCmdCount.current = s.commandCount;
+      } catch {
+        /* transient — try again next tick */
+      }
+    };
+    void tick();
+    const t = setInterval(tick, 2500);
+    return () => { stop = true; clearInterval(t); };
+  }, [creds, refreshTree]);
+
   const openFile = async (path: string) => {
     const existing = openFiles.find((f) => f.path === path);
     if (existing) {
