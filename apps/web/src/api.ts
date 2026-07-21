@@ -68,6 +68,8 @@ export interface StatePayload {
     scenario: string;
     agentMessage: string | null;
     chat: { botName?: string; welcome?: string[]; goalPrompt?: string } | null;
+    /** Free workspace (no grading, deterministic greeting) vs a graded lesson. */
+    sandbox?: boolean;
     tasks: TaskStatus[];
     /** Simulated apps for workspace labs; null for terminal labs. */
     workspaceApps: Array<{ id: string; title: string; icon: string }> | null;

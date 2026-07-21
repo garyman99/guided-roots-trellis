@@ -1,0 +1,21 @@
+{
+  "id": "step-up-to-the-desk",
+  "version": 1,
+  "concepts": [],
+  "title": "Step up to the desk",
+  "objective": "A free virtual desktop to work on whatever you like, with Sage — a context-aware guide — right at the next desk. Nothing here is graded.",
+  "scenario": "This is an open workspace, not a lesson. A Windows-style machine with an editor (Code Studio), a PowerShell terminal, and a fresh git repo. Do whatever you want in it — write a script, try some commands, sketch an idea. Everything you do is measured inside this desktop; nothing outside it is touched. Sage helps when you ask, aware of what's on your screen.",
+  "shell": "pwsh",
+  "sandbox": true,
+  "chat": {
+    "botName": "Sage",
+    "goalPrompt": "Hey! I'm Sage 🌿 — welcome to your desk. This is an open Windows workspace: an editor and a PowerShell terminal, all yours to play in. Nothing here is graded. What would you like to try or get done today? Tell me in your own words and I'll help as you go."
+  },
+  "tasks": [],
+  "checkpoint": {
+    "id": "sandbox-no-checkpoint",
+    "title": "Free workspace — nothing to complete",
+    "requirements": []
+  },
+  "instructorNotes": "Sandbox lab (manifest.sandbox = true): no tasks, no grading. The greeting is the deterministic goalPrompt above — never a model-generated lesson opener. Sage answers the learner's actual questions with screen context."
+}

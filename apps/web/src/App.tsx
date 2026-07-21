@@ -21,7 +21,11 @@ import { Desktop } from "./desktop/Desktop.tsx";
 import type { OsStyle } from "./desktop/WindowFrame.tsx";
 
 const params = new URLSearchParams(window.location.search);
-const LAB_ID = params.get("lab") ?? "inspect-generated-changes";
+// The default entry ("Step up to the desk", plain /lab with no ?lab=) is the
+// open SANDBOX — a free pwsh desktop, not a specific lesson. A ?lab=<id> still
+// selects any lesson.
+const DEFAULT_LAB = "step-up-to-the-desk";
+const LAB_ID = params.get("lab") ?? DEFAULT_LAB;
 /** One session creation per page load, even across StrictMode remounts. */
 let bootInFlight: ReturnType<typeof api.ensureSession> | null = null;
 const UI = params.get("ui") ?? "desktop";
@@ -32,7 +36,7 @@ export function App() {
   const [creds, setCreds] = useState<SessionCredentials | null>(() => {
     // A saved session only resumes for the SAME lab; switching ?lab= starts fresh.
     const saved = savedCredentials() as (SessionCredentials & { labId?: string }) | null;
-    return saved && (saved.labId ?? "inspect-generated-changes") === LAB_ID ? saved : null;
+    return saved && (saved.labId ?? DEFAULT_LAB) === LAB_ID ? saved : null;
   });
   const [data, setData] = useState<StatePayload | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);

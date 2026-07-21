@@ -542,9 +542,12 @@ export function ChatGuide({
         {/* Actions row: lesson controls, kept clear of the message input so
             neither crowds the other. */}
         <div className="chat-actions">
-          <button className="chip" onClick={() => void runCheck()} disabled={checking}>
-            {checking ? "Checking…" : "Check my work"}
-          </button>
+          {/* A sandbox isn't graded — no "Check my work". */}
+          {!data.lab.sandbox && (
+            <button className="chip" onClick={() => void runCheck()} disabled={checking}>
+              {checking ? "Checking…" : "Check my work"}
+            </button>
+          )}
           {/* In-UI confirmation (never window.confirm: a native modal blocks the
               main thread and cannot be seen or dismissed in embedded/driven
               browsers — live-sim finding, froze the whole workspace). */}

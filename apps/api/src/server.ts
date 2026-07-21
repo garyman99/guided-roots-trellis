@@ -2599,6 +2599,8 @@ export const server = createServer(async (req, res) => {
             scenario: session.manifest.scenario,
             agentMessage: session.manifest.agentMessage ?? null,
             chat: session.manifest.chat ?? null,
+            // A free workspace (no grading, deterministic greeting) vs a lesson.
+            sandbox: session.manifest.sandbox ?? false,
             tasks: session.manifest.tasks,
             // Workspace labs: which simulated apps the desktop should offer
             // (and that there is no terminal). Null for terminal labs.

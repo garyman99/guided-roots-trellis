@@ -138,6 +138,14 @@ export interface LabManifest {
   /** Learner-facing terminal shell. Absent → bash. "pwsh" = real PowerShell 7
    *  (the bench for targetPlatform=windows courses; docker driver only). */
   shell?: "bash" | "pwsh";
+  /**
+   * A free workspace, not a graded lesson: the learner works on whatever they
+   * want with context-aware guide help. Nothing is checked. When set, the
+   * opening greeting is the DETERMINISTIC goalPrompt (never a model-generated
+   * lesson opener), and the UI hides "Check my work". tasks/checkpoint stay
+   * empty/trivial to satisfy the shape.
+   */
+  sandbox?: boolean;
   /** The simulated agent's confident self-description of its change. */
   agentMessage?: string;
   /**
@@ -832,6 +840,11 @@ export class Session {
   private greetingPromise: Promise<{ text: string; generated: boolean }> | null = null;
 
   async greeting(): Promise<{ text: string; generated: boolean }> {
+    // A sandbox has no lesson to open into — Sage asks the ONE generic,
+    // deterministic question ("what would you like to try?") and helps from
+    // there. Never a model-generated lesson opener (that's what made the free
+    // desktop greet with git talk).
+    if (this.manifest.sandbox) return { text: this.authoredGreeting(), generated: false };
     this.greetingPromise ??= this.generateGreeting().catch((err) => {
       console.error(`[instructor] greeting generation failed for ${this.id}:`, err);
       this.greetingPromise = null; // a later request may retry
