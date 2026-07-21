@@ -140,10 +140,13 @@ browser Environments.
   not shipped). *Remaining:* have the author declare these kinds (mock + prompt),
   turn the ship-level skip into an explicit needs-revision + bounded re-author,
   and retire the stub as the default (keep it as a named intro template).
-- **P2 — `EnvSpec` + course image + real Environment.** Build/cache an image per
-  `EnvSpec`; run auto-solve + labs against it under `--network none`. Bake
-  `node-selenium-fixtures` (chromium + chromedriver + offline npm cache +
-  fixtures) as the first commissioned Environment.
+- **P2 — `EnvSpec` + course image + real Environment.** 🟡 *Image authored:* the
+  `node-selenium-fixtures` Environment is committed as a commissioned dev-side
+  build (`docker/lab-node-selenium/`): chromium + chromedriver, an OFFLINE npm
+  cache (so `npm install` prints the real `added` line under `--network none`),
+  and local fixture pages. *Remaining:* bake it (needs a daemon/network — unproven
+  until built, per ADR-0003 D26), declare the `EnvSpec`, and have the docker
+  driver select this per-course image so auto-solve + labs run against it.
 - **P3 — Sim-test as the per-lesson experience gate.** Run the sim after
   auto-solve; classify with the improvement-loop analyst; wire `content`/
   `lab-design` into the bounded re-author, `guide-behavior`/`platform` to the

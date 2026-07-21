@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Riverside Community Garden — Sign up</title>
+  </head>
+  <body>
+    <!-- A deliberately small, stable page the Selenium lessons drive offline
+         (loaded via file:///opt/lab/fixtures/index.html — no network). Elements
+         carry stable ids/names so locator lessons have reliable targets. -->
+    <h1 id="title">Riverside Community Garden</h1>
+    <p>Reserve a plot for the season.</p>
+
+    <form id="signup">
+      <label>Name <input id="name" name="name" type="text" /></label>
+      <label>Email <input id="email" name="email" type="email" /></label>
+      <label>Plot size
+        <select id="plot-size" name="plot-size">
+          <option value="small">Small (4×4)</option>
+          <option value="medium">Medium (4×8)</option>
+          <option value="large">Large (8×8)</option>
+        </select>
+      </label>
+      <label><input id="newsletter" name="newsletter" type="checkbox" /> Send me weekday pickup hours</label>
+      <button id="submit" type="button" onclick="document.getElementById('confirmation').textContent = 'Thanks, ' + (document.getElementById('name').value || 'gardener') + '!';">
+        Reserve plot
+      </button>
+    </form>
+
+    <p id="confirmation" role="status"></p>
+  </body>
+</html>
