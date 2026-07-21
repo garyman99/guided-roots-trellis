@@ -11,22 +11,30 @@
 # pairs it with the success state read FIRST thing in the prompt (before any
 # cmdlet in here can clobber $?).
 #
-# KNOWN LIMITATIONS (parity with the bash instrumentation):
-#   • compound lines (a; b) are one record — what the learner typed;
-#   • platform control commands are sent with a leading space and are kept
-#     out of history (AddToHistoryHandler), so they are never recorded —
-#     side effect: a learner typing ' cmd' escapes command capture.
+# KNOWN LIMITATION (parity with the bash instrumentation):
+#   • compound lines (a; b) are one record — what the learner typed.
 
 if (-not $env:TERM) { $env:TERM = "xterm-256color" }
 # Pagers are disabled: in an embedded learning terminal, `git diff` should
 # print, not open an interactive pager (which also swallows typed input).
 $env:PAGER = "cat"; $env:GIT_PAGER = "cat"; $env:GIT_TERMINAL_PROMPT = "0"
 
-# Leading-space lines are platform control commands (e.g. the terminal-resize
-# ` stty cols …`): keep them out of history so they never become records.
+# Force UTF-8 both ways so box-drawing/accented output can't decode to U+FFFD.
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8; $OutputEncoding = [Text.Encoding]::UTF8 } catch { }
+
+# PSReadLine renders with syntax-highlighting + Predictive IntelliSense, which
+# repaint aggressively over this embedded pty. Keep PSReadLine (it drives line
+# editing + history) but strip the features that garble: no prediction, no
+# ANSI syntax colors. This plus the server-side cursor-report handling keeps
+# the render simple and stable.
 try {
-  Set-PSReadLineOption -AddToHistoryHandler { param($line) -not $line.StartsWith(' ') }
-} catch { <# PSReadLine unavailable in this host — capture degrades gracefully #> }
+  Set-PSReadLineOption -PredictionSource None -BellStyle None
+  Set-PSReadLineOption -Colors @{
+    Command = "`e[0m"; Parameter = "`e[0m"; Operator = "`e[0m"; Variable = "`e[0m"
+    String = "`e[0m"; Number = "`e[0m"; Member = "`e[0m"; Type = "`e[0m"
+    Comment = "`e[0m"; Keyword = "`e[0m"; ContinuationPrompt = "`e[0m"; Default = "`e[0m"
+  }
+} catch { <# PSReadLine unavailable — basic host still works #> }
 
 # Size the pty to the browser terminal (defaults match the web UI's initial fit).
 try { & /usr/bin/stty cols ($env:TRELLIS_COLS ?? '120') rows ($env:TRELLIS_ROWS ?? '30') 2>$null } catch { }

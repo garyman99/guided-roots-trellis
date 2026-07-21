@@ -417,12 +417,42 @@ export class Session {
   }
 
   private broadcast(chunk: Buffer): void {
-    this.scrollbackBuf += chunk.toString("utf8");
+    const out = this.filterOutput(chunk);
+    this.scrollbackBuf += out.toString("utf8");
     if (this.scrollbackBuf.length > SCROLLBACK_CAP) {
       this.scrollbackBuf = this.scrollbackBuf.slice(-SCROLLBACK_CAP);
     }
+    // Instrumentation sees the raw chunk (its own summarizer sanitizes).
     this.instrumentation?.onTerminalOutput(chunk);
-    for (const cb of this.subscribers) cb(chunk);
+    for (const cb of this.subscribers) cb(out);
+  }
+
+  // ── pwsh cursor-report hygiene ──────────────────────────────────────────
+  // PSReadLine sizes its rendering by querying the cursor (DSR `ESC[6n`) and
+  // reading the terminal's reply (CPR `ESC[<row>;<col>R`). Over this browser
+  // pty (docker → API → websocket → LAN → xterm and back) the round-trip is
+  // slow enough that PSReadLine has already timed out when the reply lands;
+  // it then can't match the stray CPR to a key, strips the `ESC[`, and prints
+  // the leftover `13;106R` as text — the flood the operator saw. Bash/curses
+  // apps (nano, less) legitimately use these, so we scope the filtering to
+  // pwsh sessions: drop the DSR queries heading to the browser (so it never
+  // replies) and drop any CPR the browser sends up (a learner never types it).
+  // PSReadLine falls back to its own cursor tracking, which renders the line
+  // editor fine.
+  private get filtersCursorReports(): boolean {
+    return this.manifest.shell === "pwsh";
+  }
+  private filterOutput(chunk: Buffer): Buffer {
+    if (!this.filtersCursorReports) return chunk;
+    const s = chunk.toString("latin1");
+    if (!s.includes("\x1b[6n")) return chunk;
+    return Buffer.from(s.replaceAll("\x1b[6n", ""), "latin1");
+  }
+  private filterInput(data: string): string {
+    if (!this.filtersCursorReports) return data;
+    // CPR only — `ESC[<digits>;<digits>R`. Arrow keys (`ESC[A`) etc. have no
+    // digits+semicolon, so real keystrokes are untouched.
+    return data.replace(/\x1b\[\d+;\d+R/g, "");
   }
 
   private banner(text: string): void {
@@ -457,7 +487,7 @@ export class Session {
 
   writeTerminal(data: string): void {
     this.ensureTerminal();
-    this.attachment?.write(data);
+    this.attachment?.write(this.filterInput(data));
   }
 
   /**
