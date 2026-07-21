@@ -26,7 +26,7 @@
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { personaSpec, RecorderDriverClient, runSimulationLoop, loadSimulatorPrompt, SIMULATOR_PROMPT_ID, SIMULATOR_PROMPT_VERSION } from "../packages/simulator/src/index.ts";
 import { anthropicGenerateText } from "../packages/model-runtime/src/anthropicClient.ts";
 import { openaiGenerateText } from "../packages/model-runtime/src/openaiClient.ts";
@@ -82,10 +82,15 @@ const client = {
 
 // ── artifacts + recorder driver ─────────────────────────────────────────────
 const runId = newRunId("simtest");
-const writer = new RunArtifactWriter(args.out ?? process.env.TRELLIS_ARTIFACTS_DIR ?? "artifacts");
+const artifactsRoot = args.out ?? process.env.TRELLIS_ARTIFACTS_DIR ?? "artifacts";
+const writer = new RunArtifactWriter(artifactsRoot);
 const runDir = writer.runDir(runId);
 const recDir = join(runDir, "recording");
 mkdirSync(recDir, { recursive: true });
+// Live preview: one stable file the API serves while a sim runs (single global
+// slot, so one live frame at a time). resolve() so cwd never matters.
+const liveFrame = resolve(artifactsRoot, "sim-live", "frame.jpg");
+mkdirSync(dirname(liveFrame), { recursive: true });
 
 const url = `${WEB}/?lab=${args.lab}`;
 // Prefer the repo-local browser install (tools/recorder README): the default
@@ -97,7 +102,7 @@ const driverEnv = existsSync(localBrowsers) ? { ...process.env, PLAYWRIGHT_BROWS
 // --out must be ABSOLUTE: the driver runs with cwd tools/recorder, so a
 // relative artifacts path silently landed the webm under tools/recorder/
 // while the API's video route looked in the real artifacts dir.
-const driverProc = spawn(process.execPath, [join(ROOT, "tools", "recorder", "sim-driver.mjs"), "--port", String(PORT), "--out", resolve(recDir), "--url", url], {
+const driverProc = spawn(process.execPath, [join(ROOT, "tools", "recorder", "sim-driver.mjs"), "--port", String(PORT), "--out", resolve(recDir), "--url", url, "--live", liveFrame], {
   cwd: join(ROOT, "tools", "recorder"),
   env: driverEnv,
   stdio: ["ignore", "pipe", "pipe"],

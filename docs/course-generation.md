@@ -110,6 +110,24 @@ accented, gate decisions centered — giving high-level visibility without
 parsing full artifacts. The mock responder includes summaries, so the panel
 works offline. Runs that predate the field simply show no panel.
 
+## Watching a sim run live (2026-07-20)
+
+The webm only exists after the recorder closes, so while a simulated learner
+runs the operator now gets a low-rate LIVE preview instead of a blind wait:
+
+- The recorder driver takes `--live <file.jpg>` and writes a JPEG of the page
+  every ~0.8s (single-flight, atomic tmp→rename, deleted on close).
+  sim-test.mjs points it at `<artifacts>/sim-live/frame.jpg` — one stable file
+  (the sim queue is a single global slot).
+- API: `GET …/sim-test/live` → `{ live, labId }` and `…/sim-test/live-frame`
+  (JPEG). Both gate on `simTests.busy(runId)` AND a <6s frame mtime, so a stale
+  frame never leaks into a run that isn't the one currently executing.
+- The Course studio SimTestPanel shows the frame (refreshed ~1/s) with a LIVE
+  dot and the running lesson id while a sim is in progress.
+
+It's a slideshow, not smooth video — enough to see where the persona is. The
+webm remains the reviewable record after the run (Trace button).
+
 ## The PowerShell bench (2026-07-20)
 
 `targetPlatform: windows` courses get a REAL PowerShell 7 terminal, not a

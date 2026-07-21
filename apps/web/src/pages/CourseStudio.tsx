@@ -1609,6 +1609,36 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
 
 /* ---------- pre-publish simulated user test (quality-rework Phase 4) ---------- */
 
+/** Live "where is the persona now" preview: the recorder driver drops a JPEG
+ *  every ~0.8s while a sim runs; this refreshes it about once a second. It's a
+ *  low-rate slideshow, not smooth video — enough to watch progress. The webm
+ *  remains the reviewable record after the run. */
+function SimLiveView({ runId }: { runId: string }) {
+  const [labId, setLabId] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const poll = () => simTestApi.live(runId).then((s) => { if (alive) { setReady(s.live); setLabId(s.labId); } }).catch(() => {});
+    poll();
+    const t = setInterval(() => { poll(); setTick((n) => n + 1); }, 1000);
+    return () => { alive = false; clearInterval(t); };
+  }, [runId]);
+  return (
+    <div className="cg-sim-live">
+      <div className="cg-sim-live-head">
+        <span className="cg-live-dot" /> LIVE
+        {labId && <code className="gr-mono-note">{labId}</code>}
+      </div>
+      {ready ? (
+        <img className="cg-sim-live-img" src={`${simTestApi.liveFrameUrl(runId)}${simTestApi.liveFrameUrl(runId).includes("?") ? "&" : "?"}t=${tick}`} alt="Live simulated-learner screen" />
+      ) : (
+        <p className="gr-mono-note">waiting for the browser to come up…</p>
+      )}
+    </div>
+  );
+}
+
 function SimTestPanel({ run }: { run: CourseRunDetail }) {
   const [jobs, setJobs] = useState<SimTestJobView[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -1669,6 +1699,7 @@ function SimTestPanel({ run }: { run: CourseRunDetail }) {
         </button>
         {running && <span className="gr-mono-note">one lesson at a time — this takes a while; leave the page open or come back</span>}
       </div>
+      {running && <SimLiveView runId={run.runId} />}
       {needPersona && (
         <div className="admin-editor-actions">
           <span className="gr-mono-note">This course predates personas — pick one to attach (saved onto the course):</span>

@@ -61,7 +61,7 @@
  * documented in the ADR.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync, existsSync, rmSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join, dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual, randomBytes } from "node:crypto";
@@ -161,6 +161,9 @@ export const store = createStore();
 const labsRoot = join(repoRoot, "labs");
 const publishedDir = (): string => process.env.TRELLIS_PUBLISHED_DIR ?? join(repoRoot, "curriculum", "published");
 const runsDir = (): string => process.env.TRELLIS_RUNS_DIR ?? join(repoRoot, "curriculum", "runs");
+// Where the recorder driver drops the live sim-preview frame (single global
+// slot). Must match sim-test.mjs's `resolve(artifactsRoot, "sim-live")`.
+const simLiveDir = (): string => join(resolvePath(process.env.TRELLIS_ARTIFACTS_DIR ?? join(repoRoot, "artifacts")), "sim-live");
 // Screen-faithful rrweb replays, one NDJSON per session (Phase 3).
 const replaysDir = (): string => process.env.TRELLIS_REPLAYS_DIR ?? join(repoRoot, "data", "replays");
 const capabilityRequestsDir = (): string => process.env.TRELLIS_CAPABILITY_REQUESTS_DIR ?? join(repoRoot, "curriculum", "capability-requests");
@@ -1998,6 +2001,28 @@ export const server = createServer(async (req, res) => {
               // GET status — durable disk results overlaid by live queue state.
               if (req.method === "GET" && parts.length === 5) {
                 return json(res, 200, { jobs: simTestStatus(runId), running: simTests.busy(runId) });
+              }
+              // GET …/sim-test/live — is a live frame available for THIS run,
+              // and for which lesson? (single global slot: the frame belongs to
+              // whichever run is busy.)
+              if (req.method === "GET" && parts.length === 6 && parts[5] === "live") {
+                const frame = join(simLiveDir(), "frame.jpg");
+                let fresh = false;
+                try { fresh = Date.now() - statSync(frame).mtimeMs < 6000; } catch { /* no frame yet */ }
+                const live = simTests.busy(runId) && fresh;
+                const labId = simTestStatus(runId).find((j) => j.state === "running")?.labId ?? null;
+                return json(res, 200, { live, labId });
+              }
+              // GET …/sim-test/live-frame — the latest JPEG while THIS run is
+              // the one running. 404 when idle/stale so the client stops polling.
+              if (req.method === "GET" && parts.length === 6 && parts[5] === "live-frame") {
+                const frame = join(simLiveDir(), "frame.jpg");
+                let fresh = false;
+                try { fresh = Date.now() - statSync(frame).mtimeMs < 6000; } catch { /* none */ }
+                if (!simTests.busy(runId) || !fresh) return json(res, 404, { error: "no live frame" });
+                res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" });
+                createReadStream(frame).pipe(res);
+                return;
               }
               // GET …/sim-test/:labId/video — stream the run.webm.
               if (req.method === "GET" && parts.length === 7 && parts[6] === "video") {

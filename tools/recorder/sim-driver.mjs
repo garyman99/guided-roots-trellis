@@ -21,8 +21,8 @@
  */
 import { chromium } from "playwright";
 import { createServer } from "node:http";
-import { mkdirSync, renameSync, writeFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, renameSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const args = Object.fromEntries(
@@ -36,6 +36,9 @@ const OUT = args.out ?? join(process.cwd(), "recording");
 const WIDTH = Number(args.width ?? 1280);
 const HEIGHT = Number(args.height ?? 800);
 const START_URL = args.url ?? null;
+// --live <file.jpg>: while set, a low-rate JPEG of the page is written here so
+// the operator can watch the sim live (the webm only exists after /close).
+const LIVE = args.live ?? null;
 
 // ── coordinator/simulator privilege split (ADR-0006) ────────────────────────
 // `eval` can read anything in the page (localStorage creds, hidden state), so
@@ -86,6 +89,38 @@ if (START_URL) await page.goto(START_URL, { waitUntil: "domcontentloaded" }).cat
 
 let commandCount = 0;
 const startedAt = new Date().toISOString();
+
+// ── live preview frames ─────────────────────────────────────────────────────
+// Single-flight JPEG capture at a low rate, written atomically (tmp → rename)
+// so a reader never sees a half-written frame. The webm is still the record of
+// truth; this is throwaway "where is it now" for the operator.
+let liveTimer = null;
+let liveShooting = false;
+function startLiveFrames() {
+  if (!LIVE) return;
+  mkdirSync(dirname(LIVE), { recursive: true });
+  const tmp = LIVE + ".tmp";
+  liveTimer = setInterval(async () => {
+    if (liveShooting) return;
+    liveShooting = true;
+    try {
+      const buf = await page.screenshot({ type: "jpeg", quality: 55 });
+      writeFileSync(tmp, buf);
+      renameSync(tmp, LIVE);
+    } catch {
+      // page navigating/closed mid-shot — skip this frame, never crash the driver
+    } finally {
+      liveShooting = false;
+    }
+  }, 800);
+  liveTimer.unref?.();
+}
+function stopLiveFrames() {
+  if (liveTimer) clearInterval(liveTimer);
+  liveTimer = null;
+  if (LIVE) try { unlinkSync(LIVE); } catch { /* already gone */ }
+}
+startLiveFrames();
 
 /** A compact, LLM-friendly view: visible text + clickable targets with
  *  their on-screen center coordinates (so the agent can click by x,y). */
@@ -238,6 +273,7 @@ let closing = false;
 async function finalize() {
   if (closing) return { video: null };
   closing = true;
+  stopLiveFrames();
   const video = page.video();
   await context.close(); // flushes the webm to disk
   await browser.close();

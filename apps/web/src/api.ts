@@ -818,6 +818,13 @@ export const simTestApi = {
     const token = localStorage.getItem(ADMIN_TOKEN_KEY);
     return `/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test/${encodeURIComponent(labId)}/video${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   },
+  // Live view while a sim runs: a small status poll + the current JPEG frame.
+  live: (runId: string) =>
+    adminGet<{ live: boolean; labId: string | null }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test/live`),
+  liveFrameUrl: (runId: string) => {
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    return `/api/admin/course-runs/${encodeURIComponent(runId)}/sim-test/live-frame${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  },
 };
 
 export interface CapabilityRequest {

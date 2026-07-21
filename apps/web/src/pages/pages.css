@@ -352,6 +352,27 @@
 }
 .persona-msg-admin { color: var(--ink); margin: 0; }
 .persona-msg-interviewer { color: var(--ink-dim); margin: 0; }
+/* Live sim preview (Course studio) — low-rate JPEG slideshow while a sim runs. */
+.cg-sim-live { margin-top: 12px; }
+.cg-sim-live-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: var(--ls-label);
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.cg-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #d64545;
+  box-shadow: 0 0 0 0 rgba(214, 69, 69, 0.6); animation: cg-live-pulse 1.4s infinite;
+}
+@keyframes cg-live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(214, 69, 69, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(214, 69, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(214, 69, 69, 0); }
+}
+.cg-sim-live-img {
+  display: block; width: 100%; max-width: 900px; height: auto;
+  border: 1px solid var(--line-solid); border-radius: var(--radius); background: #000;
+}
+
 /* Agent chat (Course studio run detail) — each role's summary as a bubble. */
 .cg-chat-log {
   display: grid; gap: 8px; max-height: 380px; overflow-y: auto;
