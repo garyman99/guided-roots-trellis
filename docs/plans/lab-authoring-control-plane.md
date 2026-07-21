@@ -116,10 +116,13 @@ browser Environments.
 
 ## 5. Phased rollout
 
-- **P0 — Incremental spine + validate/prove tracer.** Make initial generation
-  per-lesson (author → materialize → auto-solve) for ONE hand-authored real Lab
-  (`s1`, offline: baked deps, `npm ls` + `tsx` checks) on the local driver. No
-  model authoring, no browser yet — prove the loop end to end.
+- **P0 — validate/prove tracer.** ✅ *Contract proven*
+  (`apps/api/test/real-lab-tracer.test.ts`): a hand-authored REAL `s1` Lab — real
+  task + ordinary-JS verifier asserting `package.json` declares the four deps —
+  is broken-as-shipped AND solvable under the existing auto-solve harness,
+  offline on the local driver, and the gate rejects an under-declaring solution.
+  This validates L1/L2/L3/L7 with no model authoring, browser, or Docker. *Still
+  in P0:* make initial generation itself per-lesson (the L8 incremental spine).
 - **P1 — Fail-closed gate.** Materialize validates against the registry and the
   Lab contract; auto-solve failure → bounded re-author → block. Retire the stub
   as the default (keep it as a named intro template).
