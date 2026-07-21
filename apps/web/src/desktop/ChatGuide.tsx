@@ -60,6 +60,13 @@ export function ChatGuide({
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // Synchronous re-entry lock. `sending` (React state) drives the disabled UI,
+  // but it commits asynchronously — a human triggers ONE handler, but the
+  // simulated learner fires Enter AND a Send click milliseconds apart (within
+  // one decision), faster than React re-renders the disabled button, so every
+  // stale-`sending` guard reads false and send() runs 2–3×, tripling the
+  // message. A ref updates immediately, making send() truly non-reentrant.
+  const sendInFlight = useRef(false);
   const [checking, setChecking] = useState(false);
   const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const [showContext, setShowContext] = useState(false);
@@ -313,7 +320,8 @@ export function ChatGuide({
   }, [msgs]);
 
   const send = async (text: string, stuck: boolean) => {
-    if (!text.trim() || sending) return;
+    if (!text.trim() || sendInFlight.current) return;
+    sendInFlight.current = true;
     if (dictation.listening) dictation.stop(); // sending ends the dictation turn
     setSending(true);
     setDraft("");
@@ -372,6 +380,7 @@ export function ChatGuide({
       }
     } finally {
       setSending(false);
+      sendInFlight.current = false;
     }
   };
 
