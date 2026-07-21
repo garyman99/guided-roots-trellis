@@ -44,55 +44,17 @@ export function Terminal({ creds }: { creds: SessionCredentials }) {
     // persistent decoder handles multi-byte UTF-8 that splits across frames.
     const decoder = new TextDecoder();
 
-    // Swallow the echo of the platform's OWN resize command. Setting the pty
-    // size writes a `stty` line to the shell (server.ts applySize), which the
-    // pty echoes back — noise the learner shouldn't see. We arm this only when
-    // WE send a resize, so a learner who genuinely types `stty` is untouched.
-    // Streaming strip: write everything through EXCEPT a tiny tail that could
-    // be the start of the expected line spanning into the next frame (so we
-    // never buffer/delay large output like the scrollback replay on connect).
-    let swallow: { expected: string; carry: string; until: number } | null = null;
-
-    const writeChunk = (chunk: string) => {
-      if (!swallow) {
-        term.write(chunk);
-        return;
-      }
-      if (Date.now() > swallow.until) {
-        // Window closed without the echo — flush the held tail and move on.
-        const tail = swallow.carry;
-        swallow = null;
-        if (tail) term.write(tail);
-        term.write(chunk);
-        return;
-      }
-      const combined = swallow.carry + chunk;
-      const at = combined.indexOf(swallow.expected);
-      if (at !== -1) {
-        // Drop the echoed command and the one CR/LF the pty adds after it;
-        // everything before/after (incl. any carried scrollback) is real.
-        const rest = combined.slice(0, at) + combined.slice(at + swallow.expected.length).replace(/^\r?\n/, "");
-        swallow = null;
-        if (rest) term.write(rest);
-        return;
-      }
-      // Not found yet: emit all but a small tail (could be a split match).
-      const keep = swallow.expected.length - 1;
-      if (combined.length > keep) {
-        term.write(combined.slice(0, combined.length - keep));
-        swallow.carry = combined.slice(combined.length - keep);
-      } else {
-        swallow.carry = combined;
-      }
-    };
+    // Terminal output goes straight to xterm. Resize is a SERVER-SIDE pty
+    // ioctl now (sessions.ts resizePty — TIOCSWINSZ, nothing typed into the
+    // shell), so there is no `stty` echo to hide. The old echo-swallowing
+    // filter held the last chunk waiting for that echo; when the prompt was
+    // the final output (nothing followed to flush it), it stayed buffered and
+    // the terminal rendered BLANK. (The dev-only local driver still types a
+    // resize line — its one brief ` stty cols…` echo is acceptable.)
+    const writeChunk = (chunk: string) => term.write(chunk);
 
     const sendResize = () => {
       if (ws?.readyState === WebSocket.OPEN) {
-        // Flush any tail held by a prior arm before re-arming (debounced
-        // resizes rarely overlap, but never eat real output).
-        if (swallow?.carry) term.write(swallow.carry);
-        // Mirrors server.ts applySize: ` stty cols <c> rows <r>` (leading space).
-        swallow = { expected: ` stty cols ${term.cols} rows ${term.rows}`, carry: "", until: Date.now() + 2500 };
         // Binary frame = control channel (see server.ts).
         ws.send(new TextEncoder().encode(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })));
       }

@@ -436,17 +436,19 @@ export class Session {
   }
 
   // ── pwsh cursor-report hygiene ──────────────────────────────────────────
-  // PSReadLine sizes its rendering by querying the cursor (DSR `ESC[6n`) and
-  // reading the terminal's reply (CPR `ESC[<row>;<col>R`). Over this browser
-  // pty (docker → API → websocket → LAN → xterm and back) the round-trip is
-  // slow enough that PSReadLine has already timed out when the reply lands;
-  // it then can't match the stray CPR to a key, strips the `ESC[`, and prints
-  // the leftover `13;106R` as text — the flood the operator saw. Bash/curses
-  // apps (nano, less) legitimately use these, so we scope the filtering to
-  // pwsh sessions: drop the DSR queries heading to the browser (so it never
-  // replies) and drop any CPR the browser sends up (a learner never types it).
-  // PSReadLine falls back to its own cursor tracking, which renders the line
-  // editor fine.
+  // PSReadLine renders by querying the cursor (DSR `ESC[6n`) and BLOCKING until
+  // the terminal replies with a cursor-position report (CPR `ESC[<row>;<col>R`).
+  // Over this browser pty (docker → API → websocket → LAN → xterm and back) the
+  // round-trip is too slow: pwsh hangs at the prompt (blank terminal), and when
+  // late replies finally arrive PSReadLine misparses them and prints the
+  // `13;106R` garbage. So the API ANSWERS the query itself, instantly, on the
+  // shell's own stdin — no network round-trip, no block, no garbage. Reply
+  // col=1 because a prompt always begins on a fresh line; that keeps line
+  // rendering aligned for the common case. We also strip the query from the
+  // browser stream (so xterm never double-answers) and strip any CPR the
+  // browser does send up (a learner never types one). Scoped to pwsh; bash and
+  // curses apps (nano, less) that legitimately use CPR are byte-for-byte
+  // untouched.
   private get filtersCursorReports(): boolean {
     return this.manifest.shell === "pwsh";
   }
@@ -454,6 +456,9 @@ export class Session {
     if (!this.filtersCursorReports) return chunk;
     const s = chunk.toString("latin1");
     if (!s.includes("\x1b[6n")) return chunk;
+    const queries = (s.match(/\x1b\[6n/g) ?? []).length;
+    // Answer each query on the shell's stdin so pwsh proceeds immediately.
+    for (let i = 0; i < queries; i++) this.attachment?.write("\x1b[1;1R");
     return Buffer.from(s.replaceAll("\x1b[6n", ""), "latin1");
   }
   private filterInput(data: string): string {
