@@ -43,6 +43,15 @@ export interface LabHandle {
   /** Return the workspace to its initial lab state (fresh repo + AI change). */
   reset(): Promise<void>;
   destroy(): Promise<void>;
+  /**
+   * Resize the interactive pty DIRECTLY (TIOCSWINSZ via stty on the pts
+   * device) instead of typing a control line into the shell. Typed resize
+   * lines are visible noise under bash (echo-swallowed by the UI) and
+   * actively corrupt PSReadLine under pwsh (colored repaint; garbage when
+   * they land mid-boot). Optional — the session falls back to the typed
+   * line when a handle doesn't implement it.
+   */
+  resizePty?(cols: number, rows: number): Promise<void>;
 }
 
 export interface LabDefinition {

@@ -161,6 +161,22 @@ class DockerLabHandle implements LabHandle {
     return res.exitCode === 0 ? res.stdout : null;
   }
 
+  /** Direct pty resize (TIOCSWINSZ via stty on the pts device) — nothing is
+   *  ever TYPED into the learner's shell. Retries briefly: the first resize
+   *  usually arrives while the shell (pwsh especially) is still booting and
+   *  no pts exists yet. One session = one interactive pty, so sizing every
+   *  pts is exact in practice and harmless otherwise. */
+  async resizePty(cols: number, rows: number): Promise<void> {
+    const c = Math.max(20, Math.min(500, Math.floor(cols)));
+    const r = Math.max(5, Math.min(200, Math.floor(rows)));
+    const script = `n=0; for p in /dev/pts/[0-9]*; do [ -e "$p" ] || continue; stty cols ${c} rows ${r} < "$p" 2>/dev/null && n=$((n+1)); done; echo $n`;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const res = await this.exec(["sh", "-c", script]);
+      if (res.exitCode === 0 && res.stdout.trim() !== "0") return;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  }
+
   async reset(): Promise<void> {
     this.terminal?.kill("SIGKILL");
     this.terminal = null;

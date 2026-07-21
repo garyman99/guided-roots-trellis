@@ -461,10 +461,12 @@ export class Session {
   }
 
   /**
-   * Resize the pty. Sent as a space-prefixed stty line: HISTCONTROL=ignorespace
-   * keeps it out of history, so command capture never records it as a learner
-   * action. (The echo briefly appears in the terminal — a documented trade-off
-   * of the zero-dependency pty; the UI debounces resizes to settle events.)
+   * Resize the pty. Preferred path: the handle's DIRECT resize (TIOCSWINSZ on
+   * the pts device) — nothing is typed into the shell, which matters under
+   * pwsh where PSReadLine repaints typed input (colored echo; corrupted
+   * output when it lands mid-boot). Fallback (drivers without resizePty): a
+   * space-prefixed stty line — kept out of history by the instrumentation's
+   * ignorespace rule; its echo briefly appears in the terminal.
    */
   resizeTerminal(cols: number, rows: number): void {
     const c = Math.max(20, Math.min(500, Math.floor(cols)));
@@ -476,7 +478,12 @@ export class Session {
 
   private applySize(): void {
     if (!this.lastSize || !this.attachment) return;
-    this.attachment.write(` stty cols ${this.lastSize.cols} rows ${this.lastSize.rows}\n`);
+    const { cols, rows } = this.lastSize;
+    if (this.handle?.resizePty) {
+      void this.handle.resizePty(cols, rows).catch(() => {});
+      return;
+    }
+    this.attachment.write(` stty cols ${cols} rows ${rows}\n`);
   }
 
   // ── workspace filesystem (for GUI editors) ──────────────────────────────
