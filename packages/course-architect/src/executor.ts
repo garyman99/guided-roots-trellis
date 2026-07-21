@@ -164,7 +164,12 @@ function taskInstruction(task: string): string {
       '{',
       '  "lessonId": string,               // MUST equal CONTEXT.lesson.lessonId',
       '  "markdown": string,               // the full lesson plan as markdown (why it matters, objective, demonstration, guided + independent practice, failure/diagnosis, mastery evidence)',
-      '  "lab": { "objective": string, "primaryAuto": string } // primaryAuto is one of CONTEXT.lesson.requiredCapabilities',
+      '  "lab": {',
+      '    "objective": string,             // what the lab has the learner DO',
+      '    "primaryAuto": string,           // one of CONTEXT.lesson.requiredCapabilities',
+      '    "kind"?: "node-deps",            // OPTIONAL: request a REAL lab instead of the generic stub. "node-deps" ships a bare package.json and has the learner declare dependencies (offline-checkable). Use it for a project-setup lesson.',
+      '    "expectedPackages"?: string[]    // REQUIRED when kind is "node-deps": the exact npm packages package.json must declare',
+      '  }',
       '}',
       'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
     ].join("\n");

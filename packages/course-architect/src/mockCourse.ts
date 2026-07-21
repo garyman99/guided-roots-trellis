@@ -196,7 +196,57 @@ const GIT_PACK: CoursePack = {
   },
 };
 
-const PACKS: Record<string, CoursePack> = { git: GIT_PACK };
+/** A minimal real Selenium/TypeScript course — the offline stand-in whose
+ *  setup lesson materializes a REAL node-deps lab (not the stub). Proves the
+ *  node-deps kind end to end through the mock pipeline. */
+const SELENIUM_DEPS = ["selenium-webdriver", "typescript", "tsx", "@types/selenium-webdriver"];
+const SELENIUM_PACK: CoursePack = {
+  request: {
+    title: "Selenium WebDriver in TypeScript",
+    technology: "Selenium",
+    targetLearner: "A manual QA engineer moving into automated browser testing with TypeScript.",
+    startingPoint: "Comfortable testing by hand; new to npm projects and Selenium.",
+    endingCapability: "Sets up a Selenium + TypeScript project and writes a first automated browser test.",
+    assumptions: ["The learner works in a Code Studio terminal (PowerShell).", "An empty project folder is provided."],
+    outOfScope: ["CI pipelines", "Cross-browser grids", "Page Object frameworks"],
+  },
+  blueprint: {
+    domainMap: "# Selenium domain map\n\nCapability areas: the npm project (package.json + dependencies), the WebDriver session, and locating/asserting on page elements.",
+    progressionSpine: "# Progression spine\n\nBeginner: set up the project's dependencies → open a browser → find and assert on elements. Each lesson acts on a real project.",
+    conventions: "# Conventions\n\nOne terminal lab per lesson over a real Node project; tasks named by the action; the project ships missing a piece the learner supplies.",
+    planReview: "# Plan review\n\nOne beginner setup lesson grounded in a real package.json; no forward references.",
+    prerequisiteGraph: { concepts: ["package.json", "dependency"], edges: [{ from: "package.json", to: "dependency" }] },
+    lessonInventory: [
+      {
+        lessonId: "selenium-setup",
+        level: "beginner",
+        sequence: 1,
+        title: "Set up your project dependencies",
+        purpose: "Declare the four packages the course needs in package.json so the project can run.",
+        primaryCapability: "Declare a project's dependencies in package.json.",
+        conceptsIntroduced: ["package.json", "dependency"],
+        conceptsReinforced: [],
+        prerequisites: [],
+        requiredCapabilities: ["file-edited", "code"],
+      },
+    ],
+  },
+  lessons: {
+    "selenium-setup": {
+      lessonId: "selenium-setup",
+      markdown:
+        "# Set up your project dependencies\n\n## Why this matters\nAn empty folder can't run anything. A project's `package.json` lists the packages it needs — its shopping list — before you install or run a line of code.\n\n## Task\nOpen `package.json` and add the four course packages to its `dependencies`: `selenium-webdriver`, `typescript`, `tsx`, and `@types/selenium-webdriver`. Then check your work.\n\n## Mastery evidence\n`package.json` declares all four dependencies.\n",
+      lab: {
+        objective: "Declare selenium-webdriver, typescript, tsx and @types/selenium-webdriver in package.json.",
+        primaryAuto: "file-edited",
+        kind: "node-deps",
+        expectedPackages: SELENIUM_DEPS,
+      },
+    },
+  },
+};
+
+const PACKS: Record<string, CoursePack> = { git: GIT_PACK, selenium: SELENIUM_PACK };
 
 function packFor(context?: Record<string, unknown>): CoursePack | null {
   const tech = reqOf(context).technology;

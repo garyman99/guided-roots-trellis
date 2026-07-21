@@ -20,7 +20,7 @@ import { defaultMockResponder } from "../src/mockCourse.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, applyDispositions, commissionedGaps, allGapsDispositioned } from "../src/gaps.ts";
 import { validateBlueprint, findCycle, ValidationError, type LessonInventoryEntry } from "../src/schemas.ts";
 
-const CAPS = new Set(["file-viewed", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
+const CAPS = new Set(["file-viewed", "file-edited", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
 
 function harness(responder: MockResponder = defaultMockResponder) {
   let tick = 0;
@@ -87,6 +87,20 @@ test("the Git pack yields a real, playable Git course through the pipeline", asy
   assert.equal(JSON.parse(arts.read("briefs/git-102.json")!).lab.kind, "git-discard");
   // Both passed review and were handed to the materializer.
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
+});
+
+test("the Selenium pack authors a real node-deps setup lab through the pipeline", async () => {
+  const h = harness();
+  const runId = await driveToApproved(h, "Selenium");
+  const arts = h.artifactsFor(runId);
+  const inventory = JSON.parse(arts.read("lesson-inventory.json")!) as LessonInventoryEntry[];
+  assert.deepEqual(inventory.map((l) => l.lessonId), ["selenium-setup"]);
+  // The authored brief carries the real node-deps kind AND the structured
+  // package list the verifier needs — not a prose stand-in.
+  const lab = JSON.parse(arts.read("briefs/selenium-setup.json")!).lab;
+  assert.equal(lab.kind, "node-deps");
+  assert.deepEqual(lab.expectedPackages, ["selenium-webdriver", "typescript", "tsx", "@types/selenium-webdriver"]);
+  assert.deepEqual(h.materialized.at(-1)!.labIds, ["selenium-setup"]);
 });
 
 test("every role's summary is emitted as an agent.message event (the chat feed)", async () => {
