@@ -26,7 +26,7 @@
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { personaSpec, RecorderDriverClient, runSimulationLoop, loadSimulatorPrompt, SIMULATOR_PROMPT_ID, SIMULATOR_PROMPT_VERSION } from "../packages/simulator/src/index.ts";
 import { anthropicGenerateText } from "../packages/model-runtime/src/anthropicClient.ts";
 import { openaiGenerateText } from "../packages/model-runtime/src/openaiClient.ts";
@@ -94,7 +94,10 @@ const url = `${WEB}/?lab=${args.lab}`;
 // a repo path is readable in every context that can read the repo.
 const localBrowsers = join(ROOT, ".playwright-browsers");
 const driverEnv = existsSync(localBrowsers) ? { ...process.env, PLAYWRIGHT_BROWSERS_PATH: localBrowsers } : process.env;
-const driverProc = spawn(process.execPath, [join(ROOT, "tools", "recorder", "sim-driver.mjs"), "--port", String(PORT), "--out", recDir, "--url", url], {
+// --out must be ABSOLUTE: the driver runs with cwd tools/recorder, so a
+// relative artifacts path silently landed the webm under tools/recorder/
+// while the API's video route looked in the real artifacts dir.
+const driverProc = spawn(process.execPath, [join(ROOT, "tools", "recorder", "sim-driver.mjs"), "--port", String(PORT), "--out", resolve(recDir), "--url", url], {
   cwd: join(ROOT, "tools", "recorder"),
   env: driverEnv,
   stdio: ["ignore", "pipe", "pipe"],
