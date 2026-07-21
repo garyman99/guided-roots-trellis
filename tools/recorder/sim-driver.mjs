@@ -145,6 +145,33 @@ async function snapshot() {
   });
 }
 
+// The simulator persona presses keys the way a HUMAN names them ("Windows",
+// "Win+R", "Ctrl+C", "Esc"); Playwright's keyboard.press wants its own names
+// ("Meta", "Escape", …). Map per token so chords work, and pass through
+// anything already valid (single chars, "Enter", "F5", "Control"). Windows
+// courses make this load-bearing: a persona on a Windows-styled desktop
+// reaches for the Windows key to find PowerShell.
+const KEY_ALIASES = {
+  windows: "Meta", win: "Meta", super: "Meta", os: "Meta", cmd: "Meta", command: "Meta", meta: "Meta",
+  ctrl: "Control", control: "Control", ctl: "Control",
+  opt: "Alt", option: "Alt", alt: "Alt",
+  esc: "Escape", escape: "Escape",
+  del: "Delete", delete: "Delete", ins: "Insert", insert: "Insert",
+  return: "Enter", enter: "Enter", ret: "Enter",
+  space: "Space", spacebar: "Space",
+  pgup: "PageUp", pageup: "PageUp", pgdn: "PageDown", pgdown: "PageDown", pagedown: "PageDown",
+  up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
+};
+export function normalizeKey(key) {
+  return String(key)
+    .split("+")
+    .map((part) => {
+      const t = part.trim();
+      return KEY_ALIASES[t.toLowerCase()] ?? t;
+    })
+    .join("+");
+}
+
 const handlers = {
   async ping() { return { ok: true, commandCount, startedAt }; },
   async goto({ url, waitUntil = "domcontentloaded" }) { await page.goto(url, { waitUntil }); return { url: page.url() }; },
@@ -158,7 +185,19 @@ const handlers = {
   async dblclick({ x, y }) { await page.mouse.dblclick(x, y); return { dblclicked: [x, y] }; },
   async move({ x, y }) { await page.mouse.move(x, y); return { moved: [x, y] }; },
   async type({ text, delay = 15 }) { await page.keyboard.type(String(text), { delay }); return { typed: String(text).length }; },
-  async press({ key }) { await page.keyboard.press(key); return { pressed: key }; },
+  async press({ key }) {
+    const norm = normalizeKey(key);
+    try {
+      await page.keyboard.press(norm);
+      return { pressed: norm };
+    } catch (err) {
+      // An unknown/unsupported key must NEVER abort the run — a real keyboard
+      // press of a nonexistent key is a harmless no-op. Report applied:false so
+      // the persona sees (via the next snapshot) that nothing changed and picks
+      // another approach, instead of the whole sim ending in environment_failure.
+      return { pressed: norm, applied: false, note: `unsupported key "${key}" — treated as no-op` };
+    }
+  },
   async selectAllAndType({ text }) {
     // A reliable replace primitive for text boxes (real ctrl+a works here).
     await page.keyboard.press("Control+a");
