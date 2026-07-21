@@ -138,6 +138,10 @@ export interface LabManifest {
   /** Learner-facing terminal shell. Absent → bash. "pwsh" = real PowerShell 7
    *  (the bench for targetPlatform=windows courses; docker driver only). */
   shell?: "bash" | "pwsh";
+  /** The baked Environment image this lab runs on under the docker driver
+   *  (per-course EnvSpec, e.g. "trellis-lab-node-selenium"). Absent → the shared
+   *  generated-lab base image. Stamped at materialize (plan L5). */
+  image?: string;
   /**
    * A free workspace, not a graded lesson: the learner works on whatever they
    * want with context-aware guide help. Nothing is checked. When set, the
@@ -193,6 +197,15 @@ export interface InstructorMessage {
 }
 
 /** Whether a task's COARSE instrumentation trigger has fired (pre-validation). */
+/**
+ * The docker image a generated lab runs on: the lab's own baked Environment
+ * (manifest.image, a per-course EnvSpec) when it declares one, else the shared
+ * generated-lab base image (env-overridable). Pure so it's unit-testable.
+ */
+export function generatedLabImage(manifest?: { image?: string }, env: NodeJS.ProcessEnv = process.env): string {
+  return manifest?.image ?? env.TRELLIS_GENERATED_LAB_IMAGE ?? "trellis-lab-base";
+}
+
 export function taskAutoDone(task: LabTask, state: LearningSessionState): boolean {
   const ws = state.workspace;
   const { auto, autoPath } = task;
@@ -1433,9 +1446,9 @@ export class SessionManager {
    * `trellis-lab-base`) with its template/verify staged in. Every other case
    * (hand-authored labs, or any lab under the local driver) adds nothing.
    */
-  private labRuntime(labDir: string): { image?: string; stageDir?: string } {
+  private labRuntime(labDir: string, manifest?: LabManifest): { image?: string; stageDir?: string } {
     if (this.driverKind === "docker" && this.isGeneratedLab(labDir)) {
-      return { image: process.env.TRELLIS_GENERATED_LAB_IMAGE ?? "trellis-lab-base", stageDir: labDir };
+      return { image: generatedLabImage(manifest), stageDir: labDir };
     }
     return {};
   }
@@ -1546,7 +1559,7 @@ export class SessionManager {
     session.guideProviderId = guideId;
     if (!manifest.workspace) {
       session.handle = await this.driver.create(
-        { labDir, labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir) },
+        { labDir, labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir, manifest) },
         session.id,
       );
     }
@@ -1681,7 +1694,7 @@ export class SessionManager {
 
     if (!manifest.workspace) {
       session.handle = await this.driver.create(
-        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir) },
+        { labDir, labId: meta.labId, variant: variant ? { defect: variant.defect } : undefined, ...(manifest.shell ? { shell: manifest.shell } : {}), ...this.labRuntime(labDir, manifest) },
         session.id,
       );
       const filesSnapshot = this.store.snapshotFor(session.id, "files");

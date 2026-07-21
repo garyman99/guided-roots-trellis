@@ -71,7 +71,7 @@ import { tryServeStatic } from "./staticServe.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
-import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab } from "./generatedLab.ts";
+import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab, stampLabImage } from "./generatedLab.ts";
 import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
 import { buildNodeLabFiles, isNodeLabKind } from "./nodeLabs.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
@@ -341,12 +341,15 @@ function buildLabFilesFor(
   labLesson: { lessonId: string; title: string; objective: string },
   runId: string,
   shell?: "bash" | "pwsh",
+  image?: string,
 ): Record<string, string> {
-  return isGitLabKind(lab.kind)
+  const files = isGitLabKind(lab.kind)
     ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
     : isNodeLabKind(lab.kind)
       ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
       : buildGeneratedLabFiles(labLesson, runId, shell);
+  // Per-course baked Environment (plan L5): the docker driver runs the lab on it.
+  return stampLabImage(files, image);
 }
 
 /**
@@ -358,7 +361,7 @@ const proveLesson: LessonProver = async ({ run, lessonId, lab }) => {
   if (process.env.TRELLIS_SKIP_AUTOSOLVE === "1") return { ok: true, detail: "auto-solve skipped (TRELLIS_SKIP_AUTOSOLVE)" };
   const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
   const labLesson = { lessonId, title: lessonId, objective: lab.objective };
-  const files = buildLabFilesFor(lab, labLesson, run.runId, labShell);
+  const files = buildLabFilesFor(lab, labLesson, run.runId, labShell, run.request.environmentImage);
   const root = mkdtempSync(join(tmpdir(), `trellis-prove-${lessonId}-`));
   try {
     const labDir = writeGeneratedLab(root, lessonId, files);
@@ -391,7 +394,7 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     // the real PowerShell 7 bench (lab.json shell:"pwsh").
     const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
     const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
-    const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, labShell);
+    const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, labShell, run.request.environmentImage);
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {
@@ -488,7 +491,7 @@ async function materializeRevision(
   // A revision keeps its course's bench: windows-target courses stay on pwsh.
   const revShell = ((course.targetPlatform ?? run.request.targetPlatform) ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
   const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
-  const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, revShell);
+  const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, revShell, run.request.environmentImage);
   const labDir = writeGeneratedLab(publishedDir(), labId, files);
 
   const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];

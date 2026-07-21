@@ -128,6 +128,18 @@ export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string
   };
 }
 
+/**
+ * Stamp a per-course Environment image onto a built lab's manifest, so the
+ * docker driver runs it on the course's baked toolchain instead of the shared
+ * base image (plan L5). No-op when no image is given (the common case).
+ */
+export function stampLabImage(files: Record<string, string>, image: string | undefined): Record<string, string> {
+  if (!image || !files["lab.json"]) return files;
+  const manifest = JSON.parse(files["lab.json"]);
+  manifest.image = image;
+  return { ...files, "lab.json": JSON.stringify(manifest, null, 2) };
+}
+
 /** Write a generated lab's files under <publishedDir>/<labId>/. */
 export function writeGeneratedLab(publishedDir: string, labId: string, files: Record<string, string>): string {
   const labDir = join(publishedDir, labId);

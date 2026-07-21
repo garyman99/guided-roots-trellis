@@ -128,6 +128,14 @@ export interface CourseRunRequest {
   /** Desktop environment the course targets. Absent ⇒ "windows" (the only
    *  variant the virtual desktop implements today). */
   targetPlatform?: TargetPlatform;
+  /**
+   * The baked Environment IMAGE this course's docker labs run on (a commissioned
+   * dev-side build, e.g. "trellis-lab-node-selenium"). Absent ⇒ the shared
+   * generated-lab base image. Stamped onto every generated lab's manifest at
+   * materialize so auto-solve and the runtime use the course's real toolchain
+   * (plan L5; docs/plans/lab-authoring-control-plane.md).
+   */
+  environmentImage?: string;
   title?: string;
   targetLearner?: string;
   learnerStartingExperience?: string;
