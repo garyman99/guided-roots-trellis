@@ -173,7 +173,11 @@ export function CodeStudio({
       const r = await api.fsRead(creds, path);
       setOpenFiles((fs) => [...fs, { path, content: r.content, savedContent: r.content, truncated: r.truncated }]);
       setActive(path);
-      setStatus(r.truncated ? `${path} is large — showing the first 200 KB (read-only)` : `Opened ${path}`);
+      // Phrase status as an editor state, not a verb that reads like shell
+      // output — a flattened screen snapshot puts this line near the terminal,
+      // and a bare "Opened solution.txt" got mistaken for a command result
+      // (live-sim finding: the learner re-ran `cat` six times distrusting it).
+      setStatus(r.truncated ? `Editor: ${path} is large — first 200 KB shown (read-only)` : `Editor: editing ${path}`);
     } catch {
       setStatus(`Couldn't open ${path}`);
     }
@@ -350,7 +354,20 @@ export function CodeStudio({
             {openFiles.length === 0 && <div className="cs-tabs-empty">Click a file on the left to open it</div>}
           </div>
           <div className="cs-editor">
-            <div className={`cs-monaco${current ? "" : " cs-monaco-hidden"}`} ref={hostRef} />
+            {/* role=textbox + a stable aria-label make the editing surface a
+                real, named target: keyboard/AT users get a labelled region,
+                and the screen-snapshot driver (which only lists
+                button/a/input/textarea/[role]) can finally SEE a place to type.
+                Without this the Monaco mount is a bare <div> the simulated
+                learner can't address — it clicked "Open solution.txt" three
+                times looking for an editor that wasn't in its target list. */}
+            <div
+              className={`cs-monaco${current ? "" : " cs-monaco-hidden"}`}
+              ref={hostRef}
+              role="textbox"
+              aria-multiline="true"
+              aria-label={current ? `${current.path} editor — click here, then type to edit` : undefined}
+            />
             {!current && (
               <div className="cs-welcome">
                 <h3>Code Studio</h3>

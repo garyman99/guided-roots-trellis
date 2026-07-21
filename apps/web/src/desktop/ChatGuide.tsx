@@ -602,6 +602,7 @@ export function ChatGuide({
           )}
           <textarea
             value={draft}
+            aria-label={`Message ${botName}`}
             placeholder={
               dictation.listening
                 ? "Listening…"

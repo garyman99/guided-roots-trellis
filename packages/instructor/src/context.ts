@@ -68,6 +68,12 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
     sections.push(`# LAB NOTES (trusted; includes reveal policy)\n${lab.instructorNotes}`);
   }
 
+  // Trusted facts about the actual sandbox, so the guide never invents tools
+  // it lacks. Live-sim finding: with no environment model the guide told a
+  // learner to run `notepad solution.txt` (absent in the Linux/pwsh container)
+  // and flip-flopped on whether Code Studio can edit — a long dead-end.
+  sections.push(`# ENVIRONMENT FACTS (trusted — the real sandbox)\n${environmentFacts(lab)}`);
+
   sections.push(
     `# SESSION STATE (measured facts)\n` +
       `- Checkpoints completed: ${state.completedCheckpoints.join(", ") || "none"}\n` +
@@ -174,4 +180,35 @@ export function buildInstructorContext(req: HintRequest, profile?: AssembledProf
 /** Inline fencing for short untrusted fragments embedded in fact lines. */
 function fenceInline(text: string, maxLen = 200): string {
   return "⟦" + sanitizeUntrusted(text, maxLen).replace(/⟦|⟧/g, "") + "⟧";
+}
+
+/**
+ * Authored, trusted facts about the sandbox the learner is actually in — so
+ * the guide coaches within reality instead of inventing tools. Terminal labs
+ * are an OFFLINE Linux container: no network (no fetching packages, no real
+ * websites), no GUI apps (no notepad/VS Code windows). Editing happens in the
+ * Code Studio editor pane or from the shell.
+ */
+function environmentFacts(lab: HintRequest["lab"]): string {
+  if (lab.surface === "workspace") {
+    // Simulated-apps workspace lab: no terminal/editor; guide against that.
+    return (
+      "- This is a simulated-apps workspace (email, chat, docs), NOT a coding terminal.\n" +
+      "- There is no shell, no file editor, and no `git`/`npm`. Coach only actions available in the on-screen apps.\n" +
+      "- Never suggest terminal commands, code editors, or file paths."
+    );
+  }
+  const shell = lab.shell === "pwsh" ? "PowerShell 7 (`pwsh`)" : "bash";
+  const editHint =
+    lab.shell === "pwsh"
+      ? "`Set-Content solution.txt 'SOLVED'` (PowerShell), or `notepad`-style GUI editors do NOT exist here"
+      : "`sed`/`printf`/`cat >` from the shell";
+  return (
+    `- The terminal is ${shell} running inside an OFFLINE Linux container.\n` +
+    "- NO network: the learner cannot `npm install`/`pip install` from the internet, open real websites, or download anything. Any dependencies a lesson needs are already present, or the exercise is offline by design.\n" +
+    "- NO GUI applications: there is no Notepad, no VS Code window, no browser to launch. NEVER tell the learner to open `notepad` or any desktop app — it will error.\n" +
+    "- To EDIT a file, the learner uses the Code Studio editor: click the file in the Explorer to open it, click into the editor text area, type, then press Ctrl+S to save (the • dot on the tab clears when saved).\n" +
+    `- They can also edit from the ${shell} terminal — e.g. ${editHint}.\n` +
+    '- "Check my work" runs the platform\'s own verifier against the files on disk; a `cat`/`Get-Content` preview is NOT the verifier.'
+  );
 }

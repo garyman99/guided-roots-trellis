@@ -15,6 +15,12 @@ export interface HintRequest {
     /** Trusted curriculum guidance (from lab.json), incl. reveal policy. */
     instructorNotes?: string;
     /**
+     * The learner-facing terminal for this lab: PowerShell 7 ("pwsh", for
+     * windows-target courses) or bash. Drives the ENVIRONMENT FACTS the guide
+     * is told, so it never suggests tools the sandbox lacks (e.g. `notepad`).
+     */
+    shell?: "bash" | "pwsh";
+    /**
      * Which kind of lab this is: a terminal/repo lab or a simulated-apps
      * workspace lab. Drives which coaching vocabulary providers may use —
      * "diff"/"tests" language must never reach a workspace learner.

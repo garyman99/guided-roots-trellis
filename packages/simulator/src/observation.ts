@@ -70,10 +70,23 @@ export function observationHash(obs: LearnerObservation): string {
  * changes during typing are expected mid-sequence; a changed TARGET set
  * (window opened/closed, buttons appeared) means stale intent — stop the
  * action sequence and re-observe (design doc requirement).
+ *
+ * Editable fields (textarea/input/select) are keyed by tag:role, NOT by
+ * name — because the driver derives a field's `name` from its own live
+ * `value` (sim-driver snapshot), so the learner typing into the chat box
+ * would otherwise change the signature and cancel the `click Send` queued in
+ * the SAME decision (observed live: every "ask the guide" split into a
+ * type-turn + a send-turn, doubling LLM calls and often re-appending the
+ * question). Signature identity must survive the learner's own keystrokes;
+ * new/closed targets still change the SET and are still caught.
  */
+const EDITABLE_TAGS = new Set(["textarea", "input", "select"]);
+const EDITABLE_ROLES = new Set(["textbox", "searchbox", "combobox"]);
+const isEditable = (t: { tag: string; role: string | null }) =>
+  EDITABLE_TAGS.has(t.tag) || (t.role != null && EDITABLE_ROLES.has(t.role));
 export function targetsSignature(raw: RawSnapshot): string {
   return (raw.targets ?? [])
-    .map((t) => `${t.tag}:${t.name}`)
+    .map((t) => (isEditable(t) ? `${t.tag}:${t.role ?? ""}` : `${t.tag}:${t.name}`))
     .sort()
     .join("|");
 }

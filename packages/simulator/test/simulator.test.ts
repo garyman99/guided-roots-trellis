@@ -225,6 +225,43 @@ test("loop: action group stops when the target set changes materially", async ()
   assert.equal(result.status, "gave_up");
 });
 
+test("loop: typing into a text field does NOT cancel a Send queued in the same decision", async () => {
+  // Regression: the driver derives an editable field's `name` from its live
+  // `value`, so the learner typing used to change targetsSignature and cancel
+  // the `click Send` in the SAME group — splitting every "ask the guide" into a
+  // type-turn + a send-turn (double LLM calls, often re-appending the text).
+  // A composer = a textarea (addressed by index) + a Send button.
+  const composer = (draft: string): RawSnapshot => ({
+    url: "http://localhost:60304/?lab=x",
+    title: "Trellis",
+    text: "chat with the guide",
+    targets: [
+      { tag: "textarea", role: "textbox", name: draft || "Message Sage", x: 100, y: 300, w: 200, h: 40 },
+      { tag: "button", role: "button", name: "Send", x: 320, y: 300, w: 50, h: 20 },
+    ],
+  });
+  const driver = new FakeDriver(composer(""), (kind, d) => {
+    // Typing mutates only the textarea's value→name (the real leak); the SET of
+    // targets is structurally unchanged.
+    if (kind === "type") d.current = composer("hello Sage");
+  });
+  const { client } = scriptedClient([
+    {
+      status: "continue",
+      beat: beat("click the box, type my question, and hit Send in one go"),
+      actions: [
+        { type: "click", target: { kind: "index", value: 0 } },
+        { type: "type", text: "hello Sage" },
+        { type: "click", target: { kind: "name", value: "Send" } },
+      ],
+    },
+    { status: "gave-up", beat: beat("stop here for the test"), actions: [] },
+  ]);
+  const result = await runSimulationLoop({ driver, client, personaContext: persona });
+  assert.deepEqual(driver.actionsLog, ["click", "type", "click"], "the whole ask (type + Send) lands in ONE decision");
+  assert.equal(result.decisions, 2, "no extra decision spent re-sending");
+});
+
 test("loop: unknown target is an invalid action with feedback, not a crash", async () => {
   const driver = new FakeDriver(screen("desktop", ["Mail"]));
   const { client, prompts } = scriptedClient([

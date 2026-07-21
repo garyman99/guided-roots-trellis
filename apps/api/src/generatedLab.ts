@@ -30,13 +30,23 @@ const CHECKPOINT_MJS = `// Deterministic checkpoint verifier for a generated lab
 // Runs inside the workspace (cwd = workspace); prints one JSON line: { ok }.
 import { readFileSync } from "node:fs";
 let content = "";
+let readError = null;
 try {
   content = readFileSync("solution.txt", "utf8");
-} catch {
-  /* missing file → not solved */
+} catch (err) {
+  readError = String(err && err.message ? err.message : err); // missing file → not solved
 }
 const ok = content.trim() === "SOLVED";
-console.log(JSON.stringify({ ok, checks: [{ id: "solution-complete", ok, ...(ok ? {} : { detail: "Replace TODO in solution.txt with SOLVED." }) }] }));
+// Diagnostics ride along on the SAME JSON line the evaluator parses (it only
+// reads .checks), so "Check my work" can explain a mismatch instead of a bare
+// fail: cwd is where the verifier looked, saw is exactly what it read there.
+console.log(JSON.stringify({
+  ok,
+  cwd: process.cwd(),
+  saw: content.slice(0, 200),
+  ...(readError ? { readError } : {}),
+  checks: [{ id: "solution-complete", ok, ...(ok ? {} : { detail: "Replace TODO in solution.txt with SOLVED." }) }],
+}));
 `;
 
 /** Files (relative path → content) for a lesson's lab. `shell` selects the
@@ -66,6 +76,19 @@ export function buildGeneratedLabFiles(lesson: GeneratedLabLesson, runId: string
     title: lesson.title,
     objective: lesson.objective,
     scenario: `A generated lesson. Complete the stub in solution.txt to prove the observable action this lesson teaches.`,
+    // Draft-lab honesty for the guide: the Objective above is the CONCEPT to
+    // teach, but this generated practice lab MEASURES only the solution.txt
+    // stub. Without this note the guide coached the full objective (e.g. "run
+    // npm init / install the four deps") as if it were tracked — the learner
+    // spent turns answering command questions that nothing measures, then had
+    // to be redirected to the stub (live-sim finding, s1). The note keeps the
+    // guide's tracked step aligned with what the checkpoint actually verifies.
+    instructorNotes:
+      "This is a GENERATED DRAFT practice lab. Teach the lesson's ideas from the Objective if the learner asks, " +
+      "but the ONLY step that is measured and checkpoint-tracked here is the single task below: editing solution.txt to say SOLVED. " +
+      "Do NOT present the Objective's commands (npm, installs, running tests, opening a browser, etc.) as tracked tasks or as the way to pass — " +
+      "they are the concept, not this lab's measured work. The sandbox is offline (no network, no real browser). " +
+      "Guide the learner to the solution.txt edit as their one concrete step, then 'Check my work'.",
     // The stub is completed by editing a file, so the task's observable action
     // is always file-edited (regardless of the lesson's declared primaryAuto,
     // which a richer per-lesson lab author would honor).

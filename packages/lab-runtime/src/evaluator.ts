@@ -117,11 +117,28 @@ export async function evaluateCheckpoint(
           // 90s cap: browser-based verifiers (e.g. Playwright labs) launch a real
           // headless browser inside the lab env. Node-only verifiers finish in <2s.
           const res = await handle!.exec(["node", paths.verifyScript], { timeoutMs: 90_000 });
+          const lastLine = res.stdout.trim().split("\n").pop() ?? "";
+          let parsed: { checks?: unknown } | null = null;
           try {
-            verifyChecks = JSON.parse(res.stdout.trim().split("\n").pop() ?? "").checks ?? null;
+            parsed = JSON.parse(lastLine);
+            verifyChecks = (parsed as { checks?: typeof verifyChecks }).checks ?? null;
           } catch {
             verifyChecks = null;
           }
+          // Diagnostic: a "Check my work" that won't recognize a saved edit is
+          // almost always the verifier exiting non-zero, printing non-JSON, or
+          // reading a different file than the editor wrote. Log the raw result
+          // (exit + full stdout/stderr, plus the verifier's own cwd/saw
+          // diagnostics if present) so the next live run pinpoints which.
+          const d = (parsed ?? {}) as { cwd?: string; saw?: string; readError?: string };
+          console.error(
+            `[checkpoint-verify] script=${paths.verifyScript} exit=${res.exitCode}` +
+              ` cwd=${d.cwd ?? "?"} saw=${JSON.stringify(d.saw ?? "")}` +
+              (d.readError ? ` readError=${d.readError}` : "") +
+              (verifyChecks === null ? ` PARSE-FAILED` : ` checks=${JSON.stringify(verifyChecks)}`) +
+              `\n[checkpoint-verify] stdout: ${res.stdout.trim()}` +
+              (res.stderr.trim() ? `\n[checkpoint-verify] stderr: ${res.stderr.trim()}` : ""),
+          );
         }
         const check = verifyChecks?.find((c) => c.id === req.id);
         results.push({

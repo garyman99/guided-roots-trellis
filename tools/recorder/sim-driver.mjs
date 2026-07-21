@@ -134,7 +134,7 @@ async function snapshot() {
         r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth
       );
     };
-    const sel = 'button, a, input:not([type=hidden]), textarea, select, [role=button], [contenteditable=true], li[class*=icon], .desk-icon, .task-btn, .chip';
+    const sel = 'button, a, input:not([type=hidden]), textarea, select, [role=button], [role=textbox], [contenteditable=true], li[class*=icon], .desk-icon, .task-btn, .chip';
     const seen = new Set();
     const targets = [];
     // Occlusion hit-test: a target is only clickable if IT (or its own

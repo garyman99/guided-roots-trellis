@@ -790,6 +790,8 @@ export class Session {
         tasks: taskStatuses(this.manifest.tasks, state),
         instructorNotes: this.manifest.instructorNotes,
         surface: this.manifest.workspace ? "workspace" : "terminal",
+        // The real terminal for this lab, so ENVIRONMENT FACTS match the sandbox.
+        shell: this.manifest.shell,
         // Diff-first coaching only fits labs built around an agent's change.
         agentReview: Boolean(this.manifest.agentMessage),
         faq: this.manifest.chat?.faq,
