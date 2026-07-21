@@ -296,8 +296,11 @@ export interface LessonPlanDoc {
   lessonId: string;
   markdown: string;
   /** The lab spec this lesson materializes into. `kind` selects a real lab
-   *  builder (e.g. "git-commit"); absent → the generic "complete the stub" lab. */
-  lab: { objective: string; primaryAuto: string; kind?: string };
+   *  builder (e.g. "git-commit", "node-deps"); absent → the generic "complete
+   *  the stub" lab. `expectedPackages` carries the structured data a real lab
+   *  needs when prose alone isn't machine-checkable (e.g. node-deps: exactly
+   *  which packages package.json must declare). */
+  lab: { objective: string; primaryAuto: string; kind?: string; expectedPackages?: string[] };
 }
 
 export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlanDoc {
@@ -308,6 +311,14 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
   const lab = (d.lab ?? {}) as Record<string, unknown>;
   if (typeof lab.objective !== "string" || !(lab.objective as string).trim()) e.push("lesson plan lab.objective is required");
   if (typeof lab.primaryAuto !== "string" || !(lab.primaryAuto as string).trim()) e.push("lesson plan lab.primaryAuto is required");
+  // A node-deps lab is only well-formed with the concrete packages to verify —
+  // its verifier asserts exactly these are declared, so prose can't stand in.
+  if (lab.kind === "node-deps") {
+    const pkgs = lab.expectedPackages;
+    if (!Array.isArray(pkgs) || pkgs.length === 0 || !pkgs.every((p) => typeof p === "string" && p.trim())) {
+      e.push('lesson plan lab.kind "node-deps" requires a non-empty expectedPackages string[]');
+    }
+  }
   if (e.length) throw new ValidationError(e);
   return doc as LessonPlanDoc;
 }

@@ -72,6 +72,7 @@ import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessi
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
 import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab } from "./generatedLab.ts";
 import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
+import { buildNodeLabFiles, isNodeLabKind } from "./nodeLabs.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
 import {
   CourseRunScheduler,
@@ -353,7 +354,9 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
     const files = isGitLabKind(lesson.lab.kind)
       ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, labShell)
-      : buildGeneratedLabFiles(labLesson, run.runId, labShell);
+      : isNodeLabKind(lesson.lab.kind)
+        ? buildNodeLabFiles(lesson.lab.kind, labLesson, lesson.lab.expectedPackages ?? [], run.runId, labShell)
+        : buildGeneratedLabFiles(labLesson, run.runId, labShell);
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {
@@ -432,7 +435,7 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
 async function materializeRevision(
   run: CourseRun,
   revision: NonNullable<CourseRun["request"]["revision"]>,
-  lessons: Array<{ lessonId: string; level: string; title: string; lab: { objective: string; kind?: string; primaryAuto?: string } }>,
+  lessons: Array<{ lessonId: string; level: string; title: string; lab: { objective: string; kind?: string; primaryAuto?: string; expectedPackages?: string[] } }>,
 ): Promise<{ courseId: string; labIds: string[]; scenarioCount: number; autoSolve: Array<{ labId: string; ok: boolean; detail?: string }> }> {
   const course = store.getCourse(revision.courseId);
   if (!course) throw new Error(`revision target course not found: ${revision.courseId}`);
@@ -452,7 +455,9 @@ async function materializeRevision(
   const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
   const files = isGitLabKind(lesson.lab.kind)
     ? buildGitLabFiles(lesson.lab.kind, labLesson, run.runId, revShell)
-    : buildGeneratedLabFiles(labLesson, run.runId, revShell);
+    : isNodeLabKind(lesson.lab.kind)
+      ? buildNodeLabFiles(lesson.lab.kind, labLesson, lesson.lab.expectedPackages ?? [], run.runId, revShell)
+      : buildGeneratedLabFiles(labLesson, run.runId, revShell);
   const labDir = writeGeneratedLab(publishedDir(), labId, files);
 
   const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];

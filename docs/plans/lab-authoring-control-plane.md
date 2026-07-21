@@ -123,9 +123,15 @@ browser Environments.
   offline on the local driver, and the gate rejects an under-declaring solution.
   This validates L1/L2/L3/L7 with no model authoring, browser, or Docker. *Still
   in P0:* make initial generation itself per-lesson (the L8 incremental spine).
-- **P1 — Fail-closed gate.** Materialize validates against the registry and the
-  Lab contract; auto-solve failure → bounded re-author → block. Retire the stub
-  as the default (keep it as a named intro template).
+- **P1 — Fail-closed gate + real lab kinds through the `lab.kind` seam.**
+  🟡 *Started:* the `node-deps` real lab kind landed (`apps/api/src/nodeLabs.ts`,
+  wired into `materialize`/`materializeRevision` alongside the git kinds), with a
+  structured `lab.expectedPackages` on the lesson-plan schema so the setup lesson
+  materializes a REAL, auto-solving lab instead of the stub. Materialize already
+  auto-solves per lesson and is fail-closed at ship-level (an unprovable lab is
+  not shipped). *Remaining:* have the author declare these kinds (mock + prompt),
+  turn the ship-level skip into an explicit needs-revision + bounded re-author,
+  and retire the stub as the default (keep it as a named intro template).
 - **P2 — `EnvSpec` + course image + real Environment.** Build/cache an image per
   `EnvSpec`; run auto-solve + labs against it under `--network none`. Bake
   `node-selenium-fixtures` (chromium + chromedriver + offline npm cache +
