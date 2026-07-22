@@ -1087,6 +1087,15 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
   const [run, setRun] = useState<CourseRunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Full throttle: rubber-stamp every gate as it arrives (per-run, persisted so a
+  // page refresh keeps it on). Manual-gate runs only — autopilot already decides.
+  const [fullThrottle, setFullThrottle] = useState(() => {
+    try { return localStorage.getItem(`cg.fullThrottle.${runId}`) === "1"; } catch { return false; }
+  });
+  const toggleThrottle = (on: boolean) => {
+    setFullThrottle(on);
+    try { localStorage.setItem(`cg.fullThrottle.${runId}`, on ? "1" : "0"); } catch { /* private mode */ }
+  };
 
   const load = useCallback(() => {
     courseRunApi.get(runId).then(setRun).catch((e) => setError(String((e as Error).message)));
@@ -1165,13 +1174,20 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
         </div>
       )}
 
+      {run.gateMode !== "auto" && !["approved", "archived", "failed", "rejected"].includes(run.status) && (
+        <label className="cg-throttle" title="Auto-approve every gate the moment it arrives — no clicking through each one. Blueprint capability-gaps are deferred so it keeps moving.">
+          <input type="checkbox" checked={fullThrottle} onChange={(e) => toggleThrottle(e.target.checked)} />
+          <span>⚡ Full throttle — auto-approve every gate{fullThrottle ? " (on)" : ""}</span>
+        </label>
+      )}
+
       <PhaseRail run={run} />
       <GateVerdicts run={run} />
       <LivePanel run={run} />
       <AgentChat run={run} />
       <RunEconomics events={run.events} />
 
-      {gate && <GateBar run={run} gate={gate} onDecided={setRun} />}
+      {gate && <GateBar run={run} gate={gate} onDecided={setRun} fullThrottle={fullThrottle} />}
       {run.status === "approved" && <GoLive run={run} onCoursesChanged={onCoursesChanged} />}
 
       <LessonBoard run={run} />
@@ -1381,7 +1397,7 @@ function RunEconomics({ events }: { events: CourseRunDetail["events"] }) {
 
 /* ---------- gate decision bar ---------- */
 
-function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId; onDecided: (r: CourseRunDetail) => void }) {
+function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail; gate: GateId; onDecided: (r: CourseRunDetail) => void; fullThrottle?: boolean }) {
   const [mode, setMode] = useState<"idle" | "changes">("idle");
   const [notes, setNotes] = useState<GateNote[]>([{ comment: "" }]);
   const [busy, setBusy] = useState(false);
@@ -1418,9 +1434,33 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
     setBusy(true); setError(null);
     const gapDecisions: GapDecision[] = Object.entries(dispositions).map(([capabilityId, disposition]) => ({ capabilityId, disposition }));
     courseRunApi.decide(run.runId, gate, decision, n, by, gate === "blueprint" ? gapDecisions : undefined)
-      .then((r) => { setBusy(false); setMode("idle"); onDecided(r); })
+      // Keep `busy` true on success: the run leaves this gate and the bar
+      // unmounts, so the button must never re-enable (it re-enabling before the
+      // status visibly moved is what let a fast operator double-submit).
+      .then((r) => { setMode("idle"); onDecided(r); })
       .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
   };
+
+  // Full throttle: auto-approve this gate as soon as it appears. For the
+  // blueprint gate we first defer any undecided capability gaps so the approve
+  // isn't rejected — full throttle means "keep going, don't ask me".
+  const autoFired = useRef(false);
+  const needGaps = gate === "blueprint" && run.artifacts.includes("capability-gaps.json");
+  useEffect(() => {
+    if (!fullThrottle || busy || mode !== "idle" || autoFired.current) return;
+    if (needGaps && gaps === null) return; // wait for the gap report to load
+    if (undecidedGaps.length > 0) {
+      setDispositions((d) => {
+        const next = { ...d };
+        for (const g of undecidedGaps) next[g.capabilityId] = "defer";
+        return next;
+      });
+      return; // undecidedGaps → 0 next render; the effect then approves
+    }
+    autoFired.current = true;
+    submit("approved", null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullThrottle, busy, mode, needGaps, gaps, undecidedGaps.length]);
 
   return (
     <div className="gr-card cg-gatebar">
@@ -1478,9 +1518,10 @@ function GateBar({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId;
         </div>
       ) : (
         <div className="admin-editor-actions">
-          <button className="gr-btn gr-btn-primary" onClick={() => decide("approved")} disabled={busy}>Approve</button>
+          <button className="gr-btn gr-btn-primary" onClick={() => decide("approved")} disabled={busy}>{busy ? "Approving…" : "Approve"}</button>
           <button className="gr-btn gr-btn-ghost" onClick={() => setMode("changes")} disabled={busy}>Request changes</button>
           <button className="gr-btn gr-btn-ghost admin-danger" onClick={() => { if (window.confirm("Reject and archive this run?")) decide("rejected"); }} disabled={busy}>Reject</button>
+          {busy && <span className="gr-mono-note">submitting — the next phase is starting…</span>}
           {error && <p className="admin-error">{error}</p>}
         </div>
       )}
@@ -2010,6 +2051,21 @@ interface ChatMsg { at: string; who: string; side: "left" | "right" | "center"; 
  *  summary field and simply have no messages — the panel hides itself. */
 function AgentChat({ run }: { run: CourseRunDetail }) {
   const logRef = useRef<HTMLDivElement | null>(null);
+  // While a phase runs, poll the live activity so the chat shows WHO is working
+  // right now ("… is thinking") instead of looking frozen between summaries.
+  const active = isActive(run.status) || run.status === "queued";
+  const [live, setLive] = useState<LiveActivity | null>(null);
+  useEffect(() => {
+    if (!active) { setLive(null); return; }
+    let stop = false;
+    const tick = () => courseRunApi.live(run.runId).then((l) => { if (!stop) setLive(l); }).catch(() => {});
+    tick();
+    const t = setInterval(tick, 900);
+    return () => { stop = true; clearInterval(t); };
+  }, [run.runId, active]);
+  const workingWho = live?.role ? (CHAT_ROLES[live.role]?.label ?? live.role) : null;
+  const workingModel = run.model ?? (run.provider === "anthropic" ? "Claude" : run.provider ?? "the model");
+
   const msgs: ChatMsg[] = [];
   for (const e of run.events) {
     if (e.type === "agent.message") {
@@ -2027,8 +2083,10 @@ function AgentChat({ run }: { run: CourseRunDetail }) {
   // Keep the newest exchange in view as messages stream in.
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [msgs.length]);
-  if (msgs.length === 0) return null;
+  }, [msgs.length, active]);
+  // Show the panel whenever there's history OR a phase is actively running (so
+  // the "thinking" line appears even before the first summary lands).
+  if (msgs.length === 0 && !active) return null;
 
   return (
     <div className="gr-card">
@@ -2046,6 +2104,17 @@ function AgentChat({ run }: { run: CourseRunDetail }) {
             </div>
           </div>
         ))}
+        {active && (
+          <div className="cg-chat-row left">
+            <div className="cg-chat-bubble producer cg-chat-thinking">
+              <span className="cg-chat-who">
+                {workingWho ?? "Working"}
+                {live?.task && <code className="cg-chat-task">{live.task}</code>}
+              </span>
+              <p><em>{workingModel} is thinking</em> <span className="cg-live-dot" aria-hidden="true" /></p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

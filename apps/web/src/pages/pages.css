@@ -631,6 +631,12 @@
 .cg-live-think, .cg-live-out { margin: 0 0 10px; max-height: 240px; overflow: auto; background: rgba(0,0,0,0.25); padding: 10px; border-radius: 6px; font-size: 0.76rem; white-space: pre-wrap; word-break: break-word; }
 .cg-live-think { color: var(--gr-dim, #9fb4a6); font-style: italic; }
 
+/* Full-throttle toggle + the "…is thinking" chat row */
+.cg-throttle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(107,165,95,0.4); border-radius: 8px; background: rgba(107,165,95,0.08); cursor: pointer; font-size: 0.85rem; user-select: none; }
+.cg-throttle input { accent-color: #6ba55f; cursor: pointer; }
+.cg-chat-thinking { opacity: 0.9; border-style: dashed !important; }
+.cg-chat-thinking em { color: var(--gr-dim, #9fb4a6); }
+
 /* ===== Courses: full-width blocks with lessons grouped by level ===== */
 .course-stack { display: flex; flex-direction: column; gap: clamp(18px, 3vw, 28px); }
 .course-wide { padding: clamp(18px, 2.4vw, 28px); }
