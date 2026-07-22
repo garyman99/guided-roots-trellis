@@ -97,6 +97,8 @@ import {
   experienceReportInstruction,
   invokeValidatedJson,
   validateExperienceReport,
+  routeExperienceFindings,
+  type ExperienceFinding,
   renderExperienceReportMd,
   REVISABLE_AREAS,
   PERSONA_INTERVIEWER_SYSTEM,
@@ -976,12 +978,73 @@ const simLessonDuringAuthoring: LessonSimulator = async ({ run, lessonId, lab, t
       apiUrl: process.env.TRELLIS_API_URL ?? "http://127.0.0.1:8787",
     });
     const budget = process.env.SIM_TEST_FRICTION_BUDGET ? Number(process.env.SIM_TEST_FRICTION_BUDGET) : undefined;
-    return simVerdict(result, { frictionBudget: budget });
+    const verdict = simVerdict(result, { frictionBudget: budget });
+
+    // Classify the trace and route findings (best-effort): content/lab-design →
+    // re-author blockers; guide-behavior/platform → the dev outbox. A lesson
+    // revision can't fix a broken terminal or a guide bug, so those never block.
+    let findingBlockers: string[] = [];
+    if (result.sessionId) {
+      try {
+        const findings = await classifySimTrace(result.sessionId, lessonId, run.request.providerConfig);
+        const routed = routeExperienceFindings(findings);
+        findingBlockers = routed.blockers;
+        if (routed.outbox.length) writeSimGateOutbox(run.runId, lessonId, routed.outbox);
+      } catch { /* classification is advisory — never let it break the gate */ }
+    }
+
+    if (!verdict.ok) return { ...verdict, blockers: [...(verdict.blockers ?? []), ...findingBlockers] };
+    if (findingBlockers.length) return { ok: false, detail: "the simulated run surfaced content/lab-design issues", blockers: findingBlockers };
+    return { ok: true };
   } catch (err) {
     // A sim hiccup must never strand authoring — degrade to a skip.
     return { ok: true, detail: `experience gate skipped: ${(err as Error).message}` };
   }
 };
+
+/** Run the experience analyst on ONE simulated session → classified findings.
+ *  Model-dependent; the caller wraps it best-effort. */
+async function classifySimTrace(sessionId: string, labId: string, cfg: RunProviderConfig | undefined): Promise<ExperienceFinding[]> {
+  const transcript = sessionTranscript(store, sessionId, 12_000);
+  if (!transcript) return [];
+  let content = "";
+  try {
+    content = readFileSync(join(manager.labDir(labId), "lab.json"), "utf8").slice(0, 4000);
+  } catch { /* lab dir may be transient */ }
+  const family = familyOf(labId);
+  const version = versionOf(labId);
+  const report = await invokeValidatedJson(
+    invokerForProvider(cfg),
+    "experience-analyst",
+    {
+      system: EXPERIENCE_ANALYST_SYSTEM,
+      task: `experience:${family}`,
+      context: { family, version, sessions: 1 },
+      user: [
+        `Analyze ONE simulated learner's run of lesson "${family}" (a PRE-PUBLISH shift-left check — one session, not a population).`,
+        ``, `## The lesson as authored`, content || "(unavailable)",
+        ``, `## The simulated session transcript`, transcript,
+        ``, experienceReportInstruction(family, version),
+      ].join("\n"),
+    },
+    validateExperienceReport,
+    { maxAttempts: 2 },
+  );
+  return report.findings;
+}
+
+/** Park guide/platform findings from the shift-left gate in the dev outbox — a
+ *  lesson revision can't fix them, so they route to code, not to re-authoring. */
+function writeSimGateOutbox(runId: string, labId: string, findings: ExperienceFinding[]): void {
+  try {
+    const dir = join(lessonImprovementsDir(), familyOf(labId));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `sim-gate-${labId}.json`),
+      JSON.stringify({ runId, labId, source: "shift-left-sim-gate", findings }, null, 2),
+    );
+  } catch { /* outbox is best-effort */ }
+}
 
 // The scheduler persists run STATE through a disk-mirroring store, so run.json
 // stays current next to the content — the durable record the recovery above reads.

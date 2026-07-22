@@ -35,6 +35,28 @@ export interface ExperienceFinding {
   evidence: string;
 }
 
+/**
+ * Split classified experience findings for the shift-left gate (plan L9): the
+ * REVISABLE areas (content/lab-design) become re-author BLOCKERS, so the lesson
+ * is fixed in place; the rest (guide-behavior/platform) route to the dev OUTBOX —
+ * a lesson revision can't fix a broken terminal or a guide-prompt bug. Pure so
+ * the routing is unit-testable without a model. `low`-severity revisable
+ * findings are advisory (outbox), not blockers — a nit shouldn't force a
+ * re-author of an otherwise-completable lesson.
+ */
+export function routeExperienceFindings(findings: ExperienceFinding[]): { blockers: string[]; outbox: ExperienceFinding[] } {
+  const blockers: string[] = [];
+  const outbox: ExperienceFinding[] = [];
+  for (const f of findings) {
+    if (REVISABLE_AREAS.includes(f.area) && f.severity !== "low") {
+      blockers.push(`${f.area} (${f.severity}): ${f.description}`);
+    } else {
+      outbox.push(f);
+    }
+  }
+  return { blockers, outbox };
+}
+
 export interface ExperienceRecommendation {
   /** Index into findings[] this recommendation addresses. */
   findingIndex: number;

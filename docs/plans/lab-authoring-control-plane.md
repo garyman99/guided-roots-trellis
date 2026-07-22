@@ -168,10 +168,13 @@ browser Environments.
   wired in the executor, reusing the existing sim runner, **gated off by default**
   (`SIM_TEST_DURING_AUTHORING=1`) and degrading to a skip when the model/app/
   persona is unavailable — so default runs are unchanged; the live browser+model
-  run is proven in a full env. *Remaining:* classify the trace with the
-  improvement-loop analyst to route `guide-behavior`/`platform` findings to the
-  outbox (today the gate uses completion + friction), and operator reopen of an
-  earlier lesson.
+  run is proven in a full env. ✅ *Trace classification wired:* after the sim, the
+  improvement-loop analyst classifies the trace and `routeExperienceFindings`
+  (pure, unit-tested) splits it — `content`/`lab-design` (high|medium) become
+  re-author blockers, `guide-behavior`/`platform` route to the dev outbox (a
+  lesson revision can't fix a broken terminal). Best-effort + gated with the sim.
+  *Remaining:* operator reopen of an earlier lesson from a later cohesion finding
+  (L8 tail).
 - **P4 — Lab-authoring by the model.** 🟡 *Path landed:* the lesson-author may
   emit the FULL artifact set as `lab.files` (lab.json + template/… +
   verify/checkpoint.mjs + blueprint.json — the same contract a human authors, L1).
