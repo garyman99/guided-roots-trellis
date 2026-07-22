@@ -120,13 +120,14 @@ import {
   type LiveActivity,
   type Materializer,
   type LessonProver,
+  type LessonSimulator,
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
 import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
 import { createPersona, deletePersona, listPersonas, readInterview, readPersona, savePersona, writeInterview } from "./personaLibrary.ts";
 import { appendReplayEvents, deleteReplay, replayFileFor, rrwebEnabled } from "./replayStore.ts";
-import { SimTestManager, spawnSimTestRunner, type SimLessonResult, type SimTestJob } from "./courseSimTest.ts";
+import { SimTestManager, spawnSimTestRunner, simVerdict, type SimLessonResult, type SimTestJob, type SimTestRunner } from "./courseSimTest.ts";
 import { recoverCourseRunsFromDisk } from "./courseRunRecovery.ts";
 import { createAutoGateArbiter } from "./autoGateArbiter.ts";
 import { lessonExperience, sessionExperience, sessionTranscript, sampleForAnalysis } from "./lessonExperience.ts";
@@ -674,10 +675,13 @@ const fakeSimTestRunner = async (job: SimTestJob): Promise<SimLessonResult> => (
   model: "fake/sim-test",
 });
 
-const simTests = new SimTestManager({
-  runner: (job) => (process.env.TRELLIS_SIM_TEST_FAKE === "1" ? fakeSimTestRunner(job) : spawnSimTestRunner(repoRoot)(job)),
-  onResult: persistSimResult,
-});
+// One runner, shared by the post-publish sim-test queue and the shift-left
+// per-lesson experience gate: the fake stand-in under TRELLIS_SIM_TEST_FAKE,
+// else the real child-process (Playwright + model) runner.
+const simRunner: SimTestRunner = (job) =>
+  process.env.TRELLIS_SIM_TEST_FAKE === "1" ? fakeSimTestRunner(job) : spawnSimTestRunner(repoRoot)(job);
+
+const simTests = new SimTestManager({ runner: simRunner, onResult: persistSimResult });
 
 /** Job states for a run: durable disk results overlaid by live in-memory state. */
 function simTestStatus(runId: string): Array<{ labId: string; state: string; result?: SimLessonResult }> {
@@ -899,6 +903,45 @@ if (courseRunRecovery.recovered.length) {
   console.log(`[trellis-api] recovered ${courseRunRecovery.recovered.length} course run(s) from disk${extra}`);
 }
 
+/**
+ * The shift-left EXPERIENCE gate impl (plan L9). OFF by default — set
+ * SIM_TEST_DURING_AUTHORING=1 to enable. It needs a live model + a reachable app
+ * (TRELLIS_WEB_URL/API_URL) + the run's persona; when the flag is off, the
+ * persona is missing, or the sim errors, it SKIPS (returns ok) so authoring is
+ * never blocked by an unavailable simulator. The live browser+model run is
+ * proven in a full env; the gate DECISION (simVerdict) and the executor wiring
+ * are unit-tested.
+ */
+const simLessonDuringAuthoring: LessonSimulator = async ({ run, lessonId, lab, title, concepts }) => {
+  if (process.env.SIM_TEST_DURING_AUTHORING !== "1") return { ok: true };
+  const persona = run.request.persona;
+  if (!persona) return { ok: true, detail: "no persona embedded — experience gate skipped" };
+  try {
+    // Publish the lab so the running app can serve it to the simulated learner.
+    const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
+    const files = buildLabFilesFor(lab, { lessonId, title, objective: lab.objective }, run.runId, labShell, run.request.environmentImage);
+    writeGeneratedLab(publishedDir(), lessonId, files);
+
+    const arts = runArtifactsFor(run.runId);
+    if (!arts.read("persona.json")) arts.write("persona.json", JSON.stringify(persona, null, 2));
+    const result = await simRunner({
+      runId: run.runId,
+      labId: lessonId,
+      title,
+      blurb: lab.objective,
+      concepts,
+      personaPath: join(runsDir(), run.runId, "persona.json"),
+      webUrl: process.env.TRELLIS_WEB_URL ?? "http://localhost:5173",
+      apiUrl: process.env.TRELLIS_API_URL ?? "http://127.0.0.1:8787",
+    });
+    const budget = process.env.SIM_TEST_FRICTION_BUDGET ? Number(process.env.SIM_TEST_FRICTION_BUDGET) : undefined;
+    return simVerdict(result, { frictionBudget: budget });
+  } catch (err) {
+    // A sim hiccup must never strand authoring — degrade to a skip.
+    return { ok: true, detail: `experience gate skipped: ${(err as Error).message}` };
+  }
+};
+
 // The scheduler persists run STATE through a disk-mirroring store, so run.json
 // stays current next to the content — the durable record the recovery above reads.
 const mirroredRunStore = new DiskMirroredCourseRunStore(store, (runId) => join(runsDir(), runId));
@@ -911,6 +954,7 @@ export const courseRuns = new CourseRunScheduler(
     availableCapabilities: capabilityIdSet(),
     materialize,
     proveLesson, // shift-left: prove each lesson's lab during authoring (plan L8)
+    simLesson: simLessonDuringAuthoring, // shift-left experience gate (plan L9)
     onActivity: (runId, activity) => {
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);

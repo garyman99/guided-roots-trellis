@@ -86,6 +86,21 @@ export type LessonProver = (input: {
   lab: LessonPlanDoc["lab"];
 }) => Promise<{ ok: boolean; detail?: string }>;
 
+/** Runs a simulated learner on ONE finalized lesson's lab (the shift-left
+ *  EXPERIENCE gate, plan L9), classifies the trace, and returns whether it's
+ *  usable. `ok:false` blocks the lesson; `blockers` are the content/lab-design
+ *  findings (+ can't-complete / over-friction) fed to the re-author. Injected
+ *  and OPTIONAL — when absent, or when the sim can't run (no live model / app),
+ *  the gate is skipped and authoring proceeds. */
+export type LessonSimulator = (input: {
+  run: CourseRun;
+  lessonId: string;
+  lab: LessonPlanDoc["lab"];
+  title: string;
+  /** Concepts EARLIER lessons introduced — the persona's cumulative memory. */
+  concepts: string[];
+}) => Promise<{ ok: boolean; detail?: string; blockers?: string[] }>;
+
 export interface ExecutorDeps {
   /** Resolve the model provider for a run — selected per-run (mock/live). */
   rolesFor: (run: CourseRun) => RoleInvoker;
@@ -101,6 +116,13 @@ export interface ExecutorDeps {
    * skipped and authoring behaves as before.
    */
   proveLesson?: LessonProver;
+  /**
+   * Shift-left EXPERIENCE gate (plan L9): after a lesson proves, run a simulated
+   * learner on its lab and classify the trace, so friction is caught DURING
+   * authoring and drives a re-author. Optional — absent, or a sim that can't run
+   * (no live model/app), skips the gate.
+   */
+  simLesson?: LessonSimulator;
   /** Real-time view: the current model call's streaming thinking/text (or null
    *  to clear). Held in memory by the host and polled by the UI. */
   onActivity?: (runId: string, activity: LiveActivity | null) => void;
@@ -779,6 +801,28 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
             blockers: [
               ...outcome.blockers,
               `The lab did not prove (auto-solve): ${proof.detail ?? "broken-as-shipped or solvable check failed"}. Fix the lab so its verifier fails on the shipped template and passes after a correct solution.`,
+            ],
+          };
+        }
+      }
+      // Shift-left EXPERIENCE gate: a proven lesson is played by a simulated
+      // learner; a persona that can't complete, blows the friction budget, or
+      // surfaces content/lab-design findings blocks the lesson and feeds the
+      // SAME re-author loop. Skipped when no simulator is wired or it can't run.
+      if (outcome.passed && deps.simLesson) {
+        const earlierConcepts = [
+          ...new Set(inventory.slice(0, inventory.indexOf(lesson)).flatMap((l) => l.conceptsIntroduced ?? [])),
+        ];
+        const sim = await deps.simLesson({ run: ctx.run, lessonId: lesson.lessonId, lab: plan.lab, title: lesson.title, concepts: earlierConcepts });
+        ctx.emit("lesson.simulated", { lessonId: lesson.lessonId, attempt, ok: sim.ok, ...(sim.detail ? { detail: sim.detail } : {}) });
+        if (!sim.ok) {
+          outcome = {
+            ...outcome,
+            passed: false,
+            blockers: [
+              ...outcome.blockers,
+              `A simulated learner could not complete this lesson comfortably: ${sim.detail ?? "friction over budget"}.`,
+              ...(sim.blockers ?? []),
             ],
           };
         }

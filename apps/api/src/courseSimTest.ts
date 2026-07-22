@@ -48,6 +48,34 @@ export interface SimLessonResult {
 
 export type SimTestRunner = (job: SimTestJob) => Promise<SimLessonResult>;
 
+/**
+ * The shift-left EXPERIENCE-gate verdict for one lesson's sim run (plan L9):
+ * usable only if the persona COMPLETED it AND friction stayed within budget.
+ * Pure so the gate's decision is unit-testable without a browser or model.
+ * `frictionBudget` is the max acceptable friction score (higher = more
+ * friction); undefined disables the friction check.
+ */
+export function simVerdict(
+  result: SimLessonResult,
+  opts: { frictionBudget?: number } = {},
+): { ok: boolean; detail?: string; blockers?: string[] } {
+  if (result.status !== "completed") {
+    return { ok: false, detail: `the persona did not finish (${result.status}${result.reason ? `: ${result.reason}` : ""})` };
+  }
+  if (result.checkpointPassed === false) {
+    return { ok: false, detail: "the persona reached the end but the checkpoint did not pass" };
+  }
+  const friction = result.frictionScore;
+  if (opts.frictionBudget !== undefined && typeof friction === "number" && friction > opts.frictionBudget) {
+    return {
+      ok: false,
+      detail: `friction score ${friction} exceeded the budget of ${opts.frictionBudget}` +
+        (result.clarifyingQuestions ? ` (${result.clarifyingQuestions} clarifying questions)` : ""),
+    };
+  }
+  return { ok: true };
+}
+
 export interface SimTestRecord {
   labId: string;
   state: "queued" | "running" | "done";

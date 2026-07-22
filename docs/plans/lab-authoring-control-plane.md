@@ -159,10 +159,19 @@ browser Environments.
   course's toolchain → staged verify → broken-as-shipped AND solvable is proven.
   *Remaining:* let a live course DECLARE the image (operator/blueprint) as part of
   a fuller `EnvSpec` (packages/fixtures as data) growing behind the tag.
-- **P3 — Sim-test as the per-lesson experience gate.** Run the sim after
-  auto-solve; classify with the improvement-loop analyst; wire `content`/
-  `lab-design` into the bounded re-author, `guide-behavior`/`platform` to the
-  outbox; friction-budget block; operator reopen of earlier lessons.
+- **P3 — Sim-test as the per-lesson experience gate.** 🟡 *Gate landed:* after
+  the prove gate, a `simLesson` runs a simulated learner on the lesson's lab; a
+  persona that can't complete, fails the checkpoint, or blows the friction budget
+  flips the lesson to needs-revision with the finding fed to the SAME re-author
+  loop (executor gate + `simVerdict` decision are unit-tested; a mock-sim test
+  blocks an uncompletable lesson while completable ones ship). The live impl is
+  wired in the executor, reusing the existing sim runner, **gated off by default**
+  (`SIM_TEST_DURING_AUTHORING=1`) and degrading to a skip when the model/app/
+  persona is unavailable — so default runs are unchanged; the live browser+model
+  run is proven in a full env. *Remaining:* classify the trace with the
+  improvement-loop analyst to route `guide-behavior`/`platform` findings to the
+  outbox (today the gate uses completion + friction), and operator reopen of an
+  earlier lesson.
 - **P4 — Lab-authoring by the model.** The author emits the real Lab artifact
   set as structured output; derive guide `ENVIRONMENT FACTS` from `EnvSpec`.
 - **P5 — Regenerate Selenium** through the full path; capability-block any lesson
