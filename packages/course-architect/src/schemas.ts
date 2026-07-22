@@ -381,10 +381,97 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
       for (const required of ["lab.json", "blueprint.json", "verify/checkpoint.mjs"]) {
         if (!(required in files)) e.push(`lesson plan lab.files is missing required "${required}"`);
       }
+      validateAuthoredLabShape(files as Record<string, string>, e);
     }
   }
   if (e.length) throw new ValidationError(e);
   return doc as LessonPlanDoc;
+}
+
+/**
+ * Validate the SHAPE of a model-authored lab, not merely that the files exist
+ * (2026-07-22 field finding). A live author shipped a `blueprint.json` of
+ * `{ solutionFiles, notes }` — a plausible invention, but not the contract — and
+ * `loadBlueprint`'s `Object.entries(bp.tiers)` threw on `undefined`, taking a
+ * 19-lesson run down on lesson 1. Catching it here turns a dead run into a cheap
+ * model retry carrying the exact error, long before any lab is built.
+ *
+ * This checks structure only; auto-solve still decides whether the lab is
+ * genuinely broken-as-shipped and solvable.
+ */
+function validateAuthoredLabShape(files: Record<string, string>, e: string[]): void {
+  const parse = (path: string): Record<string, unknown> | null => {
+    const raw = files[path];
+    if (typeof raw !== "string") return null;
+    try {
+      const doc = JSON.parse(raw) as unknown;
+      if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+        e.push(`lesson plan lab.files "${path}" must be a JSON object`);
+        return null;
+      }
+      return doc as Record<string, unknown>;
+    } catch (err) {
+      e.push(`lesson plan lab.files "${path}" is not valid JSON: ${(err as Error).message}`);
+      return null;
+    }
+  };
+
+  const manifest = parse("lab.json");
+  if (manifest) {
+    const tasks = manifest.tasks;
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      e.push('lesson plan lab.files "lab.json" must declare a non-empty "tasks" array — the tasks are what the learner is graded on');
+    } else {
+      tasks.forEach((t, i) => {
+        const task = (t ?? {}) as Record<string, unknown>;
+        if (typeof task.id !== "string" || !task.id.trim()) e.push(`lesson plan lab.json tasks[${i}].id is required`);
+        if (typeof task.auto !== "string" || !task.auto.trim()) e.push(`lesson plan lab.json tasks[${i}].auto is required — the observable action that completes the task`);
+      });
+    }
+    const cp = manifest.checkpoint;
+    if (!cp || typeof cp !== "object" || Array.isArray(cp)) {
+      e.push('lesson plan lab.files "lab.json" must declare a "checkpoint" OBJECT { id, title, requirements: [{ id, kind, label }] } — not a string or a path');
+    } else {
+      const reqs = (cp as Record<string, unknown>).requirements;
+      if (!Array.isArray(reqs) || reqs.length === 0) e.push('lesson plan lab.json checkpoint.requirements must be a non-empty array');
+    }
+  }
+
+  const bp = parse("blueprint.json");
+  if (bp) {
+    const defects = bp.defects;
+    const okDefects = !!defects && typeof defects === "object" && !Array.isArray(defects) && Object.keys(defects).length > 0;
+    if (!okDefects) {
+      e.push('lesson plan lab.files "blueprint.json" must declare a non-empty "defects" object: { "<defectId>": { "description": string, "solution": string[] } } — "solution" is the argv the auto-solver runs to fix the shipped defect');
+    } else {
+      for (const [id, spec] of Object.entries(defects as Record<string, unknown>)) {
+        const s = (spec ?? {}) as Record<string, unknown>;
+        if (!Array.isArray(s.solution) || s.solution.length === 0 || !s.solution.every((a) => typeof a === "string")) {
+          e.push(`lesson plan blueprint.json defects.${id}.solution must be a non-empty string[] (argv, e.g. ["node","-e","…"]) that makes the verifier pass`);
+        }
+      }
+    }
+    const tiers = bp.tiers;
+    const okTiers = !!tiers && typeof tiers === "object" && !Array.isArray(tiers) && Object.keys(tiers).length > 0;
+    if (!okTiers) {
+      e.push('lesson plan lab.files "blueprint.json" must declare a non-empty "tiers" object: { "1": { "defect": "<defectId>" } }');
+    } else if (okDefects) {
+      for (const [tier, spec] of Object.entries(tiers as Record<string, unknown>)) {
+        const ref = ((spec ?? {}) as Record<string, unknown>).defect;
+        if (typeof ref !== "string" || !(ref in (defects as Record<string, unknown>))) {
+          e.push(`lesson plan blueprint.json tiers.${tier}.defect ${JSON.stringify(ref)} does not name a defect declared in defects`);
+        }
+      }
+    }
+    if (bp.driver !== undefined && bp.driver !== "local" && bp.driver !== "docker") {
+      e.push('lesson plan blueprint.json "driver" must be "local" or "docker" when present');
+    }
+  }
+
+  // The learner needs a workspace to work in, and a verifier that fails on it.
+  if (!Object.keys(files).some((p) => p.startsWith("template/"))) {
+    e.push('lesson plan lab.files must include at least one "template/…" file — the workspace the learner receives, shipped BROKEN');
+  }
 }
 
 /**

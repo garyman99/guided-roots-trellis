@@ -404,6 +404,15 @@ const proveLesson: LessonProver = async ({ run, lessonId, lab }) => {
     const reports = await autoSolveGeneratedLab(labDir, lessonId);
     const ok = reports.length > 0 && reports.every((r) => r.ok);
     return ok ? { ok } : { ok, detail: reports.map((r) => r.detail).filter(Boolean).join("; ") || "auto-solve failed" };
+  } catch (err) {
+    // A MODEL-AUTHORED lab is untrusted input: a malformed blueprint.json or
+    // lab.json makes the loader/harness throw, and that must fail THIS LESSON
+    // (feeding the re-author loop), never take the phase down. Field finding
+    // 2026-07-22: an authored blueprint with no `tiers` threw out of
+    // loadBlueprint and interrupted a 19-lesson run on lesson 1. Before the
+    // stub deletion every lab shipped a known-good blueprint, so this path was
+    // unreachable; now every lab is authored and this is the expected case.
+    return { ok: false, detail: `the authored lab could not be built or proven: ${(err as Error).message}` };
   } finally {
     try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
   }

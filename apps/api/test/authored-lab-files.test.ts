@@ -79,6 +79,57 @@ test("P1: a lab must be REAL — under-specified is rejected, and so is kind:\"s
   }
 });
 
+test("authored lab SHAPE is validated, not just file presence", () => {
+  // Field finding 2026-07-22: a live author shipped blueprint.json as
+  // { solutionFiles, notes } — plausible, but not the contract — and
+  // loadBlueprint's Object.entries(bp.tiers) threw on undefined, interrupting a
+  // 19-lesson run on lesson 1. Catch the shape here so it's a cheap retry.
+  const base = { lessonId: "authored-1", markdown: "# lesson\n\nx", lab: { objective: "o", primaryAuto: "file-edited" } };
+  const withFiles = (mutate: (f: Record<string, string>) => void) => {
+    const files = authoredFiles();
+    mutate(files);
+    return { ...base, lab: { ...base.lab, files } };
+  };
+
+  // The exact blueprint the live model invented.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { f["blueprint.json"] = JSON.stringify({ solutionFiles: { "a.md": "solution/a.md" }, notes: "copy it over" }); }), "authored-1"),
+    /blueprint\.json" must declare a non-empty "defects"/,
+  );
+  // checkpoint as a STRING (the other defect in that same lab).
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { const m = JSON.parse(f["lab.json"]); m.checkpoint = "verify/checkpoint.mjs"; f["lab.json"] = JSON.stringify(m); }), "authored-1"),
+    /must declare a "checkpoint" OBJECT/,
+  );
+  // A tier pointing at a defect that doesn't exist — what loadBlueprint throws on.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { const b = JSON.parse(f["blueprint.json"]); b.tiers = { "1": { defect: "nope" } }; f["blueprint.json"] = JSON.stringify(b); }), "authored-1"),
+    /does not name a defect declared in defects/,
+  );
+  // solution must be argv, not a path or prose.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { const b = JSON.parse(f["blueprint.json"]); b.defects.draft.solution = "solution/notes.txt"; f["blueprint.json"] = JSON.stringify(b); }), "authored-1"),
+    /solution must be a non-empty string\[\]/,
+  );
+  // No tasks → nothing is graded.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { const m = JSON.parse(f["lab.json"]); m.tasks = []; f["lab.json"] = JSON.stringify(m); }), "authored-1"),
+    /non-empty "tasks" array/,
+  );
+  // No workspace for the learner to work in.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { delete f["template/notes.txt"]; }), "authored-1"),
+    /at least one "template\/…" file/,
+  );
+  // Malformed JSON is reported as such, not as a crash.
+  assert.throws(
+    () => validateLessonPlan(withFiles((f) => { f["blueprint.json"] = "{ not json"; }), "authored-1"),
+    /is not valid JSON/,
+  );
+  // The good set still passes.
+  assert.doesNotThrow(() => validateLessonPlan({ ...base, lab: { ...base.lab, files: authoredFiles() } }, "authored-1"));
+});
+
 test("the honest escape: lab.blockedBy withdraws a lesson that cannot be labbed", () => {
   const base = { lessonId: "x-1", markdown: "# l\n\nx", lab: { objective: "o", primaryAuto: "any-command" } };
   const why = "The bench is a Linux container, so a Windows GUI installer cannot be run or observed here.";
