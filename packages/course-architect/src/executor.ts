@@ -221,6 +221,8 @@ function taskInstruction(task: string): string {
       '5. NO HARDCODED VERSIONS. Never pin a tool version, installer filename, or version-stamped path (e.g. Python313, pip 24.2, VSCodeUserSetup-x64-1.96.exe) — your training data is stale by the time this ships. Use placeholders ("the button reads Download Python 3.x.y — take whatever it offers") and teach the version-INDEPENDENT signal.',
       '6. GLOSS EVERY TERM ON FIRST USE. CONTEXT.persona names who this is for. Any token outside plain English — `variable`, `f"..."`, `#`, `!=`, `.upper()`, `str()`, `lambda`, indentation rules — gets a one-line, concrete definition the first time it appears, and practice must only use syntax already introduced. Never explain with an analogy the persona would not know (e.g. "pip is like npm" to someone who has never coded).',
       '7. ONLY CLAIM CAPABILITIES YOU EXERCISE. If the lesson lists a requiredCapability (e.g. diff-viewed), the learner must genuinely do it — an eyeball comparison is not a diff. Otherwise drop it.',
+      '8. ONLY THE FIRST ERROR SURFACES. When you have the learner deliberately break code, exactly ONE error appears — the first one the parser/interpreter reaches — and it is often not the one you mean to teach. Python raises parse-time errors BEFORE any name/scope check: deleting a `def` line while its body stays indented gives `IndentationError: unexpected indent`, NEVER `SyntaxError: \'return\' outside function` (that needs the body un-indented too). State exactly which lines change, then name the single error that actually results, and make the failure/diagnosis table describe the situation that really triggers each message.',
+      '9. REVISIONS MUST STAY SELF-CONSISTENT. When you change a step, re-read and update everything that describes it — the section preamble, any "here is what you will do" list, the failure/diagnosis table, and the mastery evidence. A preamble saying "nothing gets commented out, run it once" above a step that says "comment this line out and run it again" is an automatic rejection. Likewise, if a later step reuses a variable or file an earlier step created, name it explicitly in that earlier step (e.g. "store these as `name_box`, `email_box`, `message_box` — Case 3 needs those names").',
       'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
     ].join("\n");
   }
@@ -332,7 +334,17 @@ function platformNote(platform: string): string {
           "  Enter'. Never claim pwsh runs it on paste.",
           "• Prefer pwsh-native file/dir steps (`New-Item -ItemType File x.py`,",
           "  `Set-Location`, `Get-Location`, `Get-ChildItem`) over GUI Save-As",
-          "  dialogs, whose path handling differs from the shell's cwd.",
+          "  dialogs, whose path handling differs from the shell's cwd. But NEVER",
+          "  describe `New-Item -Force` as safe or re-runnable: on a file it",
+          "  REPLACES the existing one with an empty file, silently destroying the",
+          "  script the learner just wrote. For a create step the learner may",
+          "  repeat, use `if (-not (Test-Path x.py)) { New-Item -ItemType File",
+          "  x.py }`, or simply have them open the file in the editor and save.",
+          "• Terminal panel keybindings: Ctrl+Shift+` opens a NEW terminal tab;",
+          "  Ctrl+Shift+5 SPLITS the current terminal into a side-by-side pane —",
+          "  it does NOT open a tab. When a lesson needs a second tab (e.g. a",
+          "  server in tab 1, Python in tab 2), name the + button at the top-right",
+          "  of the terminal panel as the primary route.",
         ]
       : [];
   return [
