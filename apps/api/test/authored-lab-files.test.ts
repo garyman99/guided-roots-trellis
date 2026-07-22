@@ -67,6 +67,14 @@ test("P4 contract: lab.files must carry the minimum provable artifact set", () =
   assert.throws(() => validateLessonPlan({ ...base, lab: { ...base.lab, files: { "lab.json": 5 } } }, "authored-1"), /relativePath: contents/);
 });
 
+test("P1: a lab must be chosen — no kind and no files is rejected; kind:\"stub\" is allowed", () => {
+  const base = { lessonId: "x-1", markdown: "# l\n\nx", lab: { objective: "o", primaryAuto: "any-command" } };
+  // The stub is no longer a silent default — an under-specified lab is invalid.
+  assert.throws(() => validateLessonPlan(base, "x-1"), /must declare a "kind".*or author "files"/);
+  // An explicit no-code intro is a conscious choice.
+  assert.doesNotThrow(() => validateLessonPlan({ ...base, lab: { ...base.lab, kind: "stub" } }, "x-1"));
+});
+
 test("P4 gate: an authored file set auto-solves — broken as shipped AND solvable", async () => {
   const root = mkdtempSync(join(tmpdir(), "trellis-authored-"));
   tmp.push(root);

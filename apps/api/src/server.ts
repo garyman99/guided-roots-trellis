@@ -346,15 +346,23 @@ function buildLabFilesFor(
 ): Record<string, string> {
   const files =
     // A fully-authored artifact set (plan L1/P4) is used verbatim — trusted only
-    // because the auto-solve prove gate must pass it. Curated kinds are the
-    // fallback; the stub is the last resort.
+    // because the auto-solve prove gate must pass it. Curated kinds next. The
+    // generic stub is NO LONGER a silent default (plan P1): it ships only for an
+    // explicit kind:"stub" (a no-code intro); anything else with no real lab is a
+    // fail-closed error the callers turn into a blocked lesson.
     lab.files
       ? withGeneratedShell(lab.files, shell)
       : isGitLabKind(lab.kind)
         ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
         : isNodeLabKind(lab.kind)
           ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
-          : buildGeneratedLabFiles(labLesson, runId, shell);
+          : lab.kind === "stub"
+            ? buildGeneratedLabFiles(labLesson, runId, shell)
+            : (() => {
+                throw new Error(
+                  `lesson "${labLesson.lessonId}" has no real lab: kind ${JSON.stringify(lab.kind)} is not recognized and no files were authored (use a real kind, author files, or kind:"stub")`,
+                );
+              })();
   // Per-course baked Environment (plan L5): the docker driver runs the lab on it.
   return stampLabImage(files, image);
 }
@@ -382,7 +390,13 @@ const proveLesson: LessonProver = async ({ run, lessonId, lab }) => {
   if (process.env.TRELLIS_SKIP_AUTOSOLVE === "1") return { ok: true, detail: "auto-solve skipped (TRELLIS_SKIP_AUTOSOLVE)" };
   const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
   const labLesson = { lessonId, title: lessonId, objective: lab.objective };
-  const files = buildLabFilesFor(lab, labLesson, run.runId, labShell, run.request.environmentImage);
+  let files: Record<string, string>;
+  try {
+    files = buildLabFilesFor(lab, labLesson, run.runId, labShell, run.request.environmentImage);
+  } catch (err) {
+    // No real lab authored → fail closed (blocks the lesson, feeds the re-author).
+    return { ok: false, detail: (err as Error).message };
+  }
   const root = mkdtempSync(join(tmpdir(), `trellis-prove-${lessonId}-`));
   try {
     const labDir = writeGeneratedLab(root, lessonId, files);
@@ -415,7 +429,14 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     // the real PowerShell 7 bench (lab.json shell:"pwsh").
     const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
     const labLesson = { lessonId: labId, title: lesson.title, objective: lesson.lab.objective };
-    const files = buildLabFilesFor(lesson.lab, labLesson, run.runId, labShell, run.request.environmentImage);
+    let files: Record<string, string>;
+    try {
+      files = buildLabFilesFor(lesson.lab, labLesson, run.runId, labShell, run.request.environmentImage);
+    } catch (err) {
+      // No real lab authored → fail closed: record why and don't ship it.
+      proofs.push({ labId, ok: false, detail: (err as Error).message });
+      continue;
+    }
     const labDir = writeGeneratedLab(published, labId, files);
 
     if (!skipProof) {

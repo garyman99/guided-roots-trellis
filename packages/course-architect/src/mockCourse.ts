@@ -118,7 +118,9 @@ function mockLessonPlan(context?: Record<string, unknown>): LessonPlanDoc {
       `The learner completes the task and explains why it works.`,
       ``,
     ].join("\n"),
-    lab: { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities?.[0] ?? "any-command" },
+    // The generic mock lessons are no-code placeholders → explicitly the stub
+    // (the stub is no longer a silent default; plan P1).
+    lab: { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities?.[0] ?? "any-command", kind: "stub" },
   };
 }
 

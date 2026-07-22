@@ -78,6 +78,9 @@ test("default mock: a run produces a validated, gap-free course across all five 
   assert.ok(arts.exists("reviews/widgets-101.pedagogy.json"));
   assert.ok(arts.exists("reviews/quality-gates.json"));
   assert.equal(h.materialized.at(-1)!.labIds.length, 6);
+  // The generic no-code lessons declare the stub EXPLICITLY (it's no longer a
+  // silent default) — so materialize builds a stub only when a lesson asked for it.
+  assert.equal(JSON.parse(arts.read("briefs/widgets-101.json")!).lab.kind, "stub");
 });
 
 test("the Git pack yields a real, playable Git course through the pipeline", async () => {

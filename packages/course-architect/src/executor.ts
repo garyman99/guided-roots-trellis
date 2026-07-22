@@ -879,7 +879,8 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
     // Prefer the authored lab spec (carries lab.kind → a real lab); fall back to
     // a minimal stub spec derived from the inventory.
     const brief = parseJson<Brief>(arts.read(`briefs/${lesson.lessonId}.json`) ?? "{}");
-    const lab = brief.lab ?? { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities[0] ?? "any-command" };
+    // Missing brief → an explicit no-code stub (the stub is never a silent default).
+    const lab = brief.lab ?? { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities[0] ?? "any-command", kind: "stub" };
     lessons.push({ lessonId: lesson.lessonId, level: lesson.level, title: lesson.title, lab });
   }
   const result = await deps.materialize({ run: ctx.run, courseRequestMarkdown: arts.read("course-request.md") ?? "", lessons, artifacts: arts });

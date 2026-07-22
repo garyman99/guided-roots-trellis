@@ -131,15 +131,15 @@ browser Environments.
   is blocked while provable ones ship). *Remaining L8:* operator reopen of an
   earlier lesson from a later cohesion finding. *Remaining L9 (→P3):* the sim
   experience gate.
-- **P1 — Fail-closed gate + real lab kinds through the `lab.kind` seam.**
-  🟡 *Started:* the `node-deps` real lab kind landed (`apps/api/src/nodeLabs.ts`,
-  wired into `materialize`/`materializeRevision` alongside the git kinds), with a
-  structured `lab.expectedPackages` on the lesson-plan schema so the setup lesson
-  materializes a REAL, auto-solving lab instead of the stub. Materialize already
-  auto-solves per lesson and is fail-closed at ship-level (an unprovable lab is
-  not shipped). *Remaining:* have the author declare these kinds (mock + prompt),
-  turn the ship-level skip into an explicit needs-revision + bounded re-author,
-  and retire the stub as the default (keep it as a named intro template).
+- **P1 — Fail-closed gate + real lab kinds through the `lab.kind` seam.** ✅
+  The `node-deps` real lab kind landed (`apps/api/src/nodeLabs.ts`, wired into
+  `materialize`/`materializeRevision` alongside git kinds) with a structured
+  `lab.expectedPackages`. The stub is **retired as the silent default**: a lab
+  must declare `files`, a real `kind`, or explicitly `kind:"stub"` (validated;
+  an under-specified lab is rejected and re-authored). `buildLabFilesFor` builds
+  a stub ONLY for `kind:"stub"`; an unrecognized kind with no files throws, and
+  the prove gate / materialize turn that into a blocked lesson (fail closed).
+  The generic mock now declares `kind:"stub"` explicitly.
 - **P2 — `EnvSpec` + course image + real Environment.** 🟡 *Image authored +
   wired:* the `node-selenium-fixtures` Environment is committed
   (`docker/lab-node-selenium/`: chromium + chromedriver, OFFLINE npm cache so

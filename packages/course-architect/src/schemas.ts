@@ -320,6 +320,12 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
   const lab = (d.lab ?? {}) as Record<string, unknown>;
   if (typeof lab.objective !== "string" || !(lab.objective as string).trim()) e.push("lesson plan lab.objective is required");
   if (typeof lab.primaryAuto !== "string" || !(lab.primaryAuto as string).trim()) e.push("lesson plan lab.primaryAuto is required");
+  // A lab must be CHOSEN, not defaulted: author the full files, name a real kind,
+  // or explicitly pick "stub" for a no-code intro. The generic stub is no longer
+  // a silent fallback (plan P1) — an under-specified lab blocks and re-authors.
+  if (lab.files === undefined && (typeof lab.kind !== "string" || !(lab.kind as string).trim())) {
+    e.push('lesson plan lab must declare a "kind" ("stub" for a no-code intro, or a real kind like "node-deps"/"git-commit") or author "files"');
+  }
   // A node-deps lab is only well-formed with the concrete packages to verify —
   // its verifier asserts exactly these are declared, so prose can't stand in.
   if (lab.kind === "node-deps") {
