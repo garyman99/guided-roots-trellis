@@ -295,12 +295,21 @@ export function findCycle(graph: PrerequisiteGraph): string[] | null {
 export interface LessonPlanDoc {
   lessonId: string;
   markdown: string;
-  /** The lab spec this lesson materializes into. `kind` selects a real lab
-   *  builder (e.g. "git-commit", "node-deps"); absent → the generic "complete
-   *  the stub" lab. `expectedPackages` carries the structured data a real lab
-   *  needs when prose alone isn't machine-checkable (e.g. node-deps: exactly
-   *  which packages package.json must declare). */
-  lab: { objective: string; primaryAuto: string; kind?: string; expectedPackages?: string[] };
+  /** The lab spec this lesson materializes into.
+   *  - `files`: the FULL authored artifact set (relative path → contents:
+   *    lab.json, template/…, verify/checkpoint.mjs, blueprint.json) — the same
+   *    contract a human authors (plan L1). When present it is used verbatim,
+   *    trusted only because auto-solve proves it (plan L3). Highest precedence.
+   *  - `kind`: otherwise selects a curated real-lab builder (e.g. "git-commit",
+   *    "node-deps"); absent → the generic "complete the stub" lab.
+   *  - `expectedPackages`: structured data a curated kind needs (e.g. node-deps). */
+  lab: {
+    objective: string;
+    primaryAuto: string;
+    kind?: string;
+    expectedPackages?: string[];
+    files?: Record<string, string>;
+  };
 }
 
 export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlanDoc {
@@ -317,6 +326,20 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
     const pkgs = lab.expectedPackages;
     if (!Array.isArray(pkgs) || pkgs.length === 0 || !pkgs.every((p) => typeof p === "string" && p.trim())) {
       e.push('lesson plan lab.kind "node-deps" requires a non-empty expectedPackages string[]');
+    }
+  }
+  // A fully-authored artifact set must carry the minimum a provable lab needs;
+  // auto-solve enforces correctness beyond structure (plan L1/L3).
+  if (lab.files !== undefined) {
+    const files = lab.files as Record<string, unknown>;
+    const bad = !files || typeof files !== "object" || Array.isArray(files);
+    const values = bad ? [] : Object.values(files);
+    if (bad || values.some((v) => typeof v !== "string")) {
+      e.push("lesson plan lab.files must be an object of { relativePath: contents(string) }");
+    } else {
+      for (const required of ["lab.json", "blueprint.json", "verify/checkpoint.mjs"]) {
+        if (!(required in files)) e.push(`lesson plan lab.files is missing required "${required}"`);
+      }
     }
   }
   if (e.length) throw new ValidationError(e);

@@ -172,8 +172,17 @@ browser Environments.
   improvement-loop analyst to route `guide-behavior`/`platform` findings to the
   outbox (today the gate uses completion + friction), and operator reopen of an
   earlier lesson.
-- **P4 — Lab-authoring by the model.** The author emits the real Lab artifact
-  set as structured output; derive guide `ENVIRONMENT FACTS` from `EnvSpec`.
+- **P4 — Lab-authoring by the model.** 🟡 *Path landed:* the lesson-author may
+  emit the FULL artifact set as `lab.files` (lab.json + template/… +
+  verify/checkpoint.mjs + blueprint.json — the same contract a human authors, L1).
+  It's used verbatim (highest precedence in `buildLabFilesFor`, course shell
+  stamped in), validated for the minimum provable set, and trusted ONLY because
+  the auto-solve prove gate must pass it (L3) — tests prove an authored set
+  auto-solves and a bad one (solution that doesn't satisfy its verifier) is
+  caught. The prompt documents `lab.files` as the advanced escape hatch;
+  curated kinds stay the default. *Remaining:* a live model actually authoring
+  good `lab.files` (proven in a full env), and deriving guide `ENVIRONMENT FACTS`
+  from `EnvSpec`.
 - **P5 — Regenerate Selenium** through the full path; capability-block any lesson
   that can't be authored + proven in the baked Environment.
 

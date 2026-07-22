@@ -338,19 +338,39 @@ function learnerDescriptionFor(run: CourseRun, courseRequestMarkdown: string): s
  *  stub. Shared by materialize, the revision path, and the shift-left prover so
  *  all three build the SAME files for a given lesson. */
 function buildLabFilesFor(
-  lab: { objective: string; kind?: string; expectedPackages?: string[] },
+  lab: { objective: string; kind?: string; expectedPackages?: string[]; files?: Record<string, string> },
   labLesson: { lessonId: string; title: string; objective: string },
   runId: string,
   shell?: "bash" | "pwsh",
   image?: string,
 ): Record<string, string> {
-  const files = isGitLabKind(lab.kind)
-    ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
-    : isNodeLabKind(lab.kind)
-      ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
-      : buildGeneratedLabFiles(labLesson, runId, shell);
+  const files =
+    // A fully-authored artifact set (plan L1/P4) is used verbatim — trusted only
+    // because the auto-solve prove gate must pass it. Curated kinds are the
+    // fallback; the stub is the last resort.
+    lab.files
+      ? withGeneratedShell(lab.files, shell)
+      : isGitLabKind(lab.kind)
+        ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
+        : isNodeLabKind(lab.kind)
+          ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
+          : buildGeneratedLabFiles(labLesson, runId, shell);
   // Per-course baked Environment (plan L5): the docker driver runs the lab on it.
   return stampLabImage(files, image);
+}
+
+/** Ensure a model-authored lab's manifest carries the course shell (pwsh for
+ *  windows-target courses) even if the author omitted it. */
+function withGeneratedShell(files: Record<string, string>, shell?: "bash" | "pwsh"): Record<string, string> {
+  if (!shell || !files["lab.json"]) return files;
+  try {
+    const manifest = JSON.parse(files["lab.json"]);
+    if (manifest.shell) return files; // author was explicit — respect it
+    manifest.shell = shell;
+    return { ...files, "lab.json": JSON.stringify(manifest, null, 2) };
+  } catch {
+    return files; // malformed lab.json → let auto-solve/validation surface it
+  }
 }
 
 /**
