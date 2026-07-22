@@ -146,3 +146,29 @@ error on a cheap retry instead of at prove time.
    template/solution paths exist in `lab.files`.
 3. Author prompt — spell out the blueprint + manifest contract. The model
    invented a plausible-looking schema because we never showed it one.
+
+### 21:30Z — all three fixed and committed (`e56464e`)
+
+- `proveLesson` now catches everything; a throw becomes `{ok:false, detail}`,
+  which is already a lesson blocker feeding the re-author loop.
+- `validateLessonPlan` validates authored shape: `lab.json` needs a non-empty
+  `tasks[]` (each with `id` + `auto`) and a `checkpoint` **object** with
+  `requirements[]`; `blueprint.json` needs non-empty `defects` (each with an
+  argv `solution`) and `tiers` whose `defect` refs resolve; at least one
+  `template/` file must ship. Caught here it's a cheap retry with the exact
+  error rather than a dead run.
+- The author prompt now states the full contract (manifest, template, verifier
+  JSON-line protocol, blueprint with argv solutions, exact-path warning).
+
+205 kernel + 113 API tests pass. Seven new assertions cover the exact malformed
+shapes this run produced.
+
+> **ACTION NEEDED — the run is resumable but blocked on you.**
+> Status is `interrupted` with `pendingPhase: authoring`, so Resume will pick up
+> at lesson 1. But the running API process still has the OLD code in memory —
+> resuming before restarting it will just hit the same crash. **Restart the API,
+> then hit Resume in Course studio.** I didn't restart it myself since it's your
+> process and the run is mid-flight.
+
+Nothing in the run dir needs cleaning first: no reviews were written, and the
+one brief on disk gets overwritten when lesson 1 re-authors.
