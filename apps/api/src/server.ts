@@ -605,6 +605,9 @@ function courseGenProviders() {
   return {
     defaultProvider: envDefault,
     defaultModel: process.env.COURSE_GEN_MODEL ?? null,
+    // The env's OpenAI-compatible endpoint, so the UI can prefill it (the run
+    // config still requires baseUrl + model, validated at create).
+    defaultBaseUrl: process.env.COURSE_GEN_BASE_URL ?? null,
     // Per-role tier defaults (anthropic), so the UI can prefill the advanced picker.
     roles: COURSE_GEN_ROLES,
     roleTiers: ROLE_MODEL_TIERS,

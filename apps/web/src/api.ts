@@ -537,6 +537,8 @@ export interface ProviderOption {
 export interface ProvidersPayload {
   defaultProvider: string;
   defaultModel: string | null;
+  /** The env's OpenAI-compatible endpoint, to prefill the base-URL field. */
+  defaultBaseUrl?: string | null;
   /** Pipeline role ids, in invocation order. */
   roles?: string[];
   /** Per-role default Claude model (the tier ladder), for the advanced picker. */

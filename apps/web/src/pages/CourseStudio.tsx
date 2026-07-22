@@ -331,7 +331,13 @@ function PersonaWorkbench({ personaId, onBack }: { personaId: string; onBack: ()
       courseRunApi.providers().then((p) => {
         setProviders(p);
         const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
-        if (def) setProvider(def.id);
+        if (def) {
+          setProvider(def.id);
+          if (def.id === "openai-compatible") {
+            if (p.defaultModel) setIvModel(p.defaultModel);
+            if (p.defaultBaseUrl) setIvBaseUrl(p.defaultBaseUrl);
+          }
+        }
       }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
     }
   }, [providers]);
@@ -505,7 +511,15 @@ function CourseIdeaCard({ personas, onStarted }: {
       courseRunApi.providers().then((p) => {
         setProviders(p);
         const def = p.providers.find((x) => x.id === p.defaultProvider && x.available) ?? p.providers.find((x) => x.available);
-        if (def) setProvider(def.id);
+        if (def) {
+          setProvider(def.id);
+          // Prefill the OpenAI-compatible endpoint + model from the env defaults,
+          // so a wired-up deployment doesn't retype the proxy URL every run.
+          if (def.id === "openai-compatible") {
+            if (p.defaultModel) setModel(p.defaultModel);
+            if (p.defaultBaseUrl) setBaseUrl(p.defaultBaseUrl);
+          }
+        }
       }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
     }
   }, [providers]);
@@ -702,6 +716,11 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
         if (def) {
           setProvider(def.id);
           if (def.id !== "anthropic" && def.models?.length) setModel(def.models[0].id);
+          // Prefill the OpenAI-compatible endpoint + model from the env defaults.
+          if (def.id === "openai-compatible") {
+            if (p.defaultModel) setModel(p.defaultModel);
+            if (p.defaultBaseUrl) setBaseUrl(p.defaultBaseUrl);
+          }
         }
       }).catch(() => setProviders({ defaultProvider: "mock", defaultModel: null, providers: [{ id: "mock", label: "Mock", available: true }] }));
     }

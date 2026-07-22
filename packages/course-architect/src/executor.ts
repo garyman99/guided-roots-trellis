@@ -206,11 +206,12 @@ function taskInstruction(task: string): string {
       '  "lab": {',
       '    "objective": string,             // what the lab has the learner DO',
       '    "primaryAuto": string,           // one of CONTEXT.lesson.requiredCapabilities',
-      '    "kind"?: "node-deps",            // OPTIONAL: request a curated REAL lab instead of the generic stub. "node-deps" ships a bare package.json and has the learner declare dependencies (offline-checkable). Use it for a project-setup lesson.',
+      '    "kind": "stub" | "node-deps",    // REQUIRED unless you provide "files". "stub" = a conceptual / no-code lesson with no gradable action. "node-deps" = a project-setup lab where the learner declares dependencies in package.json (offline-checkable).',
       '    "expectedPackages"?: string[],   // REQUIRED when kind is "node-deps": the exact npm packages package.json must declare',
-      '    "files"?: { [path]: string }     // OPTIONAL, ADVANCED: author the FULL lab yourself — lab.json + template/… + verify/checkpoint.mjs + blueprint.json (with an authored solution). It is used verbatim and MUST pass auto-solve (broken-as-shipped AND solvable), so ship the template broken and the verifier strict. Prefer a curated kind when one fits.',
+      '    "files"?: { [path]: string }     // ADVANCED alternative to "kind": author the FULL lab yourself — lab.json + template/… + verify/checkpoint.mjs + blueprint.json (with an authored solution). Used verbatim; MUST pass auto-solve (ship the template broken, the verifier strict).',
       '  }',
       '}',
+      'EVERY lesson MUST pick a lab: "kind":"stub" for a conceptual lesson, "kind":"node-deps" (+expectedPackages) for a dependency-setup lesson, or author "files" for a full hands-on lab. A lab with neither a kind nor files is rejected.',
       'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
     ].join("\n");
   }
