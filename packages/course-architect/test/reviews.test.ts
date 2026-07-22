@@ -26,9 +26,17 @@ test("validatePedagogyReview requires every category as a 1–5 number", () => {
   assert.equal(ok.scores.mastery, 4);
 });
 
-test("validateTechnicalReview enforces the verdict enum", () => {
+test("validateTechnicalReview enforces the verdict enum and tags issue severity", () => {
   assert.throws(() => validateTechnicalReview({ verdict: "ship it" }), ValidationError);
-  assert.deepEqual(validateTechnicalReview({ verdict: "revise", issues: ["stale flag"] }).issues, ["stale flag"]);
+  assert.deepEqual(validateTechnicalReview({ verdict: "revise", issues: [{ severity: "minor", text: "stale flag" }] }).issues, [
+    { severity: "minor", text: "stale flag" },
+  ]);
+  // A bare string (a model that ignored the schema) keeps its old blocking power.
+  assert.deepEqual(validateTechnicalReview({ verdict: "revise", issues: ["deprecated API"] }).issues, [
+    { severity: "blocker", text: "deprecated API" },
+  ]);
+  // Junk entries are dropped, not turned into empty blockers.
+  assert.deepEqual(validateTechnicalReview({ verdict: "approved", issues: ["", null, { severity: "minor" }] }).issues, []);
 });
 
 test("a lesson passes when all three clear the bar", () => {
@@ -50,12 +58,44 @@ test("an unjustified low pedagogy score fails the lesson; a justified one does n
   assert.ok(REVISION_THRESHOLD === 4);
 });
 
-test("a technical or cohesion 'revise' verdict fails the lesson", () => {
-  const tech = evaluateReviews("l-3", { verdict: "revise", issues: ["deprecated API"] }, ped(allScores(5)), { verdict: "approved" });
+test("a technical or cohesion blocker fails the lesson", () => {
+  const tech = evaluateReviews("l-3", { verdict: "revise", issues: [{ severity: "blocker", text: "deprecated API" }] }, ped(allScores(5)), { verdict: "approved" });
   assert.equal(tech.passed, false);
   assert.ok(tech.blockers.some((b) => /technical/.test(b)));
 
-  const coh = evaluateReviews("l-3", { verdict: "approved" }, ped(allScores(5)), { verdict: "revise", issues: ["terminology drift"] });
+  const coh = evaluateReviews("l-3", { verdict: "approved" }, ped(allScores(5)), { verdict: "revise", issues: [{ severity: "blocker", text: "terminology drift" }] });
   assert.equal(coh.passed, false);
   assert.ok(coh.blockers.some((b) => /cohesion/.test(b)));
+});
+
+test("a 'revise' carrying only MINOR issues ships the lesson and files them as advisory", () => {
+  // The non-convergence fix: a nitpick-only review must not force another
+  // full re-author round. Notes still reach the author and the gate.
+  const o = evaluateReviews(
+    "l-4",
+    { verdict: "revise", issues: [{ severity: "minor", text: "f-string has no placeholder" }] },
+    ped(allScores(5)),
+    { verdict: "revise", issues: [{ severity: "minor", text: "heading could be tighter" }] },
+  );
+  assert.equal(o.passed, true);
+  assert.deepEqual(o.blockers, []);
+  assert.deepEqual(o.advisory, ["technical (minor): f-string has no placeholder", "cohesion (minor): heading could be tighter"]);
+});
+
+test("blockers and minors from the same review are separated", () => {
+  const o = evaluateReviews(
+    "l-5",
+    { verdict: "revise", issues: [{ severity: "blocker", text: "the demo cannot print what it promises" }, { severity: "minor", text: "drop -UseBasicParsing" }] },
+    ped(allScores(5)),
+    { verdict: "approved" },
+  );
+  assert.equal(o.passed, false);
+  assert.deepEqual(o.blockers, ["technical: the demo cannot print what it promises"]);
+  assert.deepEqual(o.advisory, ["technical (minor): drop -UseBasicParsing"]);
+});
+
+test("a bare 'revise' with no itemised issues still blocks", () => {
+  const o = evaluateReviews("l-6", { verdict: "revise" }, ped(allScores(5)), { verdict: "approved" });
+  assert.equal(o.passed, false);
+  assert.deepEqual(o.blockers, ["technical: revise"]);
 });

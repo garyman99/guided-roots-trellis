@@ -31,7 +31,12 @@ framing → G1·Frame → designing → G2·Blueprint → authoring → G3·Pack
   conventions, **lesson inventory**) and diffs required capabilities against the
   registry into `capability-gaps.json`.
 - **authoring** — per lesson: author → 3 reviews (technical / pedagogy 1–5 /
-  cohesion) → re-author once on failure → ship or `needs-revision`.
+  cohesion) + the advisory learner-advocate → **revise** on failure (up to
+  `COURSE_GEN_CRITIQUE_ROUNDS`) → ship or `needs-revision`. Two rules make that
+  loop converge (2026-07-22 — see *Why lessons used to loop forever* below):
+  technical/cohesion issues carry a **severity**, and only `blocker` blocks;
+  and a revision round is handed its **own previous draft to edit**, not a
+  blank page.
 - **materializing** — builds a **complete, playable lab** per shipped lesson and
   **auto-solves** it (broken-as-shipped AND solvable) before it ships; assembles
   a **draft** course + runtime scenario entries.
@@ -230,6 +235,41 @@ Things that only surfaced once a live model was driving it:
   `COURSE_GEN_MAX_ATTEMPTS`, feeding the validation errors back. The **Resume**
   button re-runs the whole interrupted phase from scratch (a fresh set of
   attempts) — it never proceeds with invalid output and never resumes mid-phase.
+
+## Why lessons used to loop forever (2026-07-22)
+
+The `cg-selenium-python` run shipped 9 of 11 lessons; `interactions-and-forms`
+burned 6 rounds and `page-objects-on-practice-site` 3, both ending
+`needs-revision` with pedagogy at 5/5/5/5/5. Reading the six archived technical
+reviews in sequence, the reviewers **never repeat themselves** — each round
+genuinely fixed what was named and a fresh crop appeared. Three causes, two
+fixed here:
+
+1. **No severity floor.** `TechnicalReview` was `{verdict, issues[]}`, so one
+   nitpick blocked a lesson — and a reviewer handed 400 fresh lines always finds
+   one (round 6 ended on *"Minor: this f-string has no placeholder"*). Issues now
+   carry `severity`; only `blocker` blocks, `minor` rides `advisory` to the
+   author and the gate. Same fix `evaluateReviews` already applied to the
+   learner-advocate, extended to the reviewers that vote. A bare string issue
+   (schema-ignoring model) is read as a blocker, so nothing is silently
+   downgraded; a `revise` with no itemised issues still blocks.
+2. **Blank-page re-authoring.** The loop passed the brief + a bullet list of
+   complaints and never the previous draft, so every round regenerated the
+   lesson — and details the last round had right (checkpoint line counts,
+   cross-references) broke again, while new sections invented new defects. The
+   author now receives `previousMarkdown` plus a REVISION MODE contract: return
+   the whole file, change only what the feedback names, leave untouched prose
+   byte-identical.
+3. **Missing bench ground truth (open).** Both failing lessons are the only two
+   whose outcomes depend on the practice site's **form-POST behaviour**, and
+   `course-conventions.md` says only `Practice site: http://localhost:8080`.
+   Nothing records its routes, markup, whether validation is server-side, or the
+   exact flash text — so the author invents it and the reviewer correctly refuses
+   to certify the invention (round after round: *"if `#flash` mirrors the-internet
+   markup…"*, *"depends on the email field NOT being `type=email`"*, *"a static
+   http.server cannot re-render with validation errors"*). Unfalsifiable by
+   construction. **The fix is a practice-site fact sheet fed to both author and
+   reviewer** — not yet written.
 
 ## Capability loop (generated courses aren't limited to today's desktop)
 

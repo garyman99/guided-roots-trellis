@@ -50,6 +50,7 @@ import type { CourseRunRequest } from "./types.ts";
 import {
   evaluateReviews,
   validateTechnicalReview,
+  type ReviewIssue,
   validatePedagogyReview,
   validateCohesionReview,
   REVISION_THRESHOLD,
@@ -147,9 +148,16 @@ const SYSTEM: Record<CourseGenRole, string> = {
     "Be specific and unsentimental; demand concrete changes, not vibes. Do not invent requirements beyond the persona and the goal." +
     JSON_ONLY,
   "lesson-author": "You expand one lesson brief into a complete, active-learning lesson plan." + JSON_ONLY,
-  "technical-reviewer": "You verify technical correctness and currency." + JSON_ONLY,
+  "technical-reviewer":
+    "You verify technical correctness and currency. You are a gatekeeper, not a perfectionist: " +
+    "your job is to stop lessons that would mislead or strand a learner, and to let good-enough lessons ship. " +
+    "Grade every issue by severity and reserve 'blocker' for the ones that genuinely break the learner's run." +
+    JSON_ONLY,
   "pedagogy-reviewer": "You score pedagogy 1–5 across the rubric." + JSON_ONLY,
-  "cohesion-editor": "You review the course as one authored journey." + JSON_ONLY,
+  "cohesion-editor":
+    "You review the course as one authored journey. You are a gatekeeper, not a perfectionist: " +
+    "grade every issue by severity and reserve 'blocker' for contradictions and gaps that would actually stall a learner." +
+    JSON_ONLY,
 };
 
 /**
@@ -223,6 +231,12 @@ function taskInstruction(task: string): string {
       '7. ONLY CLAIM CAPABILITIES YOU EXERCISE. If the lesson lists a requiredCapability (e.g. diff-viewed), the learner must genuinely do it — an eyeball comparison is not a diff. Otherwise drop it.',
       '8. ONLY THE FIRST ERROR SURFACES. When you have the learner deliberately break code, exactly ONE error appears — the first one the parser/interpreter reaches — and it is often not the one you mean to teach. Python raises parse-time errors BEFORE any name/scope check: deleting a `def` line while its body stays indented gives `IndentationError: unexpected indent`, NEVER `SyntaxError: \'return\' outside function` (that needs the body un-indented too). State exactly which lines change, then name the single error that actually results, and make the failure/diagnosis table describe the situation that really triggers each message.',
       '9. REVISIONS MUST STAY SELF-CONSISTENT. When you change a step, re-read and update everything that describes it — the section preamble, any "here is what you will do" list, the failure/diagnosis table, and the mastery evidence. A preamble saying "nothing gets commented out, run it once" above a step that says "comment this line out and run it again" is an automatic rejection. Likewise, if a later step reuses a variable or file an earlier step created, name it explicitly in that earlier step (e.g. "store these as `name_box`, `email_box`, `message_box` — Case 3 needs those names").',
+      '',
+      'REVISION MODE — applies whenever CONTEXT.previousMarkdown is present. That is YOUR last draft, and CONTEXT.reviewFeedback is what the reviewers said about it. You are EDITING that draft, not writing a new lesson:',
+      'A. Return the COMPLETE lesson markdown again (the full file, not a diff and not an excerpt) — but change only what the feedback names, plus whatever rule 9 requires to keep those changes self-consistent.',
+      'B. Do NOT restructure, re-order, re-title, re-word, or "improve" anything the feedback did not raise. Everything the reviewers left alone was accepted; rewriting it re-opens settled ground and introduces fresh defects. Prose you keep should come through byte-identical.',
+      'C. Feedback items marked "(minor)" are NON-BLOCKING. Apply them only when the fix is local and safe; skip any that would force a restructure, and never let one pull a passing section apart.',
+      'D. If a feedback item is wrong, or is unverifiable from what you have, do not guess at a change — leave that part as it is and say so in your "summary". A confident invention is worse than an acknowledged unknown.',
       'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
     ].join("\n");
   }
@@ -234,7 +248,16 @@ function taskInstruction(task: string): string {
     ].join("\n");
   }
   if (task.startsWith("review:")) {
-    return 'Review the lesson. Return a JSON object with EXACTLY these keys: { "verdict": "approved" | "revise", "issues": string[] }.';
+    return [
+      'Review the lesson. Return a JSON object with EXACTLY these keys:',
+      '{ "verdict": "approved" | "revise", "issues": [ { "severity": "blocker" | "minor", "text": string } ] }',
+      '',
+      'SEVERITY IS LOAD-BEARING — it decides whether this lesson ships or goes back for another full re-author, and a lesson that never ships teaches nobody. Judge each issue on its own:',
+      '- "blocker": the lesson is WRONG or UNFOLLOWABLE as written. A learner following it literally gets a different result than promised, hits an error the lesson does not cover, or cannot tell which of two contradictory instructions to obey. Factual errors about the tool, steps that cannot produce the stated output, and self-contradictions are blockers.',
+      '- "minor": everything else — stale-but-working habits, imprecise wording, redundant flags, style, hygiene suggestions, "consider also mentioning", and anything you would introduce with "Minor:" or "Nit:". A lesson can ship with these; they are recorded and fed to the author anyway.',
+      'Do NOT inflate severity to force a rewrite, and do NOT invent a blocker because the issues list looks short — "approved" with an empty issues list is a valid, expected outcome for a good lesson.',
+      'If you cannot VERIFY a claim (e.g. the exact markup, wording, or behaviour of a site or tool you cannot see), that is only a blocker when the lesson\'s promised output depends on it; otherwise raise it as minor and say what would settle it.',
+    ].join("\n");
   }
   if (task.startsWith("critique:")) return critiqueInstruction();
   if (task === "revision-goal") {
@@ -797,6 +820,15 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     ];
     let outcome: ReviewOutcome | null = null;
     let attemptsUsed = 0;
+    // The draft the last round produced. Handed back to the author so a revision
+    // EDITS the lesson instead of regenerating it from the brief (field finding,
+    // 2026-07-22: blank-page re-authoring is why the loop never converged — each
+    // round fixed the named issues and minted a fresh set, and details the last
+    // round had right, like checkpoint line counts and cross-references, broke
+    // again). Seeded from a prior pass's draft when one is on disk, so a re-run
+    // that reopens a needs-revision lesson also patches rather than restarts.
+    let previousMarkdown: string | undefined =
+      previous && !previous.passed ? (arts.read(`lessons/${lesson.lessonId}/lesson.md`) ?? undefined) : undefined;
     for (let attempt = 1; attempt <= maxRounds; attempt++) {
       attemptsUsed = attempt;
       const feedback = outcome ? [...outcome.blockers, ...(outcome.advisory ?? [])] : seedFeedback.length ? seedFeedback : null;
@@ -804,9 +836,15 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
         deps,
         ctx,
         "lesson-author",
-        prompt(`lesson:${lesson.lessonId}`, { lesson, ...requestContext(ctx.run.request), reviewFeedback: feedback ?? undefined }),
+        prompt(`lesson:${lesson.lessonId}`, {
+          lesson,
+          ...requestContext(ctx.run.request),
+          reviewFeedback: feedback ?? undefined,
+          ...(feedback && previousMarkdown ? { previousMarkdown } : {}),
+        }),
         (parsed) => validateLessonPlan(parsed, lesson.lessonId),
       );
+      previousMarkdown = plan.markdown;
       arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
       // The brief carries the inventory entry PLUS the authored lab spec, so
       // materializing knows which real lab (lab.kind) to build.
@@ -908,8 +946,18 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   if (authored.length === 0) throw new ValidationError(["no lessons passed review — every lesson is blocked on a capability gap or needs revision"]);
 }
 
-function renderVerdictMd(title: string, verdict: Verdict, issues?: string[]): string {
-  return [`# ${title}`, ``, `**Verdict:** ${verdict}`, ``, ...(issues && issues.length ? ["## Issues", ...issues.map((i) => `- ${i}`)] : ["_No issues raised._"]), ``].join("\n");
+function renderVerdictMd(title: string, verdict: Verdict, issues?: ReviewIssue[]): string {
+  const blocking = (issues ?? []).filter((i) => i.severity === "blocker");
+  const minor = (issues ?? []).filter((i) => i.severity === "minor");
+  return [
+    `# ${title}`,
+    ``,
+    `**Verdict:** ${verdict}`,
+    ``,
+    ...(blocking.length ? ["## Blockers", ...blocking.map((i) => `- ${i.text}`), ``] : []),
+    ...(minor.length ? ["## Minor (non-blocking)", ...minor.map((i) => `- ${i.text}`), ``] : []),
+    ...(blocking.length || minor.length ? [] : ["_No issues raised._", ``]),
+  ].join("\n");
 }
 
 function writeReviewArtifacts(arts: RunArtifacts, lessonId: string, o: ReviewOutcome): void {
