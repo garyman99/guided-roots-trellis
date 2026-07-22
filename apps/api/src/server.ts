@@ -2153,7 +2153,16 @@ export const server = createServer(async (req, res) => {
               // No per-user identity behind the shared admin token; the web sends
               // the signed-in operator's name as `by` (POC), else "operator".
               const by = typeof body.by === "string" && body.by.trim() ? body.by.trim().slice(0, 80) : "operator";
-              await courseRuns.settle(); // don't decide while its phase is mid-flight
+              // Fail a STALE/duplicate decision fast — never block. A double-submit
+              // (or full throttle firing twice) used to hit `await settle()`, which
+              // waits on the phase the FIRST decision already started, hanging the
+              // request for the whole (minutes-long) phase and freezing the UI.
+              // Re-read status here because readBody() above yielded the event loop.
+              const fresh = store.getCourseRun(runId);
+              if (!fresh) return json(res, 404, { error: "run not found" });
+              if (fresh.status !== `awaiting-${gateId}`) {
+                return json(res, 409, { error: `gate "${gateId}" is not awaiting a decision (status: ${fresh.status})`, run: courseRunDetail(runId) });
+              }
               // Blueprint gate: apply any per-gap dispositions to the gap report
               // and commission the ones the operator chose (writes the outbox).
               if (gateId === "blueprint" && decision === "approved") {

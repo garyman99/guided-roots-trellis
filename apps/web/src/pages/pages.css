@@ -391,6 +391,7 @@
 .cg-chat-bubble.reviewer { border-color: var(--copper-dim); background: rgba(201, 128, 58, 0.06); }
 .cg-chat-bubble.advocate { border-color: var(--copper-dim); background: rgba(201, 128, 58, 0.12); }
 .cg-chat-bubble.gate { border-style: dashed; background: transparent; }
+.cg-chat-bubble.phase { border-color: var(--green-deep); background: rgba(107, 165, 95, 0.14); font-weight: 600; }
 .cg-chat-bubble.gate p { color: var(--ink-dim); font-family: var(--mono); font-size: 0.78rem; }
 .cg-chat-who {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;

@@ -731,6 +731,9 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       ctx.emit("lesson.skipped", { lessonId: lesson.lessonId, reason: "already-authored" });
       continue;
     }
+    // Announce the lesson as authoring starts, so the operator sees WHICH lesson
+    // is in flight (n of N) before its slow author/review calls complete.
+    ctx.emit("lesson.started", { lessonId: lesson.lessonId, title: lesson.title, sequence: lesson.sequence, total: inventory.length });
     // Author → 4 reviews (technical, pedagogy, cohesion + the learner-advocate's
     // persona-fit/goal-fit critique) → on failure, re-author with the blocking
     // reviewers' feedback PLUS the advocate's advisory notes, up to the critique

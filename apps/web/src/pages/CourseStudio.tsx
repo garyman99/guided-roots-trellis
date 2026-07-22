@@ -1438,7 +1438,14 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
       // unmounts, so the button must never re-enable (it re-enabling before the
       // status visibly moved is what let a fast operator double-submit).
       .then((r) => { setMode("idle"); onDecided(r); })
-      .catch((e) => { setBusy(false); setError(String((e as Error).message)); });
+      .catch((e) => {
+        // A failure may just mean the run already left this gate (a stale/racing
+        // decision now 409s fast instead of hanging). Sync to the true state so
+        // the bar unmounts if it moved on; otherwise re-enable so a retry works.
+        courseRunApi.get(run.runId).then(onDecided).catch(() => {});
+        setBusy(false);
+        setError(String((e as Error).message));
+      });
   };
 
   // Full throttle: auto-approve this gate as soon as it appears. For the
@@ -2078,6 +2085,13 @@ function AgentChat({ run }: { run: CourseRunDetail }) {
       if (!p?.gateId) continue;
       const notes = p.noteCount ? ` — ${p.noteCount} note${p.noteCount === 1 ? "" : "s"}` : "";
       msgs.push({ at: e.at, who: p.by ?? "operator", side: "center", cls: "gate", text: `${p.gateId} gate: ${p.decision}${notes}` });
+    } else if (e.type === "lesson.started") {
+      // A per-lesson progress divider so the operator sees WHICH lesson is being
+      // authored (n of N) as its slow author/review calls run.
+      const p = e.payload as { lessonId?: string; title?: string; sequence?: number; total?: number } | undefined;
+      if (!p?.lessonId) continue;
+      const pos = p.sequence && p.total ? `${p.sequence} of ${p.total}` : p.sequence ? `${p.sequence}` : "";
+      msgs.push({ at: e.at, who: "▸ authoring", side: "center", cls: "phase", task: p.lessonId, text: `Lesson ${pos}${p.title ? ` — ${p.title}` : ""}` });
     }
   }
   // Keep the newest exchange in view as messages stream in.
