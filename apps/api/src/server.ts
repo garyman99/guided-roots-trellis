@@ -71,7 +71,7 @@ import { tryServeStatic } from "./staticServe.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
 import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
-import { buildGeneratedLabFiles, writeGeneratedLab, autoSolveGeneratedLab, stampLabImage } from "./generatedLab.ts";
+import { writeGeneratedLab, autoSolveGeneratedLab, stampLabImage } from "./generatedLab.ts";
 import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
 import { buildNodeLabFiles, isNodeLabKind } from "./nodeLabs.ts";
 import { SCENARIO_SEED, mergeScenarios, type Scenario, type ScenarioLevel } from "../../../packages/shared/src/scenarios.ts";
@@ -348,23 +348,22 @@ function buildLabFilesFor(
 ): Record<string, string> {
   const files =
     // A fully-authored artifact set (plan L1/P4) is used verbatim — trusted only
-    // because the auto-solve prove gate must pass it. Curated kinds next. The
-    // generic stub is NO LONGER a silent default (plan P1): it ships only for an
-    // explicit kind:"stub" (a no-code intro); anything else with no real lab is a
-    // fail-closed error the callers turn into a blocked lesson.
+    // because the auto-solve prove gate must pass it. Curated kinds next. There
+    // is NO generic fallback: the "complete the stub" lab was deleted (2026-07-22)
+    // because it measured `solution.txt` for every lesson regardless of what the
+    // lesson taught. Anything with no real lab is a fail-closed error the callers
+    // turn into a blocked lesson.
     lab.files
       ? withGeneratedShell(lab.files, shell)
       : isGitLabKind(lab.kind)
         ? buildGitLabFiles(lab.kind, labLesson, runId, shell)
         : isNodeLabKind(lab.kind)
           ? buildNodeLabFiles(lab.kind, labLesson, lab.expectedPackages ?? [], runId, shell)
-          : lab.kind === "stub"
-            ? buildGeneratedLabFiles(labLesson, runId, shell)
-            : (() => {
-                throw new Error(
-                  `lesson "${labLesson.lessonId}" has no real lab: kind ${JSON.stringify(lab.kind)} is not recognized and no files were authored (use a real kind, author files, or kind:"stub")`,
-                );
-              })();
+          : (() => {
+              throw new Error(
+                `lesson "${labLesson.lessonId}" has no real lab: kind ${JSON.stringify(lab.kind)} is not recognized and no files were authored. Author lab.files with a verifier that checks the lesson's observable action, use a curated kind, or declare lab.blockedBy to raise a capability gap.`,
+              );
+            })();
   // Per-course baked Environment (plan L5): the docker driver runs the lab on it.
   return stampLabImage(files, image);
 }
@@ -1049,6 +1048,47 @@ function writeSimGateOutbox(runId: string, labId: string, findings: ExperienceFi
   } catch { /* outbox is best-effort */ }
 }
 
+/**
+ * A lesson was withdrawn during authoring as un-labbable on this bench — file
+ * the capability request straight away (2026-07-22). Designing-phase gaps wait
+ * for the operator's disposition at the blueprint gate, but authoring happens
+ * AFTER that gate, so there is no decision point left to hang these on; the
+ * alternative was the run silently dropping the lesson. The brief carries the
+ * author's own reason, which is the part that tells the operator what to build.
+ * Best-effort: the outbox must never take a run down.
+ */
+function commissionAuthoringGaps(runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>): void {
+  try {
+    const tech = store.getCourseRun(runId)?.request.technology ?? "";
+    const at = new Date().toISOString();
+    const byCapability = new Map<string, { lessons: string[]; whys: string[] }>();
+    for (const g of gaps) {
+      const entry = byCapability.get(g.capability) ?? { lessons: [], whys: [] };
+      entry.lessons.push(g.lessonId);
+      entry.whys.push(`${g.lessonId}: ${g.why}`);
+      byCapability.set(g.capability, entry);
+    }
+    for (const [capabilityId, { lessons, whys }] of byCapability) {
+      writeCapabilityRequest(
+        capabilityRequestsDir(),
+        {
+          gap: { capabilityId, lessons, disposition: "commission" },
+          runId,
+          technology: tech,
+          rationale:
+            `The lesson author could not build a lab that MEASURES what these lesson(s) of the "${tech}" course teach, ` +
+            `because the bench cannot host or observe the action. Rather than ship a lab that grades something else, ` +
+            `the lesson(s) were withdrawn and this capability was commissioned.\n\n${whys.join("\n")}`,
+        },
+        at,
+      );
+    }
+    emitRunLifecycle("capability.commissioned", runId, { capabilities: [...byCapability.keys()] });
+  } catch {
+    /* outbox is best-effort — never let it fail a run */
+  }
+}
+
 // The scheduler persists run STATE through a disk-mirroring store, so run.json
 // stays current next to the content — the durable record the recovery above reads.
 const mirroredRunStore = new DiskMirroredCourseRunStore(store, (runId) => join(runsDir(), runId));
@@ -1066,6 +1106,7 @@ export const courseRuns = new CourseRunScheduler(
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);
     },
+    onCapabilityGapsFound: commissionAuthoringGaps,
     // How many times to (re)send a model call before the phase interrupts; each
     // retry feeds the validation errors back to the model.
     maxAttempts: Number(process.env.COURSE_GEN_MAX_ATTEMPTS ?? 3),

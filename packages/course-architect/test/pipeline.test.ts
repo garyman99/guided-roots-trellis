@@ -26,6 +26,7 @@ function harness(
   responder: MockResponder = defaultMockResponder,
   proveLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string }>,
   simLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string; blockers?: string[] }>,
+  commissioned?: Array<{ capability: string; why: string; lessonId: string }>,
 ) {
   let tick = 0;
   const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();
@@ -47,6 +48,7 @@ function harness(
     },
     ...(proveLesson ? { proveLesson: (i: { lessonId: string }) => proveLesson(i) } : {}),
     ...(simLesson ? { simLesson: (i: { lessonId: string }) => simLesson(i) } : {}),
+    ...(commissioned ? { onCapabilityGapsFound: (_runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>) => commissioned.push(...gaps) } : {}),
   });
   const sched = new CourseRunScheduler(store, executor, { now, idSuffix });
   return { sched, store, artifactsFor, materialized };
@@ -78,9 +80,51 @@ test("default mock: a run produces a validated, gap-free course across all five 
   assert.ok(arts.exists("reviews/widgets-101.pedagogy.json"));
   assert.ok(arts.exists("reviews/quality-gates.json"));
   assert.equal(h.materialized.at(-1)!.labIds.length, 6);
-  // The generic no-code lessons declare the stub EXPLICITLY (it's no longer a
-  // silent default) — so materialize builds a stub only when a lesson asked for it.
-  assert.equal(JSON.parse(arts.read("briefs/widgets-101.json")!).lab.kind, "stub");
+  // Every lesson ships a REAL lab. The generic "edit solution.txt" stub was
+  // deleted (2026-07-22), so there is no shape a lesson can take that measures
+  // something other than what it teaches.
+  const lab = JSON.parse(arts.read("briefs/widgets-101.json")!).lab;
+  assert.equal(lab.kind, "node-deps");
+  assert.deepEqual(lab.expectedPackages, ["left-pad"]);
+});
+
+test("a lesson the bench can't lab is withdrawn, not shipped with a fake lab", async () => {
+  // The author declares lab.blockedBy for ONE lesson: it must be blocked (never
+  // materialized), recorded as a capability gap, and commissioned — while the
+  // rest of the course ships normally. Before 2026-07-22 this lesson would have
+  // shipped a "edit solution.txt" lab that measured nothing it taught.
+  const WHY = "The bench is a Linux container, so a Windows GUI installer cannot be run or observed by any verifier.";
+  const commissioned: Array<{ capability: string; why: string; lessonId: string }> = [];
+  const responder: MockResponder = (role, prompt) => {
+    if (prompt.task === "lesson:widgets-102") {
+      const lesson = (prompt.context?.lesson ?? {}) as LessonInventoryEntry;
+      return JSON.stringify({
+        lessonId: lesson.lessonId,
+        markdown: `# ${lesson.title}\n\nInstall the toolchain.`,
+        lab: { objective: lesson.purpose, primaryAuto: "any-command", blockedBy: { capability: "windows-installer", why: WHY } },
+      });
+    }
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(responder, undefined, undefined, commissioned);
+  const runId = await driveToApproved(h, "Widgets");
+  const arts = h.artifactsFor(runId);
+
+  // Withdrawn: not materialized, no review outcome, no lab.
+  const labIds = h.materialized.at(-1)!.labIds;
+  assert.ok(!labIds.includes("widgets-102"), "a lesson with no possible lab must not be materialized");
+  assert.equal(labIds.length, 5, "the other five lessons still ship");
+  const summary = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string }>;
+  assert.ok(!summary.some((o) => o.lessonId === "widgets-102"), "a withdrawn lesson is blocked, not needs-revision");
+
+  // Recorded as a gap carrying the author's reason, and commissioned.
+  const gaps = JSON.parse(arts.read("capability-gaps.json")!).gaps as Array<{ capabilityId: string; lessons: string[]; discoveredWhileAuthoring?: { why: string }[] }>;
+  const gap = gaps.find((g) => g.capabilityId === "windows-installer");
+  assert.ok(gap, "the authoring-phase gap reaches capability-gaps.json");
+  assert.deepEqual(gap!.lessons, ["widgets-102"]);
+  assert.equal(gap!.discoveredWhileAuthoring?.[0]?.why, WHY);
+  assert.deepEqual(commissioned, [{ lessonId: "widgets-102", capability: "windows-installer", why: WHY }]);
+  assert.equal(h.store.getCourseRun(runId)!.status, "approved", "the run still completes on its labbable lessons");
 });
 
 test("the Git pack yields a real, playable Git course through the pipeline", async () => {

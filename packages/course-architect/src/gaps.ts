@@ -18,6 +18,10 @@ export interface CapabilityGap {
   lessons: string[];
   /** Set by the operator at the blueprint gate; null while pending. */
   disposition: GapDisposition | null;
+  /** Present when the AUTHOR raised this gap rather than the inventory diff:
+   *  the lesson's action can't be measured on the bench at all. Carries the
+   *  author's reason so the operator can judge it without opening the run. */
+  discoveredWhileAuthoring?: { why: string }[];
 }
 
 export interface CapabilityGapReport {
@@ -61,6 +65,31 @@ export function lessonsBlockedByGaps(report: CapabilityGapReport): Set<string> {
   const blocked = new Set<string>();
   for (const gap of report.gaps) for (const id of gap.lessons) blocked.add(id);
   return blocked;
+}
+
+/**
+ * Fold gaps the AUTHOR discovered into a report the designing phase produced
+ * (2026-07-22). Designing can only diff declared capability ids against the
+ * registry; the author is the first role forced to build a real, measurable lab
+ * and so the first that can prove the bench cannot host a lesson at all. Both
+ * kinds of gap land in one artifact, so the gate and the capability-request
+ * outbox treat them identically. An author gap for a capability designing
+ * already flagged merges into that gap rather than duplicating it, and a gap
+ * that was already dispositioned keeps its disposition.
+ */
+export function mergeAuthorGaps(report: CapabilityGapReport, authorGaps: Map<string, { capability: string; why: string }>): CapabilityGapReport {
+  const gaps = report.gaps.map((g) => ({ ...g, lessons: [...g.lessons], ...(g.discoveredWhileAuthoring ? { discoveredWhileAuthoring: [...g.discoveredWhileAuthoring] } : {}) }));
+  for (const [lessonId, { capability, why }] of authorGaps) {
+    let gap = gaps.find((g) => g.capabilityId === capability);
+    if (!gap) {
+      gap = { capabilityId: capability, lessons: [], disposition: null, discoveredWhileAuthoring: [] };
+      gaps.push(gap);
+    }
+    if (!gap.lessons.includes(lessonId)) gap.lessons.push(lessonId);
+    gap.discoveredWhileAuthoring = [...(gap.discoveredWhileAuthoring ?? []), { why }];
+  }
+  gaps.sort((a, b) => a.capabilityId.localeCompare(b.capabilityId));
+  return { available: report.available, gaps };
 }
 
 /** Apply operator dispositions (by capabilityId) to a report, returning a new one. */

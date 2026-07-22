@@ -292,25 +292,49 @@ export function findCycle(graph: PrerequisiteGraph): string[] | null {
 
 /* ── Phase 3: lesson plan + reviews ── */
 
+/** An honest "this lesson cannot be labbed on today's bench" declaration — the
+ *  ONLY alternative to a real lab (2026-07-22). It blocks the lesson and files a
+ *  capability gap for the operator instead of shipping a lab that measures
+ *  something the lesson doesn't teach. */
+export interface LabCapabilityGap {
+  /** The capability the bench would need, kebab-case (e.g. "windows-installer"). */
+  capability: string;
+  /** Why this lesson's observable action can't be measured on today's bench. */
+  why: string;
+}
+
 export interface LessonPlanDoc {
   lessonId: string;
   markdown: string;
-  /** The lab spec this lesson materializes into.
+  /** The lab spec this lesson materializes into. EXACTLY ONE of `files`, a real
+   *  `kind`, or `blockedBy` — there is no generic fallback (2026-07-22).
    *  - `files`: the FULL authored artifact set (relative path → contents:
    *    lab.json, template/…, verify/checkpoint.mjs, blueprint.json) — the same
    *    contract a human authors (plan L1). When present it is used verbatim,
    *    trusted only because auto-solve proves it (plan L3). Highest precedence.
    *  - `kind`: otherwise selects a curated real-lab builder (e.g. "git-commit",
-   *    "node-deps"); absent → the generic "complete the stub" lab.
-   *  - `expectedPackages`: structured data a curated kind needs (e.g. node-deps). */
+   *    "node-deps").
+   *  - `expectedPackages`: structured data a curated kind needs (e.g. node-deps).
+   *  - `blockedBy`: no lab is possible here; block the lesson and raise a gap. */
   lab: {
     objective: string;
     primaryAuto: string;
     kind?: string;
     expectedPackages?: string[];
     files?: Record<string, string>;
+    blockedBy?: LabCapabilityGap;
   };
 }
+
+/**
+ * `kind:"stub"` built a lab whose ONLY measured task was "edit solution.txt:
+ * replace TODO with SOLVED" — identical for every lesson, ignoring the lesson's
+ * own primaryAuto. It is rejected outright (2026-07-22 field finding: 10 of 11
+ * lessons in the Selenium run took it, so a course promising "learn PowerShell"
+ * measured a text edit, and no gate could see it because no reviewer is shown
+ * the lab). A lesson that cannot be labbed declares `lab.blockedBy` instead.
+ */
+const REJECTED_LAB_KINDS = new Set(["stub", "none", "placeholder", "conceptual"]);
 
 export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlanDoc {
   const e: string[] = [];
@@ -320,11 +344,22 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
   const lab = (d.lab ?? {}) as Record<string, unknown>;
   if (typeof lab.objective !== "string" || !(lab.objective as string).trim()) e.push("lesson plan lab.objective is required");
   if (typeof lab.primaryAuto !== "string" || !(lab.primaryAuto as string).trim()) e.push("lesson plan lab.primaryAuto is required");
-  // A lab must be CHOSEN, not defaulted: author the full files, name a real kind,
-  // or explicitly pick "stub" for a no-code intro. The generic stub is no longer
-  // a silent fallback (plan P1) — an under-specified lab blocks and re-authors.
-  if (lab.files === undefined && (typeof lab.kind !== "string" || !(lab.kind as string).trim())) {
-    e.push('lesson plan lab must declare a "kind" ("stub" for a no-code intro, or a real kind like "node-deps"/"git-commit") or author "files"');
+  // A lab must be REAL, not defaulted and not a stub: author the full files, name
+  // a real curated kind, or declare blockedBy and take the lesson out of the run.
+  const gap = validateLabGap(lab.blockedBy, e);
+  if (gap) {
+    if (lab.files !== undefined || (typeof lab.kind === "string" && lab.kind.trim())) {
+      e.push('lesson plan lab declares "blockedBy" AND a lab (files/kind) — a lesson is either labbable or blocked, not both');
+    }
+  } else if (typeof lab.kind === "string" && REJECTED_LAB_KINDS.has(lab.kind.trim().toLowerCase())) {
+    e.push(
+      `lesson plan lab.kind ${JSON.stringify(lab.kind)} is not a lab — it measures nothing this lesson teaches. ` +
+        `Author "files" with a verifier that checks the observable action named in lab.primaryAuto (${JSON.stringify(lab.primaryAuto)}), ` +
+        `name a real curated kind, or — if this lesson's action genuinely cannot be measured on the bench — declare ` +
+        `lab.blockedBy = { capability, why } so it is blocked and raised as a capability gap.`,
+    );
+  } else if (lab.files === undefined && (typeof lab.kind !== "string" || !(lab.kind as string).trim())) {
+    e.push('lesson plan lab must declare a real "kind" (e.g. "node-deps"/"git-commit"), author "files", or declare "blockedBy"');
   }
   // A node-deps lab is only well-formed with the concrete packages to verify —
   // its verifier asserts exactly these are declared, so prose can't stand in.
@@ -350,4 +385,25 @@ export function validateLessonPlan(doc: unknown, expectedId: string): LessonPlan
   }
   if (e.length) throw new ValidationError(e);
   return doc as LessonPlanDoc;
+}
+
+/**
+ * Validate the honest-escape declaration. Returns the gap when one is present
+ * and well-formed, null when absent. A vague gap is rejected: "why" has to say
+ * what the bench can't do, or this becomes the new cheap path out of authoring
+ * a real lab.
+ */
+function validateLabGap(raw: unknown, e: string[]): LabCapabilityGap | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    e.push("lesson plan lab.blockedBy must be an object { capability, why }");
+    return null;
+  }
+  const g = raw as Record<string, unknown>;
+  const capability = typeof g.capability === "string" ? g.capability.trim() : "";
+  const why = typeof g.why === "string" ? g.why.trim() : "";
+  if (!capability) e.push("lesson plan lab.blockedBy.capability is required (kebab-case capability id the bench would need)");
+  else if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(capability)) e.push(`lesson plan lab.blockedBy.capability ${JSON.stringify(capability)} must be kebab-case`);
+  if (why.length < 40) e.push("lesson plan lab.blockedBy.why must explain in a full sentence what the bench cannot observe or host (40+ chars)");
+  return capability && why.length >= 40 ? { capability, why } : null;
 }

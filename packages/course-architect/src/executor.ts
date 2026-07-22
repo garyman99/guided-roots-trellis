@@ -34,8 +34,9 @@ import {
   type Level,
   type LessonInventoryEntry,
   type LessonPlanDoc,
+  type LabCapabilityGap,
 } from "./schemas.ts";
-import { computeCapabilityGaps, lessonsBlockedByGaps, type CapabilityGapReport } from "./gaps.ts";
+import { computeCapabilityGaps, lessonsBlockedByGaps, mergeAuthorGaps, type CapabilityGapReport } from "./gaps.ts";
 import { enforceBudget } from "./budget.ts";
 import { personaPromptView } from "./personas.ts";
 import {
@@ -127,6 +128,15 @@ export interface ExecutorDeps {
   /** Real-time view: the current model call's streaming thinking/text (or null
    *  to clear). Held in memory by the host and polled by the UI. */
   onActivity?: (runId: string, activity: LiveActivity | null) => void;
+  /**
+   * A lesson was WITHDRAWN during authoring because its action can't be
+   * measured on this bench (lab.blockedBy). Unlike designing-phase gaps — which
+   * the operator dispositions at the blueprint gate, long before this — these
+   * surface after that gate has passed, so they are commissioned immediately:
+   * the host files a capability request for the operator to pick up. Optional;
+   * absent, the gap still lands in capability-gaps.json.
+   */
+  onCapabilityGapsFound?: (runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>) => void;
   /** Total attempts per model call before a phase interrupts (default 3). Each
    *  retry re-sends the prompt with the validation errors appended. */
   maxAttempts?: number;
@@ -214,12 +224,21 @@ function taskInstruction(task: string): string {
       '  "lab": {',
       '    "objective": string,             // what the lab has the learner DO',
       '    "primaryAuto": string,           // one of CONTEXT.lesson.requiredCapabilities',
-      '    "kind": "stub" | "node-deps",    // REQUIRED unless you provide "files". "stub" = a conceptual / no-code lesson with no gradable action. "node-deps" = a project-setup lab where the learner declares dependencies in package.json (offline-checkable).',
+      '    "files"?: { [path]: string },    // THE DEFAULT: author the FULL lab yourself — lab.json + template/… + verify/checkpoint.mjs + blueprint.json (with an authored solution). Used verbatim; MUST pass auto-solve (ship the template broken, the verifier strict).',
+      '    "kind"?: "node-deps",            // alternative to "files": a curated builder. "node-deps" = a project-setup lab where the learner declares dependencies in package.json (offline-checkable).',
       '    "expectedPackages"?: string[],   // REQUIRED when kind is "node-deps": the exact npm packages package.json must declare',
-      '    "files"?: { [path]: string }     // ADVANCED alternative to "kind": author the FULL lab yourself — lab.json + template/… + verify/checkpoint.mjs + blueprint.json (with an authored solution). Used verbatim; MUST pass auto-solve (ship the template broken, the verifier strict).',
+      '    "blockedBy"?: { "capability": string, "why": string }  // LAST RESORT — see THE LAB IS THE LESSON below',
       '  }',
       '}',
-      'EVERY lesson MUST pick a lab: "kind":"stub" for a conceptual lesson, "kind":"node-deps" (+expectedPackages) for a dependency-setup lesson, or author "files" for a full hands-on lab. A lab with neither a kind nor files is rejected.',
+      '',
+      'THE LAB IS THE LESSON — read this before you write a line:',
+      'The lab is the ONLY part of your lesson that is measured. A learner does not "complete" your prose; they complete the lab\'s tasks and its checkpoint. So the lab\'s measured task MUST BE the observable action the lesson teaches. If the lesson says "you will learn to run commands in PowerShell", the lab must make the learner RUN A COMMAND and verify that they did — a lab that has them edit a text file is a different lesson wearing yours as a costume, and it is rejected.',
+      'Concretely: whatever you name in "primaryAuto" is what the lab must actually observe, and the task text in your authored lab.json must name that same action. Your verify/checkpoint.mjs must fail when the learner has NOT done it and pass when they have — not merely check that some file changed.',
+      'There is NO generic/stub/placeholder lab. "kind":"stub" is rejected. You have exactly three honest outcomes:',
+      '  (a) AUTHOR "files" — the default, and what almost every lesson needs. A complete lab whose verifier checks the real action.',
+      '  (b) "kind":"node-deps" (+expectedPackages) — only when the lesson genuinely IS "declare these dependencies".',
+      '  (c) "blockedBy": { "capability": "<kebab-case-id>", "why": "<full sentence>" } — ONLY when this lesson\'s action cannot be observed on the bench AT ALL (CONTEXT.targetPlatform and the conventions describe it). Installing OS software, driving a real browser, or anything needing the network are the real cases. This BLOCKS the lesson: it is not authored, not shipped, and the gap is raised to the human operator to go build. That is the correct, honest outcome — far better than a lab that measures the wrong thing. Do NOT reach for it merely because authoring the lab is hard.',
+      'Never paper over a mismatch by explaining in the prose that the graded step is only symbolic. If the lab cannot measure the lesson, use (c).',
       '',
       'AUTHORING RULES — these are the defects reviewers reject most often. Self-check the draft against every one BEFORE returning it:',
       '1. EXPECTED OUTPUT IS ALWAYS REAL. Never print a deliberately-wrong "Expected output" block to make a teaching point — it destroys the learner\'s trust in every other Expected block. To teach "verify both sides", say so in a callout instead.',
@@ -257,6 +276,13 @@ function taskInstruction(task: string): string {
       '- "minor": everything else — stale-but-working habits, imprecise wording, redundant flags, style, hygiene suggestions, "consider also mentioning", and anything you would introduce with "Minor:" or "Nit:". A lesson can ship with these; they are recorded and fed to the author anyway.',
       'Do NOT inflate severity to force a rewrite, and do NOT invent a blocker because the issues list looks short — "approved" with an empty issues list is a valid, expected outcome for a good lesson.',
       'If you cannot VERIFY a claim (e.g. the exact markup, wording, or behaviour of a site or tool you cannot see), that is only a blocker when the lesson\'s promised output depends on it; otherwise raise it as minor and say what would settle it.',
+      '',
+      'CHECK THE LAB, NOT JUST THE PROSE. CONTEXT.lab is what the learner is actually graded on — its tasks, its checkpoint, and its verifier. The lesson\'s prose is unmeasured; the lab is the lesson as far as a learner is concerned. Always answer these, and raise a BLOCKER for any "no":',
+      '- Does completing CONTEXT.lab.measuredTasksAndCheckpoint actually demonstrate what this lesson teaches? A lesson about running terminal commands whose only graded task edits a text file is a BLOCKER, however good the prose is.',
+      '- Does the measured task match CONTEXT.lab.claimedObservableAction, and does the verifier genuinely fail when the learner has not done that action (rather than just checking that some file changed)?',
+      '- Does the lab cover the lesson\'s primary capability, or only a trivial corner of it?',
+      'If the lab or its instructor notes tell the guide to treat the lesson\'s real commands as untracked, or otherwise excuse a gap between what is taught and what is measured, that excuse IS the blocker — say so.',
+      'When CONTEXT.lab.blockedBy is present the lesson is being withdrawn as un-labbable: judge only whether that claim is honest (a bench limitation, not authoring difficulty) and whether the named capability is the right one.',
     ].join("\n");
   }
   if (task.startsWith("critique:")) return critiqueInstruction();
@@ -785,6 +811,12 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   };
 
   const critiqueEntries: CritiqueSummaryEntry[] = [];
+  // Gaps discovered during AUTHORING, not designing. The architect only sees
+  // capability ids it declared; the author is the first role that has to make a
+  // real, measurable lab and so the first that can tell the bench genuinely
+  // can't host this lesson (2026-07-22). These merge into capability-gaps.json
+  // so the operator dispositions them at the gate like any other gap.
+  const authorGaps = new Map<string, LabCapabilityGap>();
   const maxRounds = critiqueRounds();
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
   const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
@@ -845,20 +877,37 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
         (parsed) => validateLessonPlan(parsed, lesson.lessonId),
       );
       previousMarkdown = plan.markdown;
+
+      // The honest escape: the author says this lesson's action cannot be
+      // measured on this bench. Block it and raise the gap for the operator to
+      // commission — a lesson nobody can practise must never ship with a lab
+      // that measures something else (2026-07-22).
+      if (plan.lab.blockedBy) {
+        authorGaps.set(lesson.lessonId, plan.lab.blockedBy);
+        outcomes.delete(lesson.lessonId);
+        ctx.emit("lesson.blocked", { lessonId: lesson.lessonId, reason: "capability-gap", capability: plan.lab.blockedBy.capability, why: plan.lab.blockedBy.why });
+        break;
+      }
       arts.write(`lessons/${lesson.lessonId}/lesson.md`, plan.markdown);
       // The brief carries the inventory entry PLUS the authored lab spec, so
       // materializing knows which real lab (lab.kind) to build.
       arts.write(`briefs/${lesson.lessonId}.json`, JSON.stringify({ ...lesson, lab: plan.lab }, null, 2));
 
-      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown }), validateTechnicalReview);
+      // Reviewers see the LAB, not just the prose. Without it no reviewer could
+      // notice that a lesson promising PowerShell shipped a "edit solution.txt"
+      // lab — which is how 10 of 11 lessons passed three reviewers in the
+      // Selenium run (2026-07-22). `labView` is the measured contract: the
+      // action claimed, the tasks/checkpoint as authored, and the verifier.
+      const lab = labReviewView(plan.lab);
+      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab }), validateTechnicalReview);
       const pedagogy = await invokeValidated(
         deps,
         ctx,
         "pedagogy-reviewer",
-        prompt(`review:pedagogy:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, persona }),
+        prompt(`review:pedagogy:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab, persona }),
         validatePedagogyReview,
       );
-      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown }), validateCohesionReview);
+      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab }), validateCohesionReview);
       const advocate = await invokeValidated(
         deps,
         ctx,
@@ -923,6 +972,12 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       if (attempt < maxRounds) ctx.emit("lesson.revising", { lessonId: lesson.lessonId, blockers: outcome.blockers });
     }
 
+    // Withdrawn as un-labbable: no outcome to record, no lab to ship. The gap
+    // rides capability-gaps.json to the operator's gate.
+    if (authorGaps.has(lesson.lessonId)) {
+      writeLedger();
+      continue;
+    }
     outcomes.set(lesson.lessonId, outcome!);
     writeLedger();
     critiqueEntries.push({ subject, rounds: attemptsUsed, satisfied: outcome!.advocate?.satisfied ?? true });
@@ -934,6 +989,21 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     }
   }
 
+  // Fold authoring-discovered gaps into the report so they reach the operator's
+  // gate (and, on commission, curriculum/capability-requests/) exactly like the
+  // gaps designing found. These lessons count as blocked, not needs-revision.
+  const allBlocked = new Set(blocked);
+  if (authorGaps.size) {
+    const merged = mergeAuthorGaps(report, authorGaps);
+    arts.write("capability-gaps.json", JSON.stringify(merged, null, 2));
+    for (const id of authorGaps.keys()) allBlocked.add(id);
+    ctx.emit("capability.gaps", { count: merged.gaps.length, ids: merged.gaps.map((g) => g.capabilityId) });
+    deps.onCapabilityGapsFound?.(
+      ctx.run.runId,
+      [...authorGaps.entries()].map(([lessonId, g]) => ({ lessonId, capability: g.capability, why: g.why })),
+    );
+  }
+
   // Final rollups over reused + freshly-processed outcomes alike.
   const summary = inventory.map((l) => outcomes.get(l.lessonId)).filter((o): o is ReviewOutcome => !!o);
   const authored = summary.filter((o) => o.passed).map((o) => o.lessonId);
@@ -941,9 +1011,41 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
 
   if (critiqueEntries.length) recordCritiqueSummary(arts, critiqueEntries);
   writeLedger();
-  arts.write("reviews/quality-gates.json", JSON.stringify(qualityGates(inventory, authored, needsRevision, blocked, summary), null, 2));
-  arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, needsRevision, blocked));
-  if (authored.length === 0) throw new ValidationError(["no lessons passed review — every lesson is blocked on a capability gap or needs revision"]);
+  arts.write("reviews/quality-gates.json", JSON.stringify(qualityGates(inventory, authored, needsRevision, allBlocked, summary), null, 2));
+  arts.write("reviews/coverage-matrix.md", coverageMatrix(inventory, authored, needsRevision, allBlocked));
+  if (authored.length === 0) {
+    throw new ValidationError([
+      authorGaps.size
+        ? `no lessons passed review — every lesson is blocked on a capability gap or needs revision. ${authorGaps.size} lesson(s) were withdrawn as un-labbable on this bench: ${[...authorGaps.values()].map((g) => g.capability).join(", ")}. Commission those capabilities, then re-run.`
+        : "no lessons passed review — every lesson is blocked on a capability gap or needs revision",
+    ]);
+  }
+}
+
+/**
+ * What the reviewers are shown of the lab. Not the raw file blob — the parts
+ * that decide whether the lab measures the lesson: the claimed observable
+ * action, the tasks and checkpoint the learner is actually graded on, and the
+ * verifier source. A reviewer given these can answer "does completing this lab
+ * demonstrate what the lesson teaches?" — the question nothing used to ask.
+ */
+function labReviewView(lab: LessonPlanDoc["lab"]): Record<string, unknown> {
+  const base = { objective: lab.objective, claimedObservableAction: lab.primaryAuto };
+  if (lab.blockedBy) return { ...base, blockedBy: lab.blockedBy };
+  if (!lab.files) return { ...base, kind: lab.kind, ...(lab.expectedPackages ? { expectedPackages: lab.expectedPackages } : {}) };
+  let manifest: unknown = lab.files["lab.json"];
+  try {
+    const m = JSON.parse(lab.files["lab.json"] ?? "{}") as Record<string, unknown>;
+    manifest = { tasks: m.tasks, checkpoint: m.checkpoint, scenario: m.scenario, ...(m.instructorNotes ? { instructorNotes: m.instructorNotes } : {}) };
+  } catch {
+    /* malformed lab.json — show it raw so the reviewer can say so */
+  }
+  return {
+    ...base,
+    measuredTasksAndCheckpoint: manifest,
+    verifier: lab.files["verify/checkpoint.mjs"],
+    templateFiles: Object.keys(lab.files).filter((p) => p.startsWith("template/")),
+  };
 }
 
 function renderVerdictMd(title: string, verdict: Verdict, issues?: ReviewIssue[]): string {
@@ -975,12 +1077,14 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
   const lessons: MaterializeInput["lessons"] = [];
   for (const lesson of inventory) {
     if (!passed.has(lesson.lessonId)) continue; // blocked, unauthored, or needs-revision
-    // Prefer the authored lab spec (carries lab.kind → a real lab); fall back to
-    // a minimal stub spec derived from the inventory.
+    // The authored lab spec is the ONLY source of a lab. There is no derived
+    // fallback: a lesson that passed review without a brief on disk is a broken
+    // run, not a lesson to ship with an invented lab (2026-07-22).
     const brief = parseJson<Brief>(arts.read(`briefs/${lesson.lessonId}.json`) ?? "{}");
-    // Missing brief → an explicit no-code stub (the stub is never a silent default).
-    const lab = brief.lab ?? { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities[0] ?? "any-command", kind: "stub" };
-    lessons.push({ lessonId: lesson.lessonId, level: lesson.level, title: lesson.title, lab });
+    if (!brief.lab) {
+      throw new ValidationError([`lesson "${lesson.lessonId}" passed review but has no authored lab in briefs/ — re-run authoring for it rather than shipping a lesson with no real lab`]);
+    }
+    lessons.push({ lessonId: lesson.lessonId, level: lesson.level, title: lesson.title, lab: brief.lab });
   }
   const result = await deps.materialize({ run: ctx.run, courseRequestMarkdown: arts.read("course-request.md") ?? "", lessons, artifacts: arts });
   arts.write("manifest.json", JSON.stringify({ ...result, generatedAt: null, lessons: lessons.map((l) => l.lessonId) }, null, 2));

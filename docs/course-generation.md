@@ -271,6 +271,66 @@ fixed here:
    construction. **The fix is a practice-site fact sheet fed to both author and
    reviewer** — not yet written.
 
+## The lab IS the lesson (2026-07-22)
+
+Watching a simulated run of `cg-selenium-python` surfaced something worse than
+the review loop: **lesson 1 promised PowerShell and graded a text edit.** So did
+lesson 2 ("install Python") and lesson 3. All three opened Code Studio and asked
+the learner to change `solution.txt`.
+
+The cause was structural, not a bad generation. **10 of 11 lessons shipped
+`kind: "stub"`**, and every stub built the identical lab:
+
+```
+tasks: [{ id: "complete", text: "Edit solution.txt: replace TODO with SOLVED.",
+          auto: "file-edited" }]
+```
+
+hardcoding `file-edited` regardless of the lesson's declared `primaryAuto`. Three
+gates passed it because **none of them could see it**:
+
+- technical / pedagogy / cohesion were prompted with `{ lesson, lessonMarkdown }`
+  — `plan.lab` was never in the prompt. Six rounds of prose review on lesson 7,
+  and no reviewer was *able* to notice the lab taught nothing.
+- `proveLesson` checks broken-as-shipped + solvable. `TODO` → `SOLVED` satisfies
+  both by construction: it proves a lab is *a lab*, never that it's *this
+  lesson's* lab.
+- the sim gate measures friction, and a one-line text edit has none.
+
+The generated lab even shipped `instructorNotes` telling Sage *"do NOT present
+the Objective's commands as tracked tasks — they are the concept, not this lab's
+measured work."* The pipeline knew the lab didn't match and coached the guide to
+paper over it.
+
+**What changed:**
+
+1. **`kind:"stub"` is deleted** — along with `buildGeneratedLabFiles`. So are
+   `none`/`placeholder`/`conceptual` (`REJECTED_LAB_KINDS`), so the cheap path
+   can't be reopened under a new name. A lab is authored `files` or a curated
+   kind (`node-deps`, `git-commit`, `git-discard`); there is no fallback
+   anywhere, including materialize.
+2. **Reviewers see the lab.** `labReviewView()` hands them the claimed
+   observable action, the tasks/checkpoint the learner is graded on, and the
+   verifier source, with a standing criterion: *does completing this lab
+   demonstrate what the lesson teaches?* A lab that excuses the gap in its own
+   instructor notes is told that the excuse IS the blocker.
+3. **An honest escape: `lab.blockedBy: { capability, why }`.** When a lesson's
+   action genuinely can't be measured on the bench (installing OS software, a
+   real browser, the network), the author withdraws it. The lesson is blocked,
+   never materialized, and the gap is filed to
+   `curriculum/capability-requests/` for the operator — carrying the author's own
+   reason. `why` must be a real sentence (40+ chars) so this doesn't become the
+   next cheap path.
+
+**Consequence, by design:** a course now ships fewer, real lessons instead of a
+full set of fake ones. The Selenium course's install/Windows lessons should come
+back as capability requests rather than solution.txt labs. That is the intended
+outcome — extend the bench, then re-run.
+
+Gaps found during **authoring** are commissioned immediately
+(`commissionAuthoringGaps`) rather than waiting for a disposition: the blueprint
+gate, where designing-phase gaps are dispositioned, is already behind us by then.
+
 ## Capability loop (generated courses aren't limited to today's desktop)
 
 The blueprint declares each lesson's `requiredCapabilities`. Any id not in the

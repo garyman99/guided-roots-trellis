@@ -118,9 +118,17 @@ function mockLessonPlan(context?: Record<string, unknown>): LessonPlanDoc {
       `The learner completes the task and explains why it works.`,
       ``,
     ].join("\n"),
-    // The generic mock lessons are no-code placeholders → explicitly the stub
-    // (the stub is no longer a silent default; plan P1).
-    lab: { objective: lesson.purpose, primaryAuto: lesson.requiredCapabilities?.[0] ?? "any-command", kind: "stub" },
+    // A REAL lab, offline-checkable: the learner declares dependencies in
+    // package.json and the node-deps verifier asserts exactly those. The generic
+    // "edit solution.txt" stub was deleted (2026-07-22) — the mock must produce
+    // the same shape of artifact a live author now has to, or the offline
+    // pipeline stops exercising the contract the real one is held to.
+    lab: {
+      objective: lesson.purpose,
+      primaryAuto: lesson.requiredCapabilities?.[0] ?? "any-command",
+      kind: "node-deps",
+      expectedPackages: ["left-pad"],
+    },
   };
 }
 
