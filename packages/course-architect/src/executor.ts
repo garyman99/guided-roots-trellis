@@ -50,12 +50,15 @@ import {
 import type { CourseRunRequest } from "./types.ts";
 import {
   evaluateReviews,
+  evaluateBlueprintReviews,
   validateTechnicalReview,
   type ReviewIssue,
   validatePedagogyReview,
+  validateBlueprintPedagogyReview,
   validateCohesionReview,
   REVISION_THRESHOLD,
   type ReviewOutcome,
+  type BlueprintReviewOutcome,
   type Verdict,
 } from "./reviews.ts";
 
@@ -265,6 +268,44 @@ function taskInstruction(task: string): string {
       'C. Feedback items marked "(minor)" are NON-BLOCKING. Apply them only when the fix is local and safe; skip any that would force a restructure, and never let one pull a passing section apart.',
       'D. If a feedback item is wrong, or is unverifiable from what you have, do not guess at a change — leave that part as it is and say so in your "summary". A confident invention is worse than an acknowledged unknown.',
       'CRITICAL: "markdown" is a JSON STRING value — it may include code blocks, but you MUST escape newlines as \\n and double-quotes as \\", so the whole reply is one valid JSON object. Do not put raw line breaks inside the string.',
+    ].join("\n");
+  }
+  // ── blueprint panel (2026-07-22): the PLAN is reviewed before any lesson is
+  // written, because sequencing defects are unfixable at authoring time. These
+  // must be matched before the lesson variants below.
+  if (task === "review:pedagogy:blueprint") {
+    return [
+      'Score the BLUEPRINT on pedagogy. You are judging the PLAN — the progression and the lesson inventory in CONTEXT.blueprint — not any lesson\'s writing, which does not exist yet.',
+      'Return a JSON object with EXACTLY these keys:',
+      '{ "scores": { "progression": 1-5, "prerequisiteIntegrity": 1-5, "loadBalance": 1-5, "outcomeCoverage": 1-5, "levelCalibration": 1-5 }, "verdict": "approved" | "revise", "justifications"?: { <category>: string } }',
+      'The categories, judged against CONTEXT.persona and CONTEXT.courseRequest:',
+      '- progression: is every lesson a reachable step from what the learner knows by then? Name any jump that assumes a leap.',
+      '- prerequisiteIntegrity: does every lesson rest only on concepts introduced EARLIER? Cite lesson and concept for any forward reference.',
+      '- loadBalance: is new-concept load spread sanely, or does one lesson carry six new ideas while its neighbours carry one?',
+      '- outcomeCoverage: do these lessons, together, actually reach the ending capability the course promises? Name anything promised but never taught.',
+      '- levelCalibration: do the intro/beginner/…/expert labels match the real difficulty, and does autonomy increase across them?',
+      'Score 1–5 (integers). If a category is below 4, either the verdict is "revise" or add a justifications entry for it.',
+      'A structural defect (a forward reference, a promised outcome nothing teaches) is worth a low score and a "revise". A stylistic preference about ordering is not — the plan only has to be sound, not the one you would have written.',
+    ].join("\n");
+  }
+  if (task === "review:technical:blueprint") {
+    return [
+      'Review the BLUEPRINT for technical soundness on the bench this course runs on (CONTEXT.targetPlatform). You are judging the PLAN, not lesson prose — no lesson is written yet.',
+      'Return a JSON object with EXACTLY these keys:',
+      '{ "verdict": "approved" | "revise", "issues": [ { "severity": "blocker" | "minor", "text": string } ] }',
+      'Judge: is each lesson\'s primary capability actually achievable and OBSERVABLE on this bench? Are the required capabilities the right ones for what the lesson claims to teach? Is the technology sequencing correct (nothing depends on a tool installed later)? Is anything planned that the environment cannot host or measure at all?',
+      'severity "blocker" = the plan cannot be built as written (a lesson whose action nothing can observe, a tool used before it exists). severity "minor" = anything you would introduce with "consider" or "Nit:".',
+      'Reserve blockers for real impossibilities. "approved" with an empty issues list is a valid outcome for a sound plan.',
+    ].join("\n");
+  }
+  if (task === "review:cohesion:blueprint") {
+    return [
+      'Review the BLUEPRINT as ONE authored journey. You are judging the PLAN, not lesson prose — no lesson is written yet.',
+      'Return a JSON object with EXACTLY these keys:',
+      '{ "verdict": "approved" | "revise", "issues": [ { "severity": "blocker" | "minor", "text": string } ] }',
+      'Judge: does the course tell a single coherent story from first lesson to last? Is terminology consistent across the inventory? Are there redundant lessons, or gaps where the narrative jumps? Does each lesson visibly earn its place, and does the spine match the inventory it claims to describe?',
+      'severity "blocker" = a genuine break in the journey (a contradiction between spine and inventory, a lesson with no place in the arc). severity "minor" = wording and taste.',
+      '"approved" with an empty issues list is a valid outcome.',
     ].join("\n");
   }
   if (task.startsWith("review:pedagogy:")) {
@@ -724,41 +765,9 @@ async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunA
 
 async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const courseRequest = arts.read("course-request.md") ?? "";
-  const { value: bp, rounds, satisfied } = await runCritiqued(
-    deps,
-    ctx,
-    arts,
-    "blueprint",
-    `Deliver the approved course frame:\n${courseRequest}`,
-    (critiqueFeedback) =>
-      invokeValidated(
-        deps,
-        ctx,
-        "architect",
-        prompt("blueprint", {
-          ...requestContext(ctx.run.request),
-          courseRequest,
-          availableCapabilities: [...deps.availableCapabilities].sort(),
-          changeNotes: ctx.changeNotes ?? undefined,
-          critiqueFeedback: critiqueFeedback ?? undefined,
-        }),
-        validateBlueprint,
-      ),
-    // The critic reads the learner-shaped parts: the spine + the inventory
-    // (id/title/purpose/level/concepts), not the full internal graph.
-    (b) =>
-      [
-        b.progressionSpine,
-        "",
-        "## Lesson inventory",
-        ...b.lessonInventory.map(
-          (l) => `- ${l.sequence}. [${l.level}] ${l.title} — ${l.purpose} (introduces: ${l.conceptsIntroduced.join(", ") || "—"})`,
-        ),
-      ].join("\n"),
-  );
+  const { value: bp } = await runBlueprintPanel(deps, ctx, arts, courseRequest);
   writeBlueprint(arts, bp);
   resetAuthoringLedger(arts);
-  recordCritiqueSummary(arts, [{ subject: "blueprint", rounds, satisfied }]);
 
   // Capability gaps: diff the inventory's required capabilities vs the registry.
   const report = computeCapabilityGaps(bp.lessonInventory, deps.availableCapabilities);
@@ -769,6 +778,120 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   for (const path of ["domain-map.md", "progression-spine.md", "course-conventions.md", "plan-review.md", "prerequisite-graph.json", "lesson-inventory.json"]) {
     ctx.emit("artifact.written", { path });
   }
+}
+
+/**
+ * What the blueprint's reviewers are shown. The advocate used to get the spine
+ * plus a one-line-per-lesson summary and nothing else — no prerequisite graph,
+ * no conventions, no reinforced concepts, no required capabilities — so it was
+ * reviewing the plan with its eyes half closed (2026-07-22). The panel sees the
+ * whole learner-shaped plan; only the domain map (working notes) is left out.
+ */
+function blueprintReviewView(b: Blueprint): string {
+  return [
+    b.progressionSpine,
+    "",
+    "## Conventions",
+    b.conventions,
+    "",
+    "## Lesson inventory",
+    ...b.lessonInventory.map((l) =>
+      [
+        `- ${l.sequence}. [${l.level}] ${l.title} (id: ${l.lessonId})`,
+        `    purpose: ${l.purpose}`,
+        `    primary capability: ${l.primaryCapability}`,
+        `    introduces: ${l.conceptsIntroduced.join(", ") || "—"}`,
+        `    reinforces: ${l.conceptsReinforced.join(", ") || "—"}`,
+        `    prerequisites: ${l.prerequisites.join(", ") || "—"}`,
+        `    required capabilities: ${l.requiredCapabilities.join(", ") || "—"}`,
+      ].join("\n"),
+    ),
+    "",
+    "## Concept prerequisite graph",
+    ...b.prerequisiteGraph.edges.map((e) => `- ${e.from} → ${e.to}`),
+  ].join("\n");
+}
+
+/**
+ * The blueprint review panel (2026-07-22). The plan used to face ONE critic, the
+ * learner-advocate, whose lens is persona-fit and goal-fit — so the decisions
+ * that actually determine a course's pedagogy (sequencing, what rests on what,
+ * where the load falls, whether the inventory reaches the promised outcome) were
+ * only ever caught by luck, and then blamed on individual lessons at authoring
+ * time where they could not be fixed.
+ *
+ * Same machine as the authoring loop, one layer up: produce → technical +
+ * pedagogy + cohesion + advocate → blockers drive a re-produce carrying the
+ * feedback. Verdict reviewers vote (with severity, so nitpicks can't loop it);
+ * the advocate advises.
+ */
+async function runBlueprintPanel(
+  deps: RunDeps,
+  ctx: PhaseContext,
+  arts: RunArtifacts,
+  courseRequest: string,
+): Promise<{ value: Blueprint; rounds: number; satisfied: boolean }> {
+  const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
+  const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
+  const maxRounds = critiqueRounds();
+  let feedback: string[] | null = null;
+  let bp!: Blueprint;
+  let outcome: BlueprintReviewOutcome | null = null;
+  let round = 0;
+
+  for (round = 1; round <= maxRounds; round++) {
+    bp = await invokeValidated(
+      deps,
+      ctx,
+      "architect",
+      prompt("blueprint", {
+        ...requestContext(ctx.run.request),
+        courseRequest,
+        availableCapabilities: [...deps.availableCapabilities].sort(),
+        changeNotes: ctx.changeNotes ?? undefined,
+        critiqueFeedback: feedback ?? undefined,
+      }),
+      validateBlueprint,
+    );
+    const blueprint = blueprintReviewView(bp);
+    const context = { targetPlatform, courseRequest, blueprint };
+
+    const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt("review:technical:blueprint", context), validateTechnicalReview);
+    const pedagogy = await invokeValidated(deps, ctx, "pedagogy-reviewer", prompt("review:pedagogy:blueprint", { ...context, persona }), validateBlueprintPedagogyReview);
+    const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt("review:cohesion:blueprint", context), validateCohesionReview);
+    const advocate = await invokeValidated(
+      deps,
+      ctx,
+      "learner-advocate",
+      prompt("critique:blueprint", { targetPlatform, subject: "blueprint", round, goal: `Deliver the approved course frame:\n${courseRequest}`, persona, content: blueprint }),
+      validateCritiqueVerdict,
+    );
+    arts.write(`critiques/blueprint.round${round}.json`, JSON.stringify(advocate, null, 2));
+    ctx.emit("critique.round", {
+      subject: "blueprint",
+      round,
+      satisfied: advocate.satisfied,
+      personaFitOk: advocate.personaFit.ok,
+      goalFitOk: advocate.goalFit.ok,
+      requiredChanges: advocate.requiredChanges.length,
+    });
+
+    outcome = evaluateBlueprintReviews(technical, pedagogy, cohesion, advocate);
+    arts.write("reviews/blueprint.technical.md", renderVerdictMd("Blueprint — technical review", technical.verdict, technical.issues));
+    arts.write("reviews/blueprint.pedagogy.json", JSON.stringify(pedagogy, null, 2));
+    arts.write("reviews/blueprint.cohesion.md", renderVerdictMd("Blueprint — cohesion review", cohesion.verdict, cohesion.issues));
+    arts.write("reviews/blueprint.summary.json", JSON.stringify({ round, ...outcome }, null, 2), { archive: false });
+    ctx.emit("blueprint.reviewed", { round, passed: outcome.passed, scores: pedagogy.scores, blockers: outcome.blockers });
+
+    if (outcome.passed) break;
+    feedback = [...outcome.blockers, ...outcome.advisory];
+    if (round < maxRounds) ctx.emit("blueprint.revising", { round, blockers: outcome.blockers });
+  }
+
+  const satisfied = !!outcome?.passed;
+  if (!satisfied) ctx.emit("critique.unsatisfied", { subject: "blueprint", rounds: round - 1 });
+  recordCritiqueSummary(arts, [{ subject: "blueprint", rounds: Math.min(round, maxRounds), satisfied }]);
+  return { value: bp, rounds: Math.min(round, maxRounds), satisfied };
 }
 
 /** A fresh blueprint invalidates any prior authoring ledger — lessons authored

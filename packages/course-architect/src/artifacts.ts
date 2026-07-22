@@ -30,7 +30,11 @@ const ALLOW: RegExp[] = [
   /^lessons\/[a-z0-9-]+\/lesson\.md$/,
   /^lessons\/[a-z0-9-]+\/lab\/[A-Za-z0-9._\/-]+$/,
   /^reviews\/[a-z0-9-]+\.(technical\.md|pedagogy\.json|cohesion\.md)$/,
-  /^reviews\/(course\.cohesion\.md|coverage-matrix\.md|quality-gates\.json|summary\.json)$/,
+  // `blueprint.summary.json` is the blueprint panel's outcome ledger (the plan's
+  // equivalent of reviews/summary.json). Its three verdict artifacts —
+  // reviews/blueprint.{technical.md,pedagogy.json,cohesion.md} — already match
+  // the per-subject rule above, since "blueprint" is a valid subject slug.
+  /^reviews\/(course\.cohesion\.md|coverage-matrix\.md|quality-gates\.json|summary\.json|blueprint\.summary\.json)$/,
   /^critiques\/[a-z0-9-]+\.round([1-9]|10)\.json$/,
   /^critiques\/summary\.json$/,
   /^sim-tests\/[a-z0-9-]+\/(result\.json|simulator-trace\.md)$/,

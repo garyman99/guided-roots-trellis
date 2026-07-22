@@ -7,10 +7,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   evaluateReviews,
+  evaluateBlueprintReviews,
   validatePedagogyReview,
+  validateBlueprintPedagogyReview,
   validateTechnicalReview,
   REVISION_THRESHOLD,
   PEDAGOGY_CATEGORIES,
+  BLUEPRINT_PEDAGOGY_CATEGORIES,
   type PedagogyReview,
 } from "../src/reviews.ts";
 import { ValidationError } from "../src/schemas.ts";
@@ -92,6 +95,39 @@ test("blockers and minors from the same review are separated", () => {
   assert.equal(o.passed, false);
   assert.deepEqual(o.blockers, ["technical: the demo cannot print what it promises"]);
   assert.deepEqual(o.advisory, ["technical (minor): drop -UseBasicParsing"]);
+});
+
+test("the blueprint panel scores its OWN rubric and blocks on structural defects", () => {
+  const bpScores = (v: number) => Object.fromEntries(BLUEPRINT_PEDAGOGY_CATEGORIES.map((c) => [c, v])) as Record<(typeof BLUEPRINT_PEDAGOGY_CATEGORIES)[number], number>;
+  // The lesson rubric is NOT the blueprint rubric — a plan has no activeLearning.
+  assert.throws(() => validateBlueprintPedagogyReview({ scores: allScores(5), verdict: "approved" }), ValidationError);
+  const ok = validateBlueprintPedagogyReview({ scores: bpScores(5), verdict: "approved" });
+  assert.equal(ok.scores.prerequisiteIntegrity, 5);
+
+  // A sound plan passes.
+  const good = evaluateBlueprintReviews({ verdict: "approved" }, { scores: bpScores(5), verdict: "approved" }, { verdict: "approved" });
+  assert.equal(good.passed, true);
+  assert.deepEqual(good.blockers, []);
+
+  // An unjustified low score on a plan-level category blocks the BLUEPRINT —
+  // the point of the panel: catch it here, not by blaming a lesson later.
+  const bad = evaluateBlueprintReviews(
+    { verdict: "approved" },
+    { scores: { ...bpScores(5), prerequisiteIntegrity: 2 }, verdict: "revise" },
+    { verdict: "approved" },
+  );
+  assert.equal(bad.passed, false);
+  assert.deepEqual(bad.failingCategories, ["prerequisiteIntegrity"]);
+  assert.ok(bad.blockers.some((b) => /prerequisiteIntegrity=2/.test(b)));
+
+  // Same severity discipline as the lesson panel: nitpicks can't loop the plan.
+  const nitpicked = evaluateBlueprintReviews(
+    { verdict: "revise", issues: [{ severity: "minor", text: "lesson 4's title could be punchier" }] },
+    { scores: bpScores(5), verdict: "approved" },
+    { verdict: "approved" },
+  );
+  assert.equal(nitpicked.passed, true);
+  assert.deepEqual(nitpicked.advisory, ["technical (minor): lesson 4's title could be punchier"]);
 });
 
 test("a bare 'revise' with no itemised issues still blocks", () => {

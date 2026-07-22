@@ -88,6 +88,40 @@ test("default mock: a run produces a validated, gap-free course across all five 
   assert.deepEqual(lab.expectedPackages, ["left-pad"]);
 });
 
+test("the blueprint faces a full review panel, and its blockers re-plan the course", async () => {
+  // Before 2026-07-22 the plan met only the learner-advocate, so sequencing
+  // defects reached authoring where no lesson could fix them. The panel votes
+  // on the plan itself and its blockers drive a re-plan.
+  let pedagogyRounds = 0;
+  const responder: MockResponder = (role, prompt) => {
+    if (prompt.task === "review:pedagogy:blueprint") {
+      pedagogyRounds++;
+      // Round 1: the plan has a forward reference. Round 2+: fixed.
+      return pedagogyRounds === 1
+        ? JSON.stringify({
+            scores: { progression: 4, prerequisiteIntegrity: 2, loadBalance: 4, outcomeCoverage: 4, levelCalibration: 4 },
+            verdict: "revise",
+            summary: "Lesson 4 assumes lists, which nothing introduces.",
+          })
+        : defaultMockResponder(role, prompt);
+    }
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(responder);
+  const runId = await driveToApproved(h, "Widgets");
+  const arts = h.artifactsFor(runId);
+
+  assert.equal(pedagogyRounds, 2, "an unjustified low plan score re-plans, then converges");
+  // The panel's verdicts are recorded next to the lesson reviews.
+  assert.ok(arts.exists("reviews/blueprint.pedagogy.json"), "plan pedagogy is scored and kept");
+  assert.ok(arts.exists("reviews/blueprint.technical.md"));
+  assert.ok(arts.exists("reviews/blueprint.cohesion.md"));
+  const summary = JSON.parse(arts.read("reviews/blueprint.summary.json")!) as { passed: boolean; blockers: string[] };
+  assert.equal(summary.passed, true, "the shipped plan is one that passed the panel");
+  assert.deepEqual(summary.blockers, []);
+  assert.equal(h.store.getCourseRun(runId)!.status, "approved");
+});
+
 test("a lesson the bench can't lab is withdrawn, not shipped with a fake lab", async () => {
   // The author declares lab.blockedBy for ONE lesson: it must be blocked (never
   // materialized), recorded as a capability gap, and commissioned — while the
@@ -326,6 +360,40 @@ test("blueprint validation rejects a cyclic prerequisite graph and unknown prere
   // findCycle directly
   assert.ok(findCycle({ concepts: ["a", "b", "c"], edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }, { from: "c", to: "a" }] }));
   assert.equal(findCycle({ concepts: ["a", "b"], edges: [{ from: "a", to: "b" }] }), null);
+});
+
+test("blueprint validation enforces concept continuity (the free half of plan pedagogy)", () => {
+  const lesson = (lessonId: string, sequence: number, introduced: string[], reinforced: string[]) => ({
+    lessonId, level: "intro" as const, sequence, title: "t", purpose: "p", primaryCapability: "c",
+    conceptsIntroduced: introduced, conceptsReinforced: reinforced, prerequisites: [], requiredCapabilities: [],
+  });
+  const bp = (inventory: ReturnType<typeof lesson>[]) => ({
+    domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
+    prerequisiteGraph: { concepts: [], edges: [] },
+    lessonInventory: inventory,
+  });
+
+  // Introduce then reinforce — the sound shape.
+  assert.doesNotThrow(() => validateBlueprint(bp([lesson("l-1", 1, ["variables"], []), lesson("l-2", 2, ["lists"], ["variables"])])));
+
+  // Reinforcing something no earlier lesson introduced — the defect that used to
+  // surface as a per-LESSON pedagogy score, blaming the lesson for a plan bug.
+  assert.throws(
+    () => validateBlueprint(bp([lesson("l-1", 1, ["variables"], []), lesson("l-2", 2, ["lists"], ["f-strings"])])),
+    /lesson "l-2" reinforces the concept "f-strings" but no EARLIER lesson introduces it \(no lesson introduces it at all\)/,
+  );
+  // Introduced, but LATER — still a forward reference.
+  assert.throws(
+    () => validateBlueprint(bp([lesson("l-1", 1, [], ["lists"]), lesson("l-2", 2, ["lists"], [])])),
+    /lesson "l-1" reinforces the concept "lists" but no EARLIER lesson introduces it/,
+  );
+  // Two lessons both claiming first contact.
+  assert.throws(
+    () => validateBlueprint(bp([lesson("l-1", 1, ["loops"], []), lesson("l-2", 2, ["loops"], [])])),
+    /concept "loops" is introduced twice — by "l-1" and again by "l-2"/,
+  );
+  // Casing/whitespace drift in hand-written concept names is not a defect.
+  assert.doesNotThrow(() => validateBlueprint(bp([lesson("l-1", 1, ["F-Strings"], []), lesson("l-2", 2, [], ["f-strings"])])));
 });
 
 test("blueprint validation reserves the -v<N> lesson-id namespace for versions (D11)", () => {

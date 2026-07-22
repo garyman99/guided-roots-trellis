@@ -206,8 +206,64 @@ export function validateBlueprint(doc: unknown): Blueprint {
     if (cycle) e.push(`prerequisiteGraph has a cycle: ${cycle.join(" → ")}`);
   }
 
+  checkConceptContinuity(inv, e);
+
   if (e.length) throw new ValidationError(e);
   return doc as Blueprint;
+}
+
+/**
+ * Concept continuity — the deterministic half of blueprint pedagogy
+ * (2026-07-22). Acyclicity and "prerequisites name real lessons" were already
+ * checked, but nothing verified the thing that actually strands a learner: a
+ * lesson REINFORCING a concept no earlier lesson INTRODUCED, or two lessons
+ * claiming to introduce the same concept.
+ *
+ * This is exact and free — the inventory already carries the data — and it
+ * catches the defect class that used to surface as a per-lesson pedagogy score,
+ * where it blamed the lesson instead of the plan and burned re-author rounds on
+ * an artifact that couldn't fix it.
+ *
+ * Comparison is case-insensitive and whitespace-normalized: the architect writes
+ * these by hand and "f-strings" vs "F-strings" is not a pedagogical defect.
+ */
+function checkConceptContinuity(inv: unknown[], e: string[]): void {
+  const norm = (c: unknown) => String(c ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const introducedBy = new Map<string, string>(); // concept → first lesson that introduces it
+  const seen = new Set<string>(); // concepts introduced by an EARLIER lesson
+
+  inv.forEach((raw, i) => {
+    const l = (raw ?? {}) as Record<string, unknown>;
+    const lessonId = typeof l.lessonId === "string" ? l.lessonId : `lessonInventory[${i}]`;
+    const introduced = (Array.isArray(l.conceptsIntroduced) ? l.conceptsIntroduced : []) as unknown[];
+    const reinforced = (Array.isArray(l.conceptsReinforced) ? l.conceptsReinforced : []) as unknown[];
+
+    // Reinforcing something nothing has taught yet is a forward reference.
+    for (const c of reinforced) {
+      const key = norm(c);
+      if (!key || seen.has(key)) continue;
+      const later = introducedBy.has(key) ? "" : " (no lesson introduces it at all)";
+      e.push(
+        `lesson "${lessonId}" reinforces the concept "${String(c)}" but no EARLIER lesson introduces it${later} — ` +
+          `either introduce it before this lesson, move this lesson later, or drop the claim`,
+      );
+    }
+    // Two lessons both claiming first contact means neither can rely on the other.
+    for (const c of introduced) {
+      const key = norm(c);
+      if (!key) continue;
+      const prior = introducedBy.get(key);
+      if (prior && prior !== lessonId) {
+        e.push(`concept "${String(c)}" is introduced twice — by "${prior}" and again by "${lessonId}"; the later lesson should reinforce it, not introduce it`);
+      } else if (!prior) {
+        introducedBy.set(key, lessonId);
+      }
+    }
+    for (const c of introduced) {
+      const key = norm(c);
+      if (key) seen.add(key);
+    }
+  });
 }
 
 /* ── Lesson-revision runs (versioning plan Phase D) ── */

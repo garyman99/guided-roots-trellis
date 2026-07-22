@@ -173,8 +173,12 @@ const GIT_PACK: CoursePack = {
         title: "Stage and commit a change",
         purpose: "Record an uncommitted change into history with git add and git commit.",
         primaryCapability: "Stage and commit a change so the working tree is clean.",
-        conceptsIntroduced: ["staging", "commit"],
-        conceptsReinforced: ["working-tree"],
+        // Lesson 1 is where the learner MEETS the working tree — it introduces
+        // the concept the rest of the pack reinforces. (It claimed to reinforce
+        // it, which the concept-continuity check correctly rejected: nothing
+        // introduced it.)
+        conceptsIntroduced: ["working-tree", "staging", "commit"],
+        conceptsReinforced: [],
         prerequisites: [],
         requiredCapabilities: ["any-command", "code"],
       },
@@ -288,6 +292,15 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
     return JSON.stringify({ satisfied: true, personaFit: { ok: true, issues: [] }, goalFit: { ok: true, issues: [] }, requiredChanges: [], summary: "No persona-fit or goal-fit objections — the draft stays within the persona's level and serves its stated goal." });
   }
   // Reviews are structured; a passing verdict keeps the default course moving.
+  // The blueprint panel scores a DIFFERENT rubric than a lesson (plan-level:
+  // sequencing, load, coverage) — see BLUEPRINT_PEDAGOGY_CATEGORIES.
+  if (prompt.task === "review:pedagogy:blueprint") {
+    return JSON.stringify({
+      scores: { progression: 5, prerequisiteIntegrity: 5, loadBalance: 5, outcomeCoverage: 5, levelCalibration: 5 },
+      verdict: "approved",
+      summary: "Blueprint pedagogy approved — the progression is sound and every lesson rests on concepts introduced earlier.",
+    });
+  }
   if (prompt.task.startsWith("review:pedagogy:")) return JSON.stringify({ scores: { priorKnowledge: 5, mentalModel: 5, activeLearning: 5, feedback: 5, mastery: 5 }, verdict: "approved", summary: "Pedagogy approved — full marks across the rubric." });
   if (prompt.task.startsWith("review:technical:")) return JSON.stringify({ verdict: "approved", issues: [], summary: "Technically sound — no correctness or currency issues found." });
   if (prompt.task.startsWith("review:cohesion:")) return JSON.stringify({ verdict: "approved", issues: [], summary: "Reads as one coherent journey — no cohesion issues." });

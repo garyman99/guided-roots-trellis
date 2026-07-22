@@ -32,7 +32,13 @@ function fakeFetch(provider: Provider): typeof fetch {
     const lessonId = (context.lesson as { lessonId?: string } | undefined)?.lessonId ?? "x";
     const task =
       user.match(/Produce the "([^"]+)" artifact/)?.[1] ??
-      (/"personaFit"/.test(user) ? `critique:${lessonId}`
+      // The blueprint PANEL (2026-07-22) reviews the plan with its own rubric —
+      // match these before the lesson variants, or "pedagogy" below swallows the
+      // blueprint pedagogy review and answers it with the lesson's categories.
+      (/Score the BLUEPRINT on pedagogy/.test(user) ? "review:pedagogy:blueprint"
+        : /Review the BLUEPRINT for technical soundness/.test(user) ? "review:technical:blueprint"
+        : /Review the BLUEPRINT as ONE authored journey/.test(user) ? "review:cohesion:blueprint"
+        : /"personaFit"/.test(user) ? `critique:${lessonId}`
         : /course-request/.test(user) ? "course-request"
         : /course blueprint/.test(user) ? "blueprint"
         : /lesson plan for/.test(user) ? `lesson:${lessonId}`

@@ -331,6 +331,45 @@ Gaps found during **authoring** are commissioned immediately
 (`commissionAuthoringGaps`) rather than waiting for a disposition: the blueprint
 gate, where designing-phase gaps are dispositioned, is already behind us by then.
 
+## The blueprint gets a review panel (2026-07-22)
+
+Until now the **plan** faced exactly one critic — the learner-advocate — in both
+framing and designing. `plan-review.md` isn't a second opinion either: the
+architect writes it about its own blueprint.
+
+That's the wrong place to be thin. The decisions that determine a course's
+pedagogy — sequencing, what rests on what, where the load falls, whether the
+inventory reaches the promised outcome — are ALL made in the blueprint and are
+unfixable afterwards. Per-lesson pedagogy could only score how well a lesson
+executed a plan it had no power to change, so a plan defect ("lesson 5 needs
+lists; nothing introduced lists") blocked **lesson 5** and burned re-author
+rounds on the wrong artifact.
+
+Designing now runs the same machine authoring does, one layer up:
+**produce → technical + pedagogy + cohesion + advocate → blockers re-plan**
+(`runBlueprintPanel`), with the advocate advisory and severity deciding what
+blocks — a blueprint has unbounded surface for "you could sequence this better",
+so only structural defects may stop it.
+
+- **Its own rubric.** `BLUEPRINT_PEDAGOGY_CATEGORIES` = progression,
+  prerequisiteIntegrity, loadBalance, outcomeCoverage, levelCalibration. The
+  lesson rubric is not reused — `activeLearning` and `feedback` are meaningless
+  for a plan.
+- **Reviewers see the whole plan.** The advocate used to get the spine plus a
+  one-line-per-lesson summary — no prerequisite graph, no conventions, no
+  reinforced concepts, no required capabilities. `blueprintReviewView()` now
+  shows all of it.
+- **A free deterministic check first.** `checkConceptContinuity` rejects a
+  blueprint where a lesson reinforces a concept no EARLIER lesson introduces, or
+  where two lessons both claim to introduce one. No model call; exact; caught
+  the real thing on its first run (the Git pack's `working-tree` was the
+  prerequisite graph's root but no lesson introduced it).
+- Artifacts land next to the lesson reviews: `reviews/blueprint.technical.md`,
+  `.pedagogy.json`, `.cohesion.md`, `.summary.json`.
+
+Framing was left alone — it's a short scoping doc, and the advocate is the right
+single critic for "is this scoped to this persona".
+
 ## Capability loop (generated courses aren't limited to today's desktop)
 
 The blueprint declares each lesson's `requiredCapabilities`. Any id not in the

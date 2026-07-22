@@ -12,6 +12,28 @@ import type { CritiqueVerdict } from "./critique.ts";
 export const PEDAGOGY_CATEGORIES = ["priorKnowledge", "mentalModel", "activeLearning", "feedback", "mastery"] as const;
 export type PedagogyCategory = (typeof PEDAGOGY_CATEGORIES)[number];
 
+/**
+ * Blueprint-scoped pedagogy rubric (2026-07-22). NOT the lesson rubric reused —
+ * `activeLearning` and `feedback` are meaningless for a plan, while the things
+ * that decide a course's pedagogy are decided HERE and are unfixable later:
+ * sequencing, what rests on what, how load is spread, whether the inventory
+ * actually reaches the promised outcome.
+ *
+ * Before this, the only critic on the blueprint was the learner-advocate, and
+ * per-lesson pedagogy could merely score how well a lesson executed a plan it
+ * had no power to change — so a plan defect (lesson 5 needs lists; nothing
+ * introduced lists) blocked LESSON 5 and burned re-author rounds on the wrong
+ * artifact.
+ */
+export const BLUEPRINT_PEDAGOGY_CATEGORIES = [
+  "progression",
+  "prerequisiteIntegrity",
+  "loadBalance",
+  "outcomeCoverage",
+  "levelCalibration",
+] as const;
+export type BlueprintPedagogyCategory = (typeof BLUEPRINT_PEDAGOGY_CATEGORIES)[number];
+
 /** Any score below this fails the lesson unless justified. */
 export const REVISION_THRESHOLD = 4;
 
@@ -50,6 +72,11 @@ export interface PedagogyReview {
   /** Per-category rationale; a justified low score does NOT fail the lesson. */
   justifications?: Partial<Record<PedagogyCategory, string>>;
 }
+export interface BlueprintPedagogyReview {
+  scores: Record<BlueprintPedagogyCategory, number>;
+  verdict: Verdict;
+  justifications?: Partial<Record<BlueprintPedagogyCategory, string>>;
+}
 
 /**
  * Coerce one raw issue into a severity-tagged one. A bare string (older model
@@ -80,23 +107,33 @@ export function validateCohesionReview(doc: unknown): CohesionReview {
   return validateVerdictDoc(doc, "cohesion-review");
 }
 
-export function validatePedagogyReview(doc: unknown): PedagogyReview {
+/** Shared scored-rubric validator — the lesson and blueprint rubrics differ only
+ *  in their category set. */
+function validateScoredReview<C extends string>(doc: unknown, categories: readonly C[], label: string): { scores: Record<C, number>; verdict: Verdict; justifications?: Partial<Record<C, string>> } {
   const e: string[] = [];
   const d = (doc ?? {}) as Record<string, unknown>;
   const rawScores = (d.scores ?? {}) as Record<string, unknown>;
-  const scores = {} as Record<PedagogyCategory, number>;
-  for (const cat of PEDAGOGY_CATEGORIES) {
+  const scores = {} as Record<C, number>;
+  for (const cat of categories) {
     const v = rawScores[cat];
-    if (typeof v !== "number" || v < 1 || v > 5 || !Number.isFinite(v)) e.push(`pedagogy-review.scores.${cat} must be a number 1–5`);
+    if (typeof v !== "number" || v < 1 || v > 5 || !Number.isFinite(v)) e.push(`${label}.scores.${cat} must be a number 1–5`);
     else scores[cat] = v;
   }
-  if (d.verdict !== "approved" && d.verdict !== "revise") e.push(`pedagogy-review.verdict must be "approved" or "revise"`);
+  if (d.verdict !== "approved" && d.verdict !== "revise") e.push(`${label}.verdict must be "approved" or "revise"`);
   if (e.length) throw new ValidationError(e);
   return {
     scores,
     verdict: d.verdict as Verdict,
-    ...(d.justifications && typeof d.justifications === "object" ? { justifications: d.justifications as PedagogyReview["justifications"] } : {}),
+    ...(d.justifications && typeof d.justifications === "object" ? { justifications: d.justifications as Partial<Record<C, string>> } : {}),
   };
+}
+
+export function validatePedagogyReview(doc: unknown): PedagogyReview {
+  return validateScoredReview(doc, PEDAGOGY_CATEGORIES, "pedagogy-review");
+}
+
+export function validateBlueprintPedagogyReview(doc: unknown): BlueprintPedagogyReview {
+  return validateScoredReview(doc, BLUEPRINT_PEDAGOGY_CATEGORIES, "blueprint-pedagogy-review");
 }
 
 export interface ReviewOutcome {
@@ -163,4 +200,60 @@ export function evaluateReviews(
     if (advisory.length === before) advisory.push("learner-advocate: unsatisfied");
   }
   return { lessonId, passed: blockers.length === 0, technical, pedagogy, cohesion, ...(advocate ? { advocate } : {}), failingCategories, blockers, advisory };
+}
+
+export interface BlueprintReviewOutcome {
+  passed: boolean;
+  technical: TechnicalReview;
+  pedagogy: BlueprintPedagogyReview;
+  cohesion: CohesionReview;
+  advocate?: CritiqueVerdict;
+  failingCategories: BlueprintPedagogyCategory[];
+  blockers: string[];
+  advisory: string[];
+}
+
+/**
+ * The blueprint's review panel (2026-07-22). Same machine as `evaluateReviews`,
+ * one layer up: technical/cohesion vote with severity, the blueprint pedagogy
+ * rubric fails a category scored below threshold without a justification, and
+ * the learner-advocate stays ADVISORY.
+ *
+ * Severity discipline matters more here, not less. A blueprint has unbounded
+ * surface for "you could sequence this better", so only structural defects — a
+ * concept used before it is introduced, an inventory that doesn't reach the
+ * promised outcome — may block. Everything else is advisory and rides to the
+ * operator's gate. Without that rule this becomes the non-convergent critic the
+ * advocate already had to be demoted for being.
+ */
+export function evaluateBlueprintReviews(
+  technical: TechnicalReview,
+  pedagogy: BlueprintPedagogyReview,
+  cohesion: CohesionReview,
+  advocate?: CritiqueVerdict,
+): BlueprintReviewOutcome {
+  const failingCategories = BLUEPRINT_PEDAGOGY_CATEGORIES.filter(
+    (cat) => pedagogy.scores[cat] < REVISION_THRESHOLD && !(pedagogy.justifications?.[cat]?.trim()),
+  );
+  const blockers: string[] = [];
+  const advisory: string[] = [];
+  for (const [label, review] of [
+    ["technical", technical],
+    ["cohesion", cohesion],
+  ] as const) {
+    const blocking = (review.issues ?? []).filter((i) => i.severity === "blocker");
+    const minor = (review.issues ?? []).filter((i) => i.severity === "minor");
+    if (blocking.length) blockers.push(`${label}: ${blocking.map((i) => i.text).join("; ")}`);
+    else if (review.verdict === "revise" && !minor.length) blockers.push(`${label}: revise`);
+    for (const i of minor) advisory.push(`${label} (minor): ${i.text}`);
+  }
+  for (const cat of failingCategories) blockers.push(`pedagogy.${cat}=${pedagogy.scores[cat]} (< ${REVISION_THRESHOLD}, unjustified)`);
+  if (advocate && !advocate.satisfied) {
+    const before = advisory.length;
+    for (const i of advocate.personaFit.issues) advisory.push(`persona-fit: ${i}`);
+    for (const i of advocate.goalFit.issues) advisory.push(`goal-fit: ${i}`);
+    for (const c of advocate.requiredChanges) advisory.push(`learner-advocate: ${c}`);
+    if (advisory.length === before) advisory.push("learner-advocate: unsatisfied");
+  }
+  return { passed: blockers.length === 0, technical, pedagogy, cohesion, ...(advocate ? { advocate } : {}), failingCategories, blockers, advisory };
 }
