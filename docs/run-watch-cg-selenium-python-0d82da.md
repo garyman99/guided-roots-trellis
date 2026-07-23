@@ -172,3 +172,44 @@ shapes this run produced.
 
 Nothing in the run dir needs cleaning first: no reviews were written, and the
 one brief on disk gets overwritten when lesson 1 re-authors.
+
+---
+
+# Unblocking `selenium-chrome-runtime` (2026-07-22, run cg-selenium-python-7af488)
+
+A later run shipped 8/9 lessons and honestly blocked
+`venv-pip-and-first-chrome-script` — the browser lesson — with
+`lab.blockedBy: selenium-chrome-runtime`. Working to unblock it.
+
+**Key finding:** the auto-generated capability request mis-classified this. Per
+the build-capability skill, a gap must be an app / auto-rule / checkpoint kind —
+this is none of them. It's a **baked Environment image** (the `environmentImage`
+axis), so there is deliberately **no** `capabilities.ts` entry (it would be inert
+— the block came from the author's `blockedBy` judgment, not a registry diff).
+
+Three parts:
+
+- **Part A — bench-awareness wiring (DONE, `9a29648`).** Building the image alone
+  wouldn't unblock: the author blocks because nothing tells it the bench has a
+  browser. A course's `environmentImage` now carries a **bench profile**
+  (`BENCH_PROFILES`) injected into the author + all reviewers + the blueprint
+  panel; for `trellis-lab-python-selenium` it says "real Chromium + chromedriver
+  + offline pip cache; author docker browser labs; never block for lack of
+  browser/network". Additive — no image → today's browserless bench. 73
+  course-architect + 208 kernel tests green; two new tests prove the signal
+  reaches every role and stays absent by default.
+- **Part B — the Python-Selenium image (in progress).**
+  `docker/lab-python-selenium/` — sibling of the Node one: Python 3 + chromium +
+  chromedriver + an offline **pip wheelhouse** (`/etc/pip.conf` no-index +
+  find-links, so `pip install selenium pytest pytest-html` succeeds offline,
+  even in a fresh venv). Building against Rancher now; will verify chromium +
+  offline pip under `--network none`.
+- **Part C — set it on a fresh run (todo).** Wire `environmentImage` into run
+  creation so a new run's author sees the selenium bench. The old run is
+  `approved`/terminal, so the 9th lesson comes via a fresh run (regen — fine
+  pre-ship).
+
+**Bench subtlety to watch:** the container is Linux running pwsh 7, so a venv is
+`.venv/bin/` even though the lesson teaches Windows `.venv/Scripts/`. Auto-solve
+runs against the real Linux layout — the re-authored lesson's verifier must pin
+to what the container produces. Flagged in the image README.
