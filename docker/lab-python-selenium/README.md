@@ -70,8 +70,21 @@ actually produces. Point selenium at the driver explicitly
 (`Service("/usr/bin/chromedriver")`) and the browser via `CHROME_BIN` so
 Selenium Manager never reaches for the network.
 
-## Status
+## Status — built and PROVEN offline (2026-07-22, via Rancher)
 
-Built and verified offline — see the commit that adds this image. Selection is
-wired end to end (bench profile → author authors a real browser lab →
+Verified inside the built image under `--network none`:
+
+- **Python 3.11.2**; **Chromium 150 + ChromeDriver 150**, version-matched
+  (`CHROME_BIN` / `CHROMEDRIVER_BIN` set).
+- **Offline pip into a FRESH venv:** `python -m venv .venv` then
+  `pip install selenium pytest pytest-html` → `Successfully installed
+  selenium-4.46.0 pytest-8.4.2 pytest-html-4.2.0 …`, resolved entirely from the
+  baked wheelhouse, NO network. The lesson's real install command prints its
+  real success line.
+- **Real browser automation, offline:** selenium drove headless chromium against
+  `file:///opt/lab/fixtures/index.html`, read the title, filled the name field,
+  clicked submit, and read back "Thanks, Morgan!" — end to end, no network.
+
+So the "make the box real" premise (L7) holds for Python too. Selection is wired
+end to end (bench profile → author authors a real browser lab →
 `environmentImage` → materialize stamps → docker runtime resolves).
