@@ -75,7 +75,32 @@ one gate between `designing` and `authoring`:
 By the time authoring runs, the commissioned capabilities exist, so authoring's
 existing skip-of-blocked-lessons becomes a safety net rather than the main path.
 
-### 4. Every gap ships a detailed, scenario-grounded brief
+### 4. Blueprint lessons carry an explicit observable action
+
+The scenario detail a gap brief needs hinges on **what the learner concretely
+does** — and that must be authored data, not inferred at brief time. Today
+[`LessonInventoryEntry`](../../packages/course-architect/src/schemas.ts) gives the
+architect `title`, `purpose`, and `primaryCapability`, but no first-class
+observable action. Add one:
+
+```ts
+export interface LessonInventoryEntry {
+  // …existing fields…
+  /** The single concrete action the learner performs that the bench must be
+   *  able to observe — the measurable heart of the lesson (e.g. "runs the
+   *  Selenium suite and sees a failing assertion", not "learns about waits").
+   *  This is what a capability gap is measured against. */
+  observableAction: string;
+}
+```
+
+The designing prompt requires it per lesson; the blueprint validator rejects an
+empty one. Then the gap brief's "what the learner concretely does" is copied
+**verbatim** from `observableAction` rather than re-derived — airtight, and it
+also sharpens the diff (a lesson whose observable action needs an unlisted signal
+is a gap by construction, not by the architect remembering to flag it).
+
+### 5. Every gap ships a detailed, scenario-grounded brief
 
 **This is the point of the whole pause.** A gap is only useful if the person (or
 Claude Code) implementing the capability can do so *confidently and correctly*
@@ -116,7 +141,8 @@ evaluator feature> — and the single observable signal it must produce.
 For EACH blocked lesson:
 - **Lesson** `<lessonId>` — "<title>" (level, sequence)
 - **Purpose** <lesson.purpose, verbatim from the blueprint>
-- **What the learner concretely does** <the observable action, step by step>
+- **What the learner concretely does** <copied verbatim from the lesson's
+  `observableAction`, then expanded step by step>
 - **What the bench must host or observe** <the surface/app/signal required>
 - **Why no existing capability covers it** <the specific registry gap — which
   near-miss capability was considered and why it measures the wrong thing>
@@ -158,7 +184,7 @@ gate's UI is explicit that closing a gap means "build it, then restart to reload
 |---|---|
 | `packages/course-architect/src/types.ts` | phase/gate enums, `RunStatus` union, `awaiting-reconcile`, `GATE_OF_PHASE`/`PHASE_OF_GATE`/`NEXT_PHASE_AFTER_GATE` maps |
 | `packages/course-architect/src/executor.ts` | new `runReconciling`; loosen blueprint prompt; bump designing rounds; **architect authors one scenario-grounded `capability-briefs/<id>.md` per gap**; validate every gap id has a brief before G2 |
-| `packages/course-architect/src/schemas.ts` | schema + validator for the capability-brief (all template sections present, one per gap id) |
+| `packages/course-architect/src/schemas.ts` | add `observableAction` to `LessonInventoryEntry` (required, non-empty); schema + validator for the capability-brief (all template sections present, one per gap id) |
 | `apps/api/src/capabilityRequests.ts` | on commission, use the rich run brief as the outbox `request.md` body instead of the generic `renderRequestMd` stub |
 | `apps/api/src/server.ts` | route the reconcile gate; reconcile-changes re-diff; hard-block approve while commissioned gaps open; surface open-vs-closed counts |
 | `apps/web/src/pages/CourseStudio.tsx` | render the reconcile gate — gap checklist linking each gap to its brief, "build these / restart / re-check" |
