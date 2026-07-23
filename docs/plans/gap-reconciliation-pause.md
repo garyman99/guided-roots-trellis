@@ -98,6 +98,15 @@ gate's UI is explicit that closing a gap means "build it, then restart to reload
 
 Nothing has shipped, so in-flight runs can be swept — no migration.
 
+## No backwards compatibility
+
+We do **not** maintain backwards compatibility for this change. Any courses,
+blueprints, lesson plans, or in-flight runs that currently exist may be
+**deleted** — we will re-run the generation process from scratch afterward.
+So the implementation is free to change artifact shapes, run state, and the
+phase/gate enums without preserving or migrating existing generated data. Design
+for the clean slate; do not add compatibility shims.
+
 ## Open questions / deferred
 
 - Whether `reconciling` should auto-re-diff on server boot (so a restart alone
