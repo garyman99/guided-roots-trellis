@@ -65,3 +65,38 @@ test("a tampered lab whose solution doesn't fix it is caught (not solvable)", as
   assert.equal(reports[0].solvable, false, "the wrong solution must not pass the verifier");
   assert.equal(reports[0].ok, false);
 });
+
+test("a docker-driven lab with an unavailable image SKIPS LOUDLY, never fails on the local driver", async () => {
+  // Part D (2026-07-22): a browser lab can't prove on the local process driver
+  // (no chromium). With no daemon/image here it must ship UNPROVEN — a visible
+  // gap — rather than block every browser lesson. Deterministic: the tag can't
+  // exist, so `docker image inspect` fails whether or not a daemon is up.
+  const root = mkdtempSync(join(tmpdir(), "trellis-genlab-dkr-"));
+  tmp.push(root);
+  const files = lab("dkr-101");
+  const bp = JSON.parse(files["blueprint.json"]);
+  bp.driver = "docker";
+  files["blueprint.json"] = JSON.stringify(bp);
+  const manifest = JSON.parse(files["lab.json"]);
+  manifest.image = "trellis-nonexistent-image-xyz";
+  files["lab.json"] = JSON.stringify(manifest);
+  const labDir = writeGeneratedLab(root, "dkr-101", files);
+
+  const reports = await autoSolveGeneratedLab(labDir, "dkr-101");
+  assert.equal(reports[0].ok, true, "an unprovable-here docker lab is not a failure");
+  assert.match(reports[0].detail ?? "", /UNPROVEN/, "but it says loudly it wasn't proven");
+});
+
+test("a docker-driven lab with NO image stamped is a hard failure", async () => {
+  const root = mkdtempSync(join(tmpdir(), "trellis-genlab-noimg-"));
+  tmp.push(root);
+  const files = lab("noimg-101");
+  const bp = JSON.parse(files["blueprint.json"]);
+  bp.driver = "docker";
+  files["blueprint.json"] = JSON.stringify(bp);
+  const labDir = writeGeneratedLab(root, "noimg-101", files);
+
+  const reports = await autoSolveGeneratedLab(labDir, "noimg-101");
+  assert.equal(reports[0].ok, false);
+  assert.match(reports[0].detail ?? "", /no image is stamped/);
+});
