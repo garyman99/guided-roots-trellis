@@ -1032,10 +1032,27 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
     // First-attempt feedback: gate notes aimed at this lesson (or phase-wide),
     // plus — when re-attempting a lesson a prior pass left needs-revision —
     // that pass's blockers, so the re-author doesn't start blind.
+    // An operator-commissioned revision: the operator's own prompt is the
+    // primary instruction and goes STRAIGHT TO THE AUTHOR (2026-07-22 goal — not
+    // only to the architect that frames the goal/plan). It leads the seed so the
+    // author acts on the operator's words first, then any gate notes.
+    const revisionNote = ctx.run.request.revision?.notes?.trim();
     const seedFeedback = [
+      ...(revisionNote ? [`OPERATOR'S REVISION REQUEST — do exactly this, and only what it (and staying self-consistent) requires: ${revisionNote}`] : []),
       ...notes.filter((n) => !n.lessonId || n.lessonId === lesson.lessonId).map((n) => n.comment),
       ...(previous && !previous.passed ? [...previous.blockers, ...(previous.advisory ?? [])] : []),
     ];
+    // On a revision run, tell the author it is EDITING an existing lesson (in
+    // CONTEXT.request.revision.lessonContent) per the operator's request, not
+    // writing a new one from scratch. The review loop still re-reviews the result.
+    const revisionExtra = ctx.run.request.revision
+      ? [
+          "THIS IS AN OPERATOR-COMMISSIONED REVISION of a lesson that already ships. CONTEXT.request.revision.lessonContent is that lesson as it currently stands, and CONTEXT.reviewFeedback leads with the operator's revision request — that request is your primary instruction.",
+          "Revise the CURRENT lesson to satisfy the operator: change what they ask for (and whatever that change requires to stay self-consistent), and preserve everything they did not raise. Return the full revised lesson plan + lab in the normal contract — it is re-reviewed and must pass the same gates.",
+          "",
+          "",
+        ].join("\n")
+      : "";
     let outcome: ReviewOutcome | null = null;
     let attemptsUsed = 0;
     // The draft the last round produced. Handed back to the author so a revision
@@ -1054,12 +1071,16 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
         deps,
         ctx,
         "lesson-author",
-        prompt(`lesson:${lesson.lessonId}`, {
-          lesson,
-          ...requestContext(ctx.run.request),
-          reviewFeedback: feedback ?? undefined,
-          ...(feedback && previousMarkdown ? { previousMarkdown } : {}),
-        }),
+        prompt(
+          `lesson:${lesson.lessonId}`,
+          {
+            lesson,
+            ...requestContext(ctx.run.request),
+            reviewFeedback: feedback ?? undefined,
+            ...(feedback && previousMarkdown ? { previousMarkdown } : {}),
+          },
+          revisionExtra,
+        ),
         (parsed) => validateLessonPlan(parsed, lesson.lessonId),
       );
       previousMarkdown = plan.markdown;

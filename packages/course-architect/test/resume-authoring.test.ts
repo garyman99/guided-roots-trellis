@@ -23,7 +23,7 @@ import { createExecutor, type MaterializeResult } from "../src/executor.ts";
 import { MockRoleInvoker, type MockResponder } from "../src/roles.ts";
 import { defaultMockResponder } from "../src/mockCourse.ts";
 
-const CAPS = new Set(["file-viewed", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
+const CAPS = new Set(["file-viewed", "file-edited", "tests-run", "diff-viewed", "code", "terminal", "any-command"]);
 
 function harness(responder: MockResponder = defaultMockResponder) {
   let tick = 0;
@@ -212,6 +212,36 @@ test("a course's Environment image carries a bench profile to the author AND rev
   // The blueprint reviewers see it too (a plan-level tech reviewer must not flag
   // browser lessons as un-hostable).
   assert.match(prompts.get("review:technical:blueprint") ?? "", /REAL BROWSER/);
+});
+
+test("an operator's revision prompt reaches the AUTHOR, not only the architect", async () => {
+  // Goal 2026-07-22: revise any lesson with a free-text prompt that drives the
+  // author directly (the review loop then self-revises). Before this the notes
+  // only reached the architect's goal/plan; now the author gets them verbatim.
+  const prompts = new Map<string, string>();
+  const spy: MockResponder = (role, prompt) => {
+    prompts.set(prompt.task, prompt.user);
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(spy);
+  const run = h.sched.create({
+    technology: "Git",
+    revision: {
+      courseId: "c1", family: "git-101", fromLabId: "git-101", fromVersion: 1,
+      notes: "Add a troubleshooting table for the execution-policy error",
+      lessonContent: "the lesson as it currently ships",
+    },
+  });
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+
+  const authorPrompt = prompts.get("lesson:git-101") ?? "";
+  assert.match(authorPrompt, /OPERATOR'S REVISION REQUEST/, "the operator's prompt reaches the author as the primary instruction");
+  assert.match(authorPrompt, /troubleshooting table for the execution-policy error/, "the operator's exact words are threaded through");
+  assert.match(authorPrompt, /OPERATOR-COMMISSIONED REVISION/, "the author is told it is editing an existing lesson");
 });
 
 test("no Environment image → the default browserless bench, unchanged", async () => {

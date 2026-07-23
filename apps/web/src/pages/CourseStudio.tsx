@@ -1566,6 +1566,9 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
   const [busy, setBusy] = useState<string | null>(null); // "course" or a labId while toggling
   const [preview, setPreview] = useState<{ labId: string; md: string } | null>(null);
   const [expLab, setExpLab] = useState<string | null>(null); // recorded-experience panel
+  const [reviseLab, setReviseLab] = useState<string | null>(null); // open revise panel
+  const [revisePrompt, setRevisePrompt] = useState("");
+  const [reviseNotice, setReviseNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1612,6 +1615,26 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
       .catch(() => setPreview({ labId, md: "(no lesson content found on disk)" }));
   };
 
+  // Commission a revision from a free-text prompt — works whatever the course's
+  // status (draft or live). The prompt goes to the author; the full review loop
+  // iterates and self-revises, then mints a new hidden lesson version to review.
+  const openRevise = (labId: string) => {
+    setReviseNotice(null); setError(null);
+    setRevisePrompt("");
+    setReviseLab(reviseLab === labId ? null : labId);
+  };
+  const sendRevise = (labId: string) => {
+    const prompt = revisePrompt.trim();
+    if (!prompt) return;
+    setBusy(labId); setError(null); setReviseNotice(null);
+    courseRunApi.create({ revision: { labId, notes: prompt }, gateMode: "auto" })
+      .then((r) => {
+        setBusy(null); setReviseLab(null); setRevisePrompt("");
+        setReviseNotice(`Revision started (${r.runId}) — the author is revising “${labId}”; it self-revises through review, then appears as a new hidden version to publish.`);
+      })
+      .catch((e) => { setBusy(null); setError(String((e as Error).message)); });
+  };
+
   return (
     <div className="gr-card">
       <h3>Go live</h3>
@@ -1633,6 +1656,7 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
         {lessons.length === 0 && <span className="gr-mono-note">no lessons materialized — nothing to publish</span>}
       </div>
       {error && <p className="admin-error">{error}</p>}
+      {reviseNotice && <p className="gr-mono-note" style={{ color: "var(--gr-ok, #2e7d32)" }}>{reviseNotice}</p>}
 
       <SimTestPanel run={run} />
 
@@ -1673,9 +1697,44 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
                         title="Recorded learner experience for this lesson"
                       >
                         {expLab === l.labId ? "Hide stats" : "Experience"}
+                      </button>{" "}
+                      <button
+                        className={`gr-btn gr-btn-small ${reviseLab === l.labId ? "gr-btn-primary" : "gr-btn-ghost"}`}
+                        onClick={() => openRevise(l.labId)}
+                        title="Send a revision prompt to the author; the review loop self-revises into a new version"
+                      >
+                        {reviseLab === l.labId ? "Cancel" : "Revise"}
                       </button>
                     </td>
                   </tr>
+                  {reviseLab === l.labId && (
+                    <tr>
+                      <td colSpan={5}>
+                        <div className="gr-field">
+                          <label htmlFor={`rev-${l.labId}`}>
+                            Revision prompt for <code>{l.labId}</code> — goes straight to the author; the full review loop iterates and self-revises, then mints a new hidden version.
+                          </label>
+                          <textarea
+                            id={`rev-${l.labId}`}
+                            rows={3}
+                            value={revisePrompt}
+                            onChange={(e) => setRevisePrompt(e.target.value)}
+                            placeholder="e.g. Rewrite the venv step for Windows paths (.venv/Scripts) and add a troubleshooting row for the execution-policy error."
+                          />
+                        </div>
+                        <div className="admin-editor-actions">
+                          <button
+                            className="gr-btn gr-btn-primary gr-btn-small"
+                            onClick={() => sendRevise(l.labId)}
+                            disabled={busy === l.labId || !revisePrompt.trim()}
+                          >
+                            {busy === l.labId ? "Starting…" : "Send to author"}
+                          </button>
+                          <span className="gr-mono-note">Runs autonomously through review; the new version ships hidden for you to publish.</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {preview?.labId === l.labId && (
                     <tr>
                       <td colSpan={5}><pre className="cg-lesson-preview">{preview.md}</pre></td>
