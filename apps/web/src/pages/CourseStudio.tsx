@@ -1627,7 +1627,10 @@ function GoLive({ run, onCoursesChanged }: { run: CourseRunDetail; onCoursesChan
     const prompt = revisePrompt.trim();
     if (!prompt) return;
     setBusy(labId); setError(null); setReviseNotice(null);
-    courseRunApi.create({ revision: { labId, notes: prompt }, gateMode: "auto" })
+    // Revise with the SAME provider that authored the course — otherwise a
+    // revision would silently fall back to the deployment default (e.g. mock).
+    const providerConfig = run.request.providerConfig as ProviderConfig | undefined;
+    courseRunApi.create({ revision: { labId, notes: prompt }, gateMode: "auto", ...(providerConfig ? { providerConfig } : {}) })
       .then((r) => {
         setBusy(null); setReviseLab(null); setRevisePrompt("");
         setReviseNotice(`Revision started (${r.runId}) — the author is revising “${labId}”; it self-revises through review, then appears as a new hidden version to publish.`);
