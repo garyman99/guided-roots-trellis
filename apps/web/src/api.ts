@@ -684,6 +684,7 @@ export interface RunDeletionSummary {
 export const courseRunApi = {
   list: () => adminGet<{ runs: CourseRunSummary[] }>("/api/admin/course-runs").then((r) => r.runs),
   providers: () => adminGet<ProvidersPayload>("/api/admin/course-runs/providers"),
+  environments: () => adminGet<{ environments: Array<{ id: string; label: string; description: string }> }>("/api/admin/course-runs/environments"),
   get: (runId: string) => adminGet<{ run: CourseRunDetail }>(`/api/admin/course-runs/${encodeURIComponent(runId)}`).then((r) => r.run),
   live: (runId: string) => adminGet<{ live: LiveActivity | null }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/live`).then((r) => r.live),
   create: (body: Record<string, unknown>) =>

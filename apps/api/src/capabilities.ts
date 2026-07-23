@@ -119,6 +119,25 @@ export const CAPABILITY_REGISTRY: CapabilityRegistry = {
 };
 
 /**
+ * Baked Environment images this build ships (2026-07-22). A course selects one
+ * via `request.environmentImage`; materialize stamps it onto every lab and the
+ * docker runtime resolves it, so the lab runs on that toolchain.
+ *
+ * These are NOT capability-registry entries: a baked image is a runtime
+ * environment (a Docker toolchain), not an observable action, so it lives on a
+ * different axis than apps/auto-rules/checkpoint-kinds and is deliberately absent
+ * from `capabilityIdSet()`. They are enumerated here only so the run-create API
+ * can validate the operator's choice against images that actually exist. The
+ * `id` (image tag) is the contract with the course-architect's `BENCH_PROFILES`,
+ * which tells the author what each image's bench can do — keep the two in sync.
+ */
+export const ENVIRONMENT_IMAGES: Array<{ id: string; label: string; description: string }> = [
+  { id: "trellis-lab-node-selenium", label: "Node + Selenium", description: "Headless chromium + chromedriver, an offline npm cache, and fixture pages. For a Node/TypeScript Selenium course." },
+  { id: "trellis-lab-python-selenium", label: "Python + Selenium", description: "Headless chromium + chromedriver, an offline pip wheelhouse (selenium/pytest/pytest-html), and fixture pages. For a Python Selenium course." },
+];
+export const ENVIRONMENT_IMAGE_IDS = new Set(ENVIRONMENT_IMAGES.map((e) => e.id));
+
+/**
  * The flat set of every capability id a lesson may reference (apps, auto-rules,
  * checkpoint kinds, surfaces, evaluator features). Course generation diffs a
  * lesson's requiredCapabilities against this to find gaps at the blueprint gate.

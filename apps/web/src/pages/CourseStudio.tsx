@@ -682,6 +682,15 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   // The desktop the course targets — the virtual desktop mimics Windows only
   // today; the mac option unlocks when the macOS-styled desktop ships.
   const [targetPlatform, setTargetPlatform] = useState("windows");
+  // Baked Environment image (optional): a course whose lessons need a real
+  // browser / offline package cache picks the toolchain here, so the author is
+  // told the bench can host it (else browser lessons block). Empty = the default
+  // browserless bench. Listed from what this build actually ships.
+  const [environments, setEnvironments] = useState<Array<{ id: string; label: string; description: string }>>([]);
+  const [environmentImage, setEnvironmentImage] = useState("");
+  useEffect(() => {
+    if (open && environments.length === 0) courseRunApi.environments().then((r) => setEnvironments(r.environments)).catch(() => {});
+  }, [open, environments]);
   // The target user is a PERSONA, not a free-text field (Phase 1).
   const ready = personas.filter((p) => p.status === "ready");
   const [personaId, setPersonaId] = useState("");
@@ -732,6 +741,7 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
     setError(null);
     const body: Record<string, unknown> = Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()));
     body.targetPlatform = targetPlatform;
+    if (environmentImage) body.environmentImage = environmentImage;
     if (personaId) body.personaId = personaId;
     if (gateMode === "auto") {
       body.gateMode = "auto";
@@ -811,6 +821,18 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
             <option value="mac" disabled>macOS — coming soon</option>
           </select>
         </div>
+        {environments.length > 0 && (
+          <div className="gr-field">
+            <label htmlFor="cg-env">Bench environment</label>
+            <select id="cg-env" value={environmentImage} onChange={(e) => setEnvironmentImage(e.target.value)}>
+              <option value="">Default (terminal only — no browser/network)</option>
+              {environments.map((e) => (
+                <option key={e.id} value={e.id}>{e.label}</option>
+              ))}
+            </select>
+            {environmentImage && <p className="gr-mono-note">{environments.find((e) => e.id === environmentImage)?.description}</p>}
+          </div>
+        )}
       </div>
       <h4 className="admin-subhead">Model provider</h4>
       <div className="admin-editor-grid">

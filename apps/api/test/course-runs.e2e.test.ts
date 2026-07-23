@@ -136,6 +136,28 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   assert.ok(!/did not report/i.test(req.detail ?? ""), `the verify requirement resolves to a real check (got: ${req.detail})`);
 });
 
+test("a run accepts a known Environment image and rejects an unknown one", async () => {
+  // Part C of unblocking selenium-chrome-runtime: the operator selects the
+  // baked toolchain, validated against images this build ships, so the bench
+  // profile reaches the author on the next run.
+  const listed = await admin("GET", "/api/admin/course-runs/environments");
+  assert.equal(listed.status, 200);
+  const envs = (listed.body as { environments: Array<{ id: string }> }).environments;
+  assert.ok(envs.some((e) => e.id === "trellis-lab-python-selenium"), "the python-selenium image is offered");
+
+  const ok = await admin("POST", "/api/admin/course-runs", { technology: "Selenium", environmentImage: "trellis-lab-python-selenium" });
+  assert.equal(ok.status, 201);
+  const runId = (ok.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle();
+  type WithReq = RunDetail & { request: { environmentImage?: string } };
+  const run = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: WithReq }).run;
+  assert.equal(run.request.environmentImage, "trellis-lab-python-selenium", "stamped on the request");
+
+  const bad = await admin("POST", "/api/admin/course-runs", { technology: "Git", environmentImage: "not-a-real-image" });
+  assert.equal(bad.status, 400, "an unknown image is refused, not stamped as a dead tag");
+  assert.match((bad.body as { error: string }).error, /unknown environmentImage/);
+});
+
 test("PATCH edits a parked run's targetPlatform and mirrors it to run.json", async () => {
   const created = await admin("POST", "/api/admin/course-runs", { technology: "Git" });
   assert.equal(created.status, 201);

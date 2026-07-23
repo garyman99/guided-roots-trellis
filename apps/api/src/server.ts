@@ -70,7 +70,7 @@ import { acceptUpgrade } from "./miniWs.ts";
 import { tryServeStatic } from "./staticServe.ts";
 import { createStore, type Course, type CourseLesson, type LearnerMeta, type TokenUsageRecord } from "./store.ts";
 import { SessionManager, ResumeError, taskStatuses, type Session } from "./sessions.ts";
-import { CAPABILITY_REGISTRY, capabilityIdSet } from "./capabilities.ts";
+import { CAPABILITY_REGISTRY, capabilityIdSet, ENVIRONMENT_IMAGES, ENVIRONMENT_IMAGE_IDS } from "./capabilities.ts";
 import { writeGeneratedLab, autoSolveGeneratedLab, stampLabImage } from "./generatedLab.ts";
 import { buildGitLabFiles, isGitLabKind } from "./gitLabs.ts";
 import { buildNodeLabFiles, isNodeLabKind } from "./nodeLabs.ts";
@@ -2029,6 +2029,11 @@ export const server = createServer(async (req, res) => {
           if (req.method === "GET" && parts.length === 4 && parts[3] === "providers") {
             return json(res, 200, courseGenProviders());
           }
+          // GET the baked Environment images this build ships, so the run form
+          // can offer the toolchain a browser/offline course needs.
+          if (req.method === "GET" && parts.length === 4 && parts[3] === "environments") {
+            return json(res, 200, { environments: ENVIRONMENT_IMAGES });
+          }
           // POST create — a whole-course generation run, or (with `revision`)
           // a lesson-scoped REVISION run (versioning plan Phase D).
           if (req.method === "POST" && parts.length === 3) {
@@ -2134,6 +2139,16 @@ export const server = createServer(async (req, res) => {
               ? (store.getCourse(revision.courseId)?.targetPlatform ?? "windows")
               : body.targetPlatform === "mac" ? "mac" : "windows";
 
+            // Baked Environment image (optional): the course's bench toolchain.
+            // Validated against images this build actually ships, so a browser
+            // course selects a real image (and its bench profile reaches the
+            // author) rather than stamping an arbitrary tag that resolves to
+            // nothing at runtime. A revision inherits its course's image.
+            const environmentImage = typeof body.environmentImage === "string" ? body.environmentImage.trim() : "";
+            if (environmentImage && !ENVIRONMENT_IMAGE_IDS.has(environmentImage)) {
+              return json(res, 400, { error: `unknown environmentImage "${environmentImage}" — known images: ${[...ENVIRONMENT_IMAGE_IDS].join(", ")}` });
+            }
+
             const run = courseRuns.create({
               technology: technology.slice(0, 80),
               targetPlatform,
@@ -2145,6 +2160,7 @@ export const server = createServer(async (req, res) => {
                 ? { title: `Revision: ${revision.family} v${revision.fromVersion} → v${revision.fromVersion + 1}` }
                 : {}),
               ...(providerConfig ? { providerConfig } : {}),
+              ...(environmentImage ? { environmentImage } : {}),
               ...(persona ? { persona } : {}),
               ...(revision ? { revision } : {}),
               ...(gateMode === "auto" ? { gateMode } : {}),
