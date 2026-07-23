@@ -458,6 +458,48 @@ function platformNote(platform: string): string {
   ].join("\n");
 }
 
+/**
+ * Bench profiles — what a course's baked Environment image ADDS to the default
+ * browserless pwsh bench (2026-07-22). Keyed by the image tag the run declares
+ * (`request.environmentImage`).
+ *
+ * Why this exists: the author decides whether it can build a real lab from what
+ * the bench notes tell it. With only the default note (a plain pwsh terminal,
+ * no browser, no network) it correctly declares `lab.blockedBy` for a
+ * browser/selenium lesson — which is exactly what stranded the Selenium course's
+ * first-Chrome lesson. Building the image is not enough; the author must be TOLD
+ * the bench gained a browser, or it re-blocks forever. This is that signal.
+ *
+ * Default (no image, or an image with no profile here) → the browserless bench,
+ * unchanged. Purely additive.
+ */
+const BENCH_PROFILES: Record<string, string[]> = {
+  "trellis-lab-python-selenium": [
+    "THIS COURSE'S BENCH HAS A REAL BROWSER — do NOT block browser lessons.",
+    "It runs on the Python-Selenium Environment image (docker driver), which adds",
+    "to the pwsh 7 terminal:",
+    "• A real headless Chromium (at $env:CHROME_BIN) with a MATCHING chromedriver",
+    "  already on PATH. Selenium Manager needs no download — the driver is present.",
+    "• An OFFLINE pip cache with selenium, pytest, and pytest-html preinstalled, so",
+    "  `pip install selenium pytest pytest-html` runs offline and truly succeeds.",
+    "• Local fixture pages served via file:// under /opt/lab/fixtures — the practice",
+    "  site the browser lessons drive. There is NO public internet; drive the local",
+    "  fixtures, never a remote URL.",
+    "So for THIS course you CAN and SHOULD author real browser-driving labs (the",
+    "docker driver): webdriver.Chrome() opening a fixture page, finding elements,",
+    "acting, asserting — headless, with the flags in $env:TRELLIS_CHROME_FLAGS.",
+    "NEVER declare lab.blockedBy for lack of a browser or network on this course —",
+    "the bench hosts both.",
+  ],
+};
+
+/** The bench-capability note for a course's Environment image, or "" for the
+ *  default (browserless) bench. Appended to prompts right after platformNote. */
+function benchProfileNote(image: unknown): string {
+  const lines = typeof image === "string" ? BENCH_PROFILES[image] : undefined;
+  return lines ? lines.join("\n") + "\n\n\n" : "";
+}
+
 /** Standing rule appended whenever the context carries a persona (Phase 1). */
 const PERSONA_NOTE = [
   "CONTEXT.persona is the target-user persona this course serves. Every",
@@ -474,11 +516,20 @@ const PERSONA_NOTE = [
  *  caller passed one, else the default) so ALL roles — authors, reviewers,
  *  critics — see the same platform ground truth. */
 function prompt(task: string, context: Record<string, unknown>, extra = ""): RolePrompt {
-  const fromRequest = (context.request as Record<string, unknown> | undefined)?.targetPlatform;
-  const targetPlatform = String(context.targetPlatform ?? fromRequest ?? DEFAULT_TARGET_PLATFORM);
+  const req = context.request as Record<string, unknown> | undefined;
+  const targetPlatform = String(context.targetPlatform ?? req?.targetPlatform ?? DEFAULT_TARGET_PLATFORM);
+  // A course's baked Environment adds bench capabilities the author/reviewers
+  // must know about (else a browser lesson is wrongly blocked). Threaded either
+  // directly on the context or via the request snapshot.
+  const environmentImage = context.environmentImage ?? req?.environmentImage;
   const ctx = { targetPlatform, ...context };
   const personaNote = context.persona ? PERSONA_NOTE : "";
-  return { task, context: ctx, system: "", user: `CONTEXT:\n${JSON.stringify(ctx, null, 2)}\n\n${extra}${personaNote}${platformNote(targetPlatform)}${taskInstruction(task)}${SUMMARY_NOTE}` };
+  return {
+    task,
+    context: ctx,
+    system: "",
+    user: `CONTEXT:\n${JSON.stringify(ctx, null, 2)}\n\n${extra}${personaNote}${platformNote(targetPlatform)}${benchProfileNote(environmentImage)}${taskInstruction(task)}${SUMMARY_NOTE}`,
+  };
 }
 
 /** The request as prompt context: persona lifted out as a bounded view (the raw
@@ -854,7 +905,7 @@ async function runBlueprintPanel(
       validateBlueprint,
     );
     const blueprint = blueprintReviewView(bp);
-    const context = { targetPlatform, courseRequest, blueprint };
+    const context = { targetPlatform, environmentImage: ctx.run.request.environmentImage, courseRequest, blueprint };
 
     const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt("review:technical:blueprint", context), validateTechnicalReview);
     const pedagogy = await invokeValidated(deps, ctx, "pedagogy-reviewer", prompt("review:pedagogy:blueprint", { ...context, persona }), validateBlueprintPedagogyReview);
@@ -951,6 +1002,10 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   const maxRounds = critiqueRounds();
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
   const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
+  // The course's baked Environment — carries the bench profile that tells the
+  // author/reviewers a browser + offline pip cache is available, so a selenium
+  // lesson authors a docker lab instead of blocking (2026-07-22).
+  const environmentImage = ctx.run.request.environmentImage;
 
   for (const lesson of inventory) {
     if (blocked.has(lesson.lessonId)) {
@@ -1030,20 +1085,20 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
       // Selenium run (2026-07-22). `labView` is the measured contract: the
       // action claimed, the tasks/checkpoint as authored, and the verifier.
       const lab = labReviewView(plan.lab);
-      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab }), validateTechnicalReview);
+      const technical = await invokeValidated(deps, ctx, "technical-reviewer", prompt(`review:technical:${lesson.lessonId}`, { targetPlatform, environmentImage, lesson, lessonMarkdown: plan.markdown, lab }), validateTechnicalReview);
       const pedagogy = await invokeValidated(
         deps,
         ctx,
         "pedagogy-reviewer",
-        prompt(`review:pedagogy:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab, persona }),
+        prompt(`review:pedagogy:${lesson.lessonId}`, { targetPlatform, environmentImage, lesson, lessonMarkdown: plan.markdown, lab, persona }),
         validatePedagogyReview,
       );
-      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { targetPlatform, lesson, lessonMarkdown: plan.markdown, lab }), validateCohesionReview);
+      const cohesion = await invokeValidated(deps, ctx, "cohesion-editor", prompt(`review:cohesion:${lesson.lessonId}`, { targetPlatform, environmentImage, lesson, lessonMarkdown: plan.markdown, lab }), validateCohesionReview);
       const advocate = await invokeValidated(
         deps,
         ctx,
         "learner-advocate",
-        prompt(`critique:${subject}`, { targetPlatform, subject, round: attempt, goal: lesson.purpose, persona, content: plan.markdown }),
+        prompt(`critique:${subject}`, { targetPlatform, environmentImage, subject, round: attempt, goal: lesson.purpose, persona, content: plan.markdown }),
         validateCritiqueVerdict,
       );
       arts.write(`critiques/${subject}.round${attempt}.json`, JSON.stringify(advocate, null, 2));

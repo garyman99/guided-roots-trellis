@@ -186,3 +186,49 @@ test("targetPlatform rides every prompt context and course-request.md", async ()
   }
   assert.match(h.artifactsFor(run.runId).read("course-request.md")!, /\*\*Target platform:\*\* windows/);
 });
+
+test("a course's Environment image carries a bench profile to the author AND reviewers", async () => {
+  // The unblock lever (2026-07-22): a browser lesson blocks unless the author is
+  // TOLD the bench gained a browser. The signal rides request.environmentImage
+  // and must reach the author and every reviewer, or one of them wrongly flags
+  // the browser lab as impossible.
+  const prompts = new Map<string, string>();
+  const spy: MockResponder = (role, prompt) => {
+    prompts.set(prompt.task, prompt.user);
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(spy);
+  const run = h.sched.create({ technology: "Git", environmentImage: "trellis-lab-python-selenium" });
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+
+  for (const task of ["lesson:git-101", "review:technical:git-101", "review:pedagogy:git-101", "review:cohesion:git-101", "critique:lesson-git-101"]) {
+    assert.match(prompts.get(task) ?? "", /THIS COURSE'S BENCH HAS A REAL BROWSER/, `${task} carries the bench profile`);
+    assert.match(prompts.get(task) ?? "", /NEVER declare lab\.blockedBy for lack of a browser/, `${task} is told not to block`);
+  }
+  // The blueprint reviewers see it too (a plan-level tech reviewer must not flag
+  // browser lessons as un-hostable).
+  assert.match(prompts.get("review:technical:blueprint") ?? "", /REAL BROWSER/);
+});
+
+test("no Environment image → the default browserless bench, unchanged", async () => {
+  const prompts = new Map<string, string>();
+  const spy: MockResponder = (role, prompt) => {
+    prompts.set(prompt.task, prompt.user);
+    return defaultMockResponder(role, prompt);
+  };
+  const h = harness(spy);
+  const run = h.sched.create({ technology: "Git" }); // no environmentImage
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+
+  for (const task of ["lesson:git-101", "review:technical:git-101"]) {
+    assert.doesNotMatch(prompts.get(task) ?? "", /REAL BROWSER/, `${task} must not gain a browser bench it doesn't have`);
+  }
+});
