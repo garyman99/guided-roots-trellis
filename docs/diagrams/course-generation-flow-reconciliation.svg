@@ -1,6 +1,6 @@
 <svg viewBox="0 0 1020 1410" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
   <title>Course-generation flow with a gap-reconciliation pause</title>
-  <desc>Proposed change: designing runs longer and unconstrained by current capabilities, so it deliberately produces capability gaps. A new gap-reconciliation pause sits between designing and authoring: the operator builds the missing capabilities, the registry reloads, and a no-agent reconcile re-diffs the gaps in a loop until all commissioned gaps are closed before authoring begins.</desc>
+  <desc>Proposed change: designing runs longer and unconstrained by current capabilities, so it deliberately produces capability gaps. Approving the blueprint at G2 commissions every gap by default. A new gap-reconciliation pause sits between designing and authoring: it is a true human gate (autopilot halts here). The operator builds the missing capabilities, restarts to reload the registry, and re-checks; a no-agent reconcile re-diffs the gaps (an id-presence check) in a loop until all commissioned gaps are closed before authoring begins. At the gate the operator may instead defer a gap (drop its lessons) or redesign (a free-text prompt that reopens designing).</desc>
   <defs>
     <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#e6e8eb"/></marker>
     <symbol id="doc" viewBox="0 0 100 64" preserveAspectRatio="none"><path d="M1 1 H99 V52 C66 66 33 42 1 52 Z" fill="none" stroke="#e6e8eb" stroke-width="1.3" vector-effect="non-scaling-stroke"/></symbol>
@@ -57,20 +57,22 @@
     <path class="ln" d="M410 359 H448" marker-end="url(#a)"/>
     <path class="ln" d="M682 359 H722" marker-end="url(#a)"/>
     <path class="ln" d="M567 396 V440 H130 V390" marker-end="url(#a)"/>
-    <text x="345" y="432" class="sm">design the ideal course &#183; declare any capability &#8212; gaps EXPECTED</text>
+    <text x="345" y="432" class="sm">design the ideal course &#183; declare any capability &#8212; gaps EXPECTED &#183; rounds dialable per run</text>
   </g>
   <path class="ln" d="M510 476 V498" marker-end="url(#a)"/>
+  <text x="524" y="492" class="sm">G2 approve = commission every gap (default)</text>
 
   <rect class="newband" x="20" y="504" width="980" height="200" rx="4"/>
   <rect class="panel" x="20" y="504" width="980" height="200" rx="4"/>
   <text x="34" y="524" class="new">&#9679; NEW &#183; GAP RECONCILIATION &#183; PAUSE &#8212; operator builds the missing capabilities</text>
   <rect class="gate" x="800" y="510" width="186" height="26" rx="3"/><text x="893" y="527" text-anchor="middle" class="ttl">Gate &#183; Gaps closed?</text>
+  <text x="986" y="527" text-anchor="end" class="sm" transform="translate(0,20)">true human gate &#183; autopilot halts here</text>
   <g text-anchor="middle">
     <use href="#doc" x="40" y="556" width="150" height="52"/><text x="115" y="586">capability-gaps</text>
     <rect class="b" x="214" y="556" width="150" height="52" rx="2"/><text x="289" y="579" class="sm">capability outbox</text><text x="289" y="595" class="sm">briefs per gap</text>
     <rect class="human" x="388" y="548" width="200" height="68" rx="2"/><text x="488" y="573">operator builds capability</text><text x="488" y="590" class="sm">app &#183; auto-rule &#183; checkpoint</text><text x="488" y="605" class="sm">+ registry entry</text>
     <rect class="b" x="612" y="556" width="150" height="52" rx="2"/><text x="687" y="579" class="sm">capability registry</text><text x="687" y="595" class="sm">reloaded on restart</text>
-    <rect class="b" x="786" y="556" width="176" height="52" rx="2"/><text x="874" y="579" class="sm">reconcile &#183; re-diff</text><text x="874" y="595" class="sm">no agents</text>
+    <rect class="b" x="786" y="556" width="176" height="52" rx="2"/><text x="874" y="579" class="sm">reconcile &#183; re-diff</text><text x="874" y="595" class="sm">no agents &#183; id-presence check</text>
 
     <path class="ln" d="M190 582 H210" marker-end="url(#a)"/>
     <path class="ln" d="M364 582 H384" marker-end="url(#a)"/>
@@ -78,10 +80,15 @@
     <path class="ln" d="M762 582 H782" marker-end="url(#a)"/>
 
     <path class="ln" d="M830 608 V652 H488 V618" marker-end="url(#a)"/>
-    <text x="648" y="646" class="sm">gaps remain &#8212; build &#183; restart &#183; reconcile</text>
+    <text x="648" y="646" class="sm">gaps remain &#8212; build &#183; restart &#183; re-check</text>
     <path class="ln" d="M922 608 V688 H510 V712" marker-end="url(#a)"/>
     <text x="712" y="682" class="sm">all commissioned gaps closed &#8594; author</text>
+    <text x="115" y="640" class="sm">at the gate the operator may instead:</text>
+    <text x="115" y="656" class="sm">&#183; defer &#8212; drop this gap's lessons</text>
+    <text x="115" y="672" class="sm">&#183; redesign &#8212; free-text prompt reopens designing</text>
   </g>
+  <path class="ln" d="M893 510 V486" marker-end="url(#a)"/>
+  <text x="780" y="500" class="sm">redesign &#8594; reopen designing (human prompt)</text>
 
   <rect class="panel" x="20" y="714" width="980" height="316" rx="4"/>
   <text x="34" y="734" class="lbl">AUTHORING &#183; PER LESSON</text>
