@@ -213,3 +213,46 @@ Three parts:
 `.venv/bin/` even though the lesson teaches Windows `.venv/Scripts/`. Auto-solve
 runs against the real Linux layout — the re-authored lesson's verifier must pin
 to what the container produces. Flagged in the image README.
+
+## Parts B–D complete (2026-07-22)
+
+- **Part B — image (`577288e`, proven `3c65a55`).** `trellis-lab-python-selenium`
+  built (1.84 GB) and verified offline via Rancher under `--network none`:
+  Python 3.11, Chromium 150 + matching driver, a **fresh-venv**
+  `pip install selenium pytest pytest-html` succeeding with no network, and a
+  real headless browser driving the fixture end to end.
+- **Part C — operator selection (`f1c923d`).** `POST /course-runs` accepts a
+  validated `environmentImage`; `GET /course-runs/environments` lists the shipped
+  images; Course studio's StartRunForm gained a "Bench environment" select
+  (default = browserless). `ENVIRONMENT_IMAGES` in capabilities.ts is the
+  enumerated list — deliberately NOT a capability-registry entry.
+- **Part D — prove docker labs in-container (`b6fb273`).** The shift-left prove
+  gate + materialize hardcoded the LOCAL driver, so a browser lab would author
+  then die at prove (no chromium locally). `autoSolveGeneratedLab` is now
+  driver-aware: docker lab + daemon/image → auto-solve in the container (proven
+  live against Rancher); no daemon/image → skip LOUDLY (ships UNPROVEN, a visible
+  gap) rather than false-fail. Local path unchanged.
+
+**Full chain now closed:** author is told the bench has a browser (A) → authors a
+docker Selenium lab → image exists and runs offline (B) → run selects it (C) →
+prove gate auto-solves it in the container (D).
+
+## To resume — start a FRESH run
+
+The old run `cg-selenium-python-7af488` is `approved`/terminal; the 9th lesson
+comes from a new run (regen — fine pre-ship).
+
+1. **Restart the API** — the running process has pre-A/C/D code in memory.
+2. In **Course studio → Start a run**:
+   - Persona: **Morgan** (already in the library).
+   - Technology: **Selenium (Python)**; same provider (local Opus proxy).
+   - **Bench environment: Python + Selenium** ← the new selector; this is what
+     unblocks the browser lesson.
+3. Watch `venv-pip-and-first-chrome-script` (or its re-planned equivalent):
+   it should now AUTHOR a docker Selenium lab instead of blocking, and prove in
+   the container. If Docker is down when the run reaches prove, that lesson ships
+   UNPROVEN (visible in the proof detail) rather than blocking.
+
+Watch for the venv `.venv/bin` vs `.venv/Scripts` subtlety — if the re-authored
+verifier pins Windows venv paths, auto-solve will fail it in the Linux container
+and drive a re-author; that's self-correcting but worth an eye.
