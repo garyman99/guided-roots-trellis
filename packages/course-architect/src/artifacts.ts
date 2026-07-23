@@ -23,6 +23,9 @@ const ALLOW: RegExp[] = [
   /^lesson-inventory\.(json|md)$/,
   /^plan-review\.md$/,
   /^capability-gaps\.(json|md)$/,
+  // Scenario-grounded capability briefs — one markdown brief per gap id, authored
+  // by the architect and used as the outbox request.md on commission (gap-reconciliation-pause §5).
+  /^capability-briefs\/[a-z0-9-]+\.md$/,
   /^manifest\.json$/,
   /^run\.json$/,
   /^persona\.json$/,
@@ -38,7 +41,7 @@ const ALLOW: RegExp[] = [
   /^critiques\/[a-z0-9-]+\.round([1-9]|10)\.json$/,
   /^critiques\/summary\.json$/,
   /^sim-tests\/[a-z0-9-]+\/(result\.json|simulator-trace\.md)$/,
-  /^gates\/(frame|blueprint|package|publish)\.verdict\.json$/,
+  /^gates\/(frame|blueprint|reconcile|package|publish)\.verdict\.json$/,
 ];
 
 export function isAllowedArtifactPath(relPath: string): boolean {

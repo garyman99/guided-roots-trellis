@@ -140,6 +140,14 @@ export interface LessonInventoryEntry {
   prerequisites: string[]; // lessonIds
   /** Capability ids this lesson relies on (registry ids or PROPOSED new ones). */
   requiredCapabilities: string[];
+  /**
+   * The single concrete action the learner performs that the bench must be able
+   * to observe — the measurable heart of the lesson (e.g. "runs the Selenium
+   * suite and sees a failing assertion", not "learns about waits"). Authored
+   * data, not inferred at brief time: a capability gap's "what the learner
+   * concretely does" is copied VERBATIM from here (gap-reconciliation-pause §4).
+   */
+  observableAction: string;
 }
 
 export interface PrerequisiteGraph {
@@ -183,7 +191,7 @@ export function validateBlueprint(doc: unknown): Blueprint {
       ids.add(l.lessonId);
     }
     if (typeof l.level !== "string" || !(LEVELS as readonly string[]).includes(l.level as string)) e.push(`${where}.level must be one of ${LEVELS.join("|")}`);
-    for (const k of ["title", "purpose", "primaryCapability"]) {
+    for (const k of ["title", "purpose", "primaryCapability", "observableAction"]) {
       if (typeof l[k] !== "string" || !(l[k] as string).trim()) e.push(`${where}.${k} must be a non-empty string`);
     }
     for (const k of ["conceptsIntroduced", "conceptsReinforced", "prerequisites", "requiredCapabilities"]) {
@@ -266,6 +274,80 @@ function checkConceptContinuity(inv: unknown[], e: string[]): void {
   });
 }
 
+/* ── Capability briefs (gap-reconciliation pause §5) ── */
+
+/**
+ * A scenario-grounded capability brief — one per gap id, authored by the
+ * architect after the blueprint is accepted. It says WHAT the gap is and WHY it
+ * matters (design-side only); it deliberately does NOT prescribe how to
+ * implement. `markdown` is the full brief body that becomes the outbox
+ * request.md when the gap is commissioned.
+ */
+export interface CapabilityBriefDoc {
+  /** Kebab-case capability id this brief is for (matches a gap's capabilityId). */
+  capabilityId: string;
+  /** The full design-side markdown brief (the gap + why, scenario-grounded). */
+  markdown: string;
+}
+
+/** Minimum brief length — forces real scenario content, not a one-line stub. */
+const MIN_BRIEF_CHARS = 120;
+
+/** Validate a single capability brief. */
+export function validateCapabilityBrief(doc: unknown, expectedId: string): CapabilityBriefDoc {
+  const e: string[] = [];
+  const d = (doc ?? {}) as Record<string, unknown>;
+  const capabilityId = typeof d.capabilityId === "string" ? d.capabilityId.trim() : "";
+  if (capabilityId !== expectedId) e.push(`capability brief capabilityId "${capabilityId}" != expected "${expectedId}"`);
+  const markdown = typeof d.markdown === "string" ? d.markdown.trim() : "";
+  if (markdown.length < MIN_BRIEF_CHARS) {
+    e.push(`capability brief "${expectedId}" markdown must be a substantive design-side brief (${MIN_BRIEF_CHARS}+ chars) — the gap and why it matters, grounded in the blocked lessons' scenario`);
+  }
+  if (e.length) throw new ValidationError(e);
+  return { capabilityId, markdown };
+}
+
+/**
+ * Validate the architect's brief batch: EXACTLY one brief per required gap id
+ * (gap-reconciliation-pause §5 — "validate that every gap id has a brief before
+ * G2"). Accepts an array of briefs; missing, duplicate, or unexpected ids all
+ * fail so the phase retries with the error rather than commissioning a gap the
+ * operator can't understand.
+ */
+export function validateCapabilityBriefs(doc: unknown, requiredIds: string[]): CapabilityBriefDoc[] {
+  const e: string[] = [];
+  const arr = Array.isArray(doc) ? doc : Array.isArray((doc as Record<string, unknown>)?.briefs) ? ((doc as Record<string, unknown>).briefs as unknown[]) : null;
+  if (!arr) throw new ValidationError(["capability briefs must be an array of { capabilityId, markdown } (or { briefs: [...] })"]);
+
+  const byId = new Map<string, CapabilityBriefDoc>();
+  arr.forEach((raw, i) => {
+    const d = (raw ?? {}) as Record<string, unknown>;
+    const id = typeof d.capabilityId === "string" ? d.capabilityId.trim() : "";
+    if (!id) {
+      e.push(`capability briefs[${i}].capabilityId is required`);
+      return;
+    }
+    try {
+      const brief = validateCapabilityBrief(d, id);
+      if (byId.has(id)) e.push(`capability brief for "${id}" appears more than once`);
+      byId.set(id, brief);
+    } catch (err) {
+      if (err instanceof ValidationError) e.push(...err.errors);
+      else throw err;
+    }
+  });
+
+  const required = new Set(requiredIds);
+  for (const id of required) {
+    if (!byId.has(id)) e.push(`missing a capability brief for gap "${id}" — every commissioned gap needs a scenario-grounded brief before the blueprint gate`);
+  }
+  for (const id of byId.keys()) {
+    if (!required.has(id)) e.push(`capability brief for "${id}" does not correspond to any declared gap`);
+  }
+  if (e.length) throw new ValidationError(e);
+  return requiredIds.map((id) => byId.get(id)!);
+}
+
 /* ── Lesson-revision runs (versioning plan Phase D) ── */
 
 export interface RevisionGoalDoc {
@@ -301,7 +383,7 @@ export function validateImprovementPlan(doc: unknown, family: string): Improveme
   if (l.lessonId !== family) e.push(`improvementPlan.lesson.lessonId must be "${family}" (the lesson family being revised)`);
   if (typeof l.level !== "string" || !(LEVELS as readonly string[]).includes(l.level as string)) e.push(`improvementPlan.lesson.level must be one of ${LEVELS.join("|")}`);
   if (typeof l.sequence !== "number") e.push("improvementPlan.lesson.sequence must be a number");
-  for (const k of ["title", "purpose", "primaryCapability"]) {
+  for (const k of ["title", "purpose", "primaryCapability", "observableAction"]) {
     if (typeof l[k] !== "string" || !(l[k] as string).trim()) e.push(`improvementPlan.lesson.${k} must be a non-empty string`);
   }
   for (const k of ["conceptsIntroduced", "conceptsReinforced", "prerequisites", "requiredCapabilities"]) {

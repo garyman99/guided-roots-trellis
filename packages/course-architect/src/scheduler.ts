@@ -107,8 +107,13 @@ export class CourseRunScheduler {
       this.patch(run, { status: "archived", pendingPhase: null, pendingChangeNotes: null });
     } else if (decision === "changes") {
       // Re-run the phase that produced this gate, handing it the notes.
-      this.patch(run, { status: "queued", pendingPhase: PHASE_OF_GATE[gateId], pendingChangeNotes: notes ?? null });
-      this.emit(runId, "run.queued", { pendingPhase: PHASE_OF_GATE[gateId], reason: "changes-requested" });
+      // A lesson-scoped publish request means the operator wants the lesson
+      // sent back through authoring/review agents, not merely rematerialized.
+      // Unscoped publish changes retain the cheaper materialization-only retry.
+      const lessonRevisionAtPublish = gateId === "publish" && !!notes?.some((note) => !!note.lessonId);
+      const pendingPhase = lessonRevisionAtPublish ? "authoring" : PHASE_OF_GATE[gateId];
+      this.patch(run, { status: "queued", pendingPhase, pendingChangeNotes: notes ?? null });
+      this.emit(runId, "run.queued", { pendingPhase, reason: "changes-requested" });
     } else {
       const next = NEXT_PHASE_AFTER_GATE[gateId];
       if (next === null) {
@@ -121,6 +126,28 @@ export class CourseRunScheduler {
         this.emit(runId, "run.queued", { pendingPhase: next });
       }
     }
+    this.pump();
+    return this.store.getCourseRun(runId)!;
+  }
+
+  /**
+   * Re-run an EARLIER phase from the gate the run is currently parked at — a
+   * deliberate BACKWARD transition the normal "changes" path can't express
+   * (that only re-runs `PHASE_OF_GATE[gate]`). Used by redesign at the reconcile
+   * gate: reopen `designing` wholesale under a free-text instruction so the
+   * blueprint no longer needs a capability we've decided not to build
+   * (gap-reconciliation-pause §3). Records a `changes` decision on the parked
+   * gate so no stale pending row is left, then queues `phase` with the notes.
+   */
+  rerunPhaseFromGate(runId: string, gateId: GateId, phase: Phase, notes: GateNote[] | null, by: string | null): CourseRun {
+    const run = this.require(runId);
+    if (run.status !== awaitingGate(gateId)) {
+      throw new RunStateError(`gate "${gateId}" is not awaiting a decision for run ${runId} (status: ${run.status})`);
+    }
+    this.store.decideCourseRunGate(runId, gateId, "changes", by, notes ?? null, this.now());
+    this.emit(runId, "gate.decided", { gateId, decision: "changes", by: by ?? undefined, noteCount: notes?.length ?? 0 });
+    this.patch(run, { status: "queued", pendingPhase: phase, pendingChangeNotes: notes ?? null });
+    this.emit(runId, "run.queued", { pendingPhase: phase, reason: "phase-rerun" });
     this.pump();
     return this.store.getCourseRun(runId)!;
   }

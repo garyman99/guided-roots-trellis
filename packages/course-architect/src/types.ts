@@ -24,30 +24,41 @@ export const TARGET_PLATFORMS = ["windows", "mac"] as const;
 export type TargetPlatform = (typeof TARGET_PLATFORMS)[number];
 export const DEFAULT_TARGET_PLATFORM: TargetPlatform = "windows";
 
-/** The work phases, in order. Exactly one gate follows each. */
-export const PHASES = ["framing", "designing", "authoring", "materializing"] as const;
+/**
+ * The work phases, in order. Exactly one gate follows each.
+ *
+ * `reconciling` is the gap-reconciliation pause (docs/plans/gap-reconciliation-pause.md):
+ * a deterministic, no-agents phase (like `materializing`) that re-diffs the
+ * blueprint's declared capabilities against the live registry and parks at the
+ * `reconcile` gate. It sits between `designing` and `authoring` so every
+ * commissioned capability gap is closed BEFORE any lesson is authored.
+ */
+export const PHASES = ["framing", "designing", "reconciling", "authoring", "materializing"] as const;
 export type Phase = (typeof PHASES)[number];
 
-/** The four human approval gates (plan D4). */
-export const GATES = ["frame", "blueprint", "package", "publish"] as const;
+/** The five human approval gates (plan D4 + the reconcile pause). */
+export const GATES = ["frame", "blueprint", "reconcile", "package", "publish"] as const;
 export type GateId = (typeof GATES)[number];
 
 export const GATE_OF_PHASE: Record<Phase, GateId> = {
   framing: "frame",
   designing: "blueprint",
+  reconciling: "reconcile",
   authoring: "package",
   materializing: "publish",
 };
 export const PHASE_OF_GATE: Record<GateId, Phase> = {
   frame: "framing",
   blueprint: "designing",
+  reconcile: "reconciling",
   package: "authoring",
   publish: "materializing",
 };
 /** On a gate APPROVAL, the phase the run advances to next (publish ends the run). */
 export const NEXT_PHASE_AFTER_GATE: Record<GateId, Phase | null> = {
   frame: "designing",
-  blueprint: "authoring",
+  blueprint: "reconciling",
+  reconcile: "authoring",
   package: "materializing",
   publish: null,
 };
@@ -62,6 +73,7 @@ export type RunStatus =
   | Phase //             executing that phase (active)
   | "awaiting-frame"
   | "awaiting-blueprint"
+  | "awaiting-reconcile"
   | "awaiting-package"
   | "awaiting-publish" // parked at a gate, awaiting a human decision
   | "approved" //        publish gate approved; the course exists as a draft
@@ -165,6 +177,18 @@ export interface CourseRunRequest {
   /** Rough estimated USD spend across every model.invoked event so far (see
    *  budget.ts's per-model $/output-token table). A guardrail, not accounting. */
   maxEstimatedCostUSD?: number;
+  /**
+   * Per-phase critique-round caps (gap-reconciliation-pause §1). Each phase's
+   * critique loop reads ITS OWN cap so cranking design iteration no longer
+   * multiplies authoring cost across every lesson. Absent ⇒ the global env
+   * default seed (COURSE_GEN_CRITIQUE_ROUNDS). Persisted in run.json so they
+   * survive restart/resume and travel with the run; `designRounds` is editable
+   * at the blueprint gate so a "changes" re-run of designing can iterate deeper.
+   * Clamped 1–10 wherever consumed.
+   */
+  framingRounds?: number;
+  designRounds?: number;
+  authoringRounds?: number;
 }
 
 /** Structured request-changes comment; the exact text an executor must address. */

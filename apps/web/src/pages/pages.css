@@ -619,6 +619,7 @@
 .cg-gaps { border-top: 1px solid rgba(255,255,255,0.08); margin-top: 10px; padding-top: 10px; }
 .cg-gaps h4 { margin: 0 0 4px; }
 .cg-gaps select { font-size: 0.8rem; }
+.cg-brief { max-height: 320px; overflow: auto; background: rgba(0,0,0,0.25); padding: 10px; border-radius: 6px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
 
 .cg-heat { display: inline-flex; gap: 3px; }
 .cg-heat-cell { display: inline-flex; flex-direction: column; align-items: center; font-size: 0.55rem; line-height: 1; padding: 3px 4px; border-radius: 3px; background: rgba(107,165,95,0.18); color: var(--gr-ink, #cfe); min-width: 20px; }

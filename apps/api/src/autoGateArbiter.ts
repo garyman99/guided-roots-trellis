@@ -41,7 +41,6 @@ import {
   invokeValidatedJson,
   personaPromptView,
   validateGateVerdict,
-  type CapabilityGapReport,
 } from "../../../packages/course-architect/src/index.ts";
 
 /** Injected collaborators — kept narrow so tests can fake every side effect. */
@@ -51,7 +50,10 @@ export interface AutoGateArbiterDeps {
   invokerFor: (run: CourseRun) => RoleInvoker;
   artifactsFor: (runId: string) => RunArtifacts;
   /** Blueprint-gate approval: apply gap dispositions (same shape the human
-   *  gate-decision endpoint's body.gaps takes: { capabilityId, disposition }[]). */
+   *  gate-decision endpoint's body.gaps takes: { capabilityId, disposition }[]).
+   *  No longer called by the arbiter itself (blueprint is approved on design
+   *  merit only, per gap-reconciliation-pause plan §6) — left wired for
+   *  server.ts, which still owns gap dispositions at the reconcile gate. */
   applyGapDispositions: (runId: string, gaps: unknown) => void;
   /** Publish-gate approval on an `autoPublish` run: go live immediately. */
   publishCourse: (runId: string) => void;
@@ -66,6 +68,9 @@ const GATE_ARTIFACTS: Record<GateId, string[]> = {
   blueprint: ["lesson-inventory.json", "plan-review.md", "capability-gaps.json"],
   package: ["reviews/summary.json", "critiques/summary.json"],
   publish: ["manifest.json"],
+  // Never reviewed by the arbiter (decideOne returns early) — entry only to
+  // satisfy the Record<GateId, ...> keying now that GateId includes it.
+  reconcile: [],
 };
 
 /** Per-artifact character cap — the reviewer needs enough to judge, not the
@@ -157,6 +162,9 @@ export class AutoGateArbiter {
   private async decideOne(run: CourseRun): Promise<void> {
     const gateId = run.status.slice("awaiting-".length) as GateId;
     if (!(GATES as readonly string[]).includes(gateId)) return; // not a real gate status — ignore
+    // Reconcile is a true human gate (plan §6): autopilot halts here and never
+    // auto-decides it — the run stays parked awaiting the operator's build work.
+    if (gateId === "reconcile") return;
 
     const arts = this.deps.artifactsFor(run.runId);
     const priorChanges = this.deps.store.courseRunGates(run.runId).filter((g) => g.gateId === gateId && g.decision === "changes").length;
@@ -184,10 +192,6 @@ export class AutoGateArbiter {
     }
 
     this.writeVerdict(arts, gateId, { ...verdict, at: new Date().toISOString(), round });
-
-    if (gateId === "blueprint" && verdict.decision === "approved") {
-      this.deferAllGaps(run.runId, arts);
-    }
 
     await this.deps.courseRuns.settle(); // never decide while the phase is mid-flight
     try {
@@ -245,21 +249,6 @@ export class AutoGateArbiter {
     arts.write(`gates/${gateId}.verdict.json`, JSON.stringify({ gateId, ...doc }, null, 2));
   }
 
-  /** Blueprint gap policy in auto mode (plan §3.1): defer every gap by default
-   *  — an autopilot run never auto-commissions platform work. */
-  private deferAllGaps(runId: string, arts: RunArtifacts): void {
-    const raw = arts.read("capability-gaps.json");
-    if (!raw) return;
-    let report: CapabilityGapReport;
-    try {
-      report = JSON.parse(raw) as CapabilityGapReport;
-    } catch {
-      return;
-    }
-    if (!report.gaps?.length) return;
-    const gaps = report.gaps.map((g) => ({ capabilityId: g.capabilityId, disposition: "defer" as const }));
-    this.deps.applyGapDispositions(runId, gaps);
-  }
 }
 
 export function createAutoGateArbiter(deps: AutoGateArbiterDeps): AutoGateArbiter {

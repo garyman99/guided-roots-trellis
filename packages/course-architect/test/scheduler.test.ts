@@ -1,5 +1,5 @@
 /**
- * The run scheduler: state machine, four gates, single-active concurrency (D7),
+ * The run scheduler: state machine, five gates, single-active concurrency (D7),
  * interrupt/resume (D8), and artifact revisioning across a changes loop. Driven
  * with a fake executor and an in-memory store — no model, no network.
  */
@@ -18,6 +18,7 @@ import { RunStateError, type Phase, type PhaseContext, type PhaseExecutor } from
 const ARTIFACT_OF_PHASE: Record<Phase, string> = {
   framing: "course-request.md",
   designing: "lesson-inventory.json",
+  reconciling: "capability-gaps.json",
   authoring: "reviews/coverage-matrix.md",
   materializing: "manifest.json",
 };
@@ -43,7 +44,7 @@ function fakeExecutor(artifactsFor: (id: string) => RunArtifacts): PhaseExecutor
   };
 }
 
-test("happy path: a run walks all four gates to approved, writing an artifact per phase", async () => {
+test("happy path: a run walks all five gates to approved, writing an artifact per phase", async () => {
   const h = harness();
   const sched = new CourseRunScheduler(h.store, fakeExecutor(h.artifactsFor), { now: h.now, idSuffix: h.idSuffix });
 
@@ -55,9 +56,10 @@ test("happy path: a run walks all four gates to approved, writing an artifact pe
   assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-frame");
   assert.ok(h.artifactsFor(run.runId).exists("course-request.md"));
 
-  const gates: Array<["frame" | "blueprint" | "package" | "publish", string]> = [
+  const gates: Array<["frame" | "blueprint" | "reconcile" | "package" | "publish", string]> = [
     ["frame", "awaiting-blueprint"],
-    ["blueprint", "awaiting-package"],
+    ["blueprint", "awaiting-reconcile"],
+    ["reconcile", "awaiting-package"],
     ["package", "awaiting-publish"],
     ["publish", "approved"],
   ];
@@ -70,7 +72,7 @@ test("happy path: a run walks all four gates to approved, writing an artifact pe
   // Every phase artifact was written; every gate row is decided approved.
   for (const p of Object.values(ARTIFACT_OF_PHASE)) assert.ok(h.artifactsFor(run.runId).exists(p), `${p} written`);
   const decided = h.store.courseRunGates(run.runId);
-  assert.equal(decided.length, 4);
+  assert.equal(decided.length, 5);
   assert.ok(decided.every((g) => g.decision === "approved" && g.decidedBy === "operator@local"));
 });
 

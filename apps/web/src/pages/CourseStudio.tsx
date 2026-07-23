@@ -16,14 +16,13 @@ import {
   type SimLessonResult,
   type SimTestJobView,
   type Course,
+  type CapabilityGap,
   type CapabilityGapReport,
   type CapabilityRequest,
   type CourseIdeaSuggestion,
   type CourseRunDetail,
   type CourseRunSummary,
   type LiveActivity,
-  type GapDecision,
-  type GapDisposition,
   type GateId,
   type GateNote,
   type GateVerdict,
@@ -40,7 +39,7 @@ import { LessonExperiencePanel } from "./LessonExperience.tsx";
 // Linear order of run states, so a phase/gate rail node can tell whether the
 // run is before it, on it, or past it.
 const STATUS_ORDER: RunStatus[] = [
-  "queued", "framing", "awaiting-frame", "designing", "awaiting-blueprint",
+  "queued", "framing", "awaiting-frame", "designing", "awaiting-blueprint", "awaiting-reconcile",
   "authoring", "awaiting-package", "materializing", "awaiting-publish", "approved",
 ];
 const orderOf = (s: RunStatus): number => {
@@ -67,7 +66,8 @@ const awaitingGateId = (s: RunStatus): GateId | null =>
 const STATUS_LABEL: Record<string, string> = {
   queued: "Queued", framing: "Framing", designing: "Designing", authoring: "Authoring",
   materializing: "Materializing", "awaiting-frame": "Awaiting frame gate",
-  "awaiting-blueprint": "Awaiting blueprint gate", "awaiting-package": "Awaiting package gate",
+  "awaiting-blueprint": "Awaiting blueprint gate", "awaiting-reconcile": "Reconcile gap",
+  "awaiting-package": "Awaiting package gate",
   "awaiting-publish": "Awaiting publish gate", approved: "Approved", interrupted: "Interrupted",
   archived: "Archived", failed: "Failed",
 };
@@ -77,6 +77,7 @@ const RAIL: Array<{ kind: "phase" | "gate" | "done"; status: RunStatus; gate?: G
   { kind: "gate", status: "awaiting-frame", gate: "frame", label: "G1 · Frame" },
   { kind: "phase", status: "designing", label: "Design" },
   { kind: "gate", status: "awaiting-blueprint", gate: "blueprint", label: "G2 · Blueprint" },
+  { kind: "gate", status: "awaiting-reconcile", gate: "reconcile", label: "Reconcile gaps" },
   { kind: "phase", status: "authoring", label: "Author" },
   { kind: "gate", status: "awaiting-package", gate: "package", label: "G3 · Package" },
   { kind: "phase", status: "materializing", label: "Materialize" },
@@ -715,6 +716,11 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
   // Budget guardrails (plan §3.2) — optional; blank leaves the run unbounded.
   const [maxModelCalls, setMaxModelCalls] = useState("");
   const [maxEstimatedCostUSD, setMaxEstimatedCostUSD] = useState("");
+  // Per-phase critique-round caps (gap-reconciliation-pause plan §1) — optional;
+  // blank seeds from the env default for that phase.
+  const [framingRounds, setFramingRounds] = useState("");
+  const [designRounds, setDesignRounds] = useState("");
+  const [authoringRounds, setAuthoringRounds] = useState("");
   useEffect(() => {
     if (open && !providers) {
       courseRunApi.providers().then((p) => {
@@ -751,6 +757,12 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
     if (maxModelCalls.trim() && Number.isFinite(calls) && calls > 0) body.maxModelCalls = calls;
     const cost = Number(maxEstimatedCostUSD);
     if (maxEstimatedCostUSD.trim() && Number.isFinite(cost) && cost > 0) body.maxEstimatedCostUSD = cost;
+    const framing = Number(framingRounds);
+    if (framingRounds.trim() && Number.isFinite(framing) && framing > 0) body.framingRounds = framing;
+    const design = Number(designRounds);
+    if (designRounds.trim() && Number.isFinite(design) && design > 0) body.designRounds = design;
+    const authoring = Number(authoringRounds);
+    if (authoringRounds.trim() && Number.isFinite(authoring) && authoring > 0) body.authoringRounds = authoring;
     const pickedRoleModels = Object.fromEntries(Object.entries(roleModels).filter(([, v]) => v.trim()));
     body.providerConfig =
       provider === "mock"
@@ -974,7 +986,49 @@ function StartRunForm({ onStarted, personas, onGoPersonas }: {
             placeholder="unbounded"
           />
         </div>
+        <div className="gr-field">
+          <label htmlFor="cg-max-framing-rounds">Framing rounds (optional)</label>
+          <input
+            id="cg-max-framing-rounds"
+            type="number"
+            min={1}
+            max={10}
+            value={framingRounds}
+            onChange={(e) => setFramingRounds(e.target.value)}
+            placeholder="env default"
+          />
+        </div>
+        <div className="gr-field">
+          <label htmlFor="cg-max-design-rounds">Design rounds (optional)</label>
+          <input
+            id="cg-max-design-rounds"
+            type="number"
+            min={1}
+            max={10}
+            value={designRounds}
+            onChange={(e) => setDesignRounds(e.target.value)}
+            placeholder="env default"
+          />
+        </div>
+        <div className="gr-field">
+          <label htmlFor="cg-max-authoring-rounds">Authoring rounds (optional)</label>
+          <input
+            id="cg-max-authoring-rounds"
+            type="number"
+            min={1}
+            max={10}
+            value={authoringRounds}
+            onChange={(e) => setAuthoringRounds(e.target.value)}
+            placeholder="env default"
+          />
+        </div>
       </div>
+      <p className="gr-mono-note">
+        Per-phase critique caps (1–10): how many critique rounds framing, designing, and each lesson's
+        authoring loop get. Leave blank to seed from the server's env default. Design iteration is
+        deliberately decoupled from authoring cost — cranking design depth no longer multiplies every
+        lesson's authoring budget.
+      </p>
       {gateMode === "auto" && (
         <p className="gr-mono-note">
           Gates are decided by an agent against an acceptance rubric with a bounded change budget.
@@ -1209,10 +1263,14 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
       <AgentChat run={run} />
       <RunEconomics events={run.events} />
 
-      {gate && <GateBar run={run} gate={gate} onDecided={setRun} fullThrottle={fullThrottle} />}
+      {gate === "reconcile" ? (
+        <ReconcileGatePanel run={run} onDecided={setRun} />
+      ) : (
+        gate && <GateBar run={run} gate={gate} onDecided={setRun} fullThrottle={fullThrottle} />
+      )}
       {run.status === "approved" && <GoLive run={run} onCoursesChanged={onCoursesChanged} />}
 
-      <LessonBoard run={run} />
+      <LessonBoard run={run} onRunChanged={setRun} />
       <CritiquePanel run={run} />
       <QualityGates run={run} />
       <ArtifactViewer run={run} />
@@ -1289,7 +1347,7 @@ function PhaseRail({ run }: { run: CourseRunDetail }) {
 
 /* ---------- autopilot gate verdicts ---------- */
 
-const GATE_NUMBER: Record<GateId, string> = { frame: "G1", blueprint: "G2", package: "G3", publish: "G4" };
+const GATE_NUMBER: Record<GateId, string> = { frame: "G1", blueprint: "G2", reconcile: "G2.5", package: "G3", publish: "G4" };
 
 function GateVerdicts({ run }: { run: CourseRunDetail }) {
   const verdictPaths = useMemo(
@@ -1424,9 +1482,10 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
   const [notes, setNotes] = useState<GateNote[]>([{ comment: "" }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Blueprint gate: the capability-gap report + the operator's dispositions.
+  // Blueprint gate: the capability-gap report, shown read-only — every gap is
+  // commissioned by default server-side on approval (gap-reconciliation-pause
+  // plan §3); dispositioning individual gaps now happens at the reconcile gate.
   const [gaps, setGaps] = useState<CapabilityGapReport | null>(null);
-  const [dispositions, setDispositions] = useState<Record<string, GapDisposition>>({});
   const by = "operator";
 
   useEffect(() => {
@@ -1437,25 +1496,18 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
     }
   }, [gate, run]);
 
-  const undecidedGaps = (gaps?.gaps ?? []).filter((g) => !dispositions[g.capabilityId] && !g.disposition);
-
   const decide = (decision: "approved" | "changes" | "rejected") => {
     if (decision === "changes") {
       const clean = notes.filter((n) => n.comment.trim());
       if (clean.length === 0) { setError("Add at least one change note."); return; }
       submit(decision, clean);
     } else {
-      if (decision === "approved" && undecidedGaps.length > 0) {
-        setError(`Disposition the ${undecidedGaps.length} capability gap(s) before approving.`);
-        return;
-      }
       submit(decision, null);
     }
   };
   const submit = (decision: "approved" | "changes" | "rejected", n: GateNote[] | null) => {
     setBusy(true); setError(null);
-    const gapDecisions: GapDecision[] = Object.entries(dispositions).map(([capabilityId, disposition]) => ({ capabilityId, disposition }));
-    courseRunApi.decide(run.runId, gate, decision, n, by, gate === "blueprint" ? gapDecisions : undefined)
+    courseRunApi.decide(run.runId, gate, decision, n, by)
       // Keep `busy` true on success: the run leaves this gate and the bar
       // unmounts, so the button must never re-enable (it re-enabling before the
       // status visibly moved is what let a fast operator double-submit).
@@ -1470,26 +1522,19 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
       });
   };
 
-  // Full throttle: auto-approve this gate as soon as it appears. For the
-  // blueprint gate we first defer any undecided capability gaps so the approve
-  // isn't rejected — full throttle means "keep going, don't ask me".
+  // Full throttle: auto-approve this gate as soon as it appears. The reconcile
+  // gate is a true human-in-the-loop pause (gap-reconciliation-pause plan §6)
+  // — it must NEVER auto-approve, autopilot and full-throttle both halt there
+  // (GateBar isn't even mounted for it; RunDetail routes "reconcile" to
+  // ReconcileGatePanel instead — this guard is a defensive no-op belt).
   const autoFired = useRef(false);
-  const needGaps = gate === "blueprint" && run.artifacts.includes("capability-gaps.json");
   useEffect(() => {
+    if (gate === "reconcile") return;
     if (!fullThrottle || busy || mode !== "idle" || autoFired.current) return;
-    if (needGaps && gaps === null) return; // wait for the gap report to load
-    if (undecidedGaps.length > 0) {
-      setDispositions((d) => {
-        const next = { ...d };
-        for (const g of undecidedGaps) next[g.capabilityId] = "defer";
-        return next;
-      });
-      return; // undecidedGaps → 0 next render; the effect then approves
-    }
     autoFired.current = true;
     submit("approved", null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullThrottle, busy, mode, needGaps, gaps, undecidedGaps.length]);
+  }, [fullThrottle, busy, mode, gate]);
 
   return (
     <div className="gr-card cg-gatebar">
@@ -1498,26 +1543,19 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
 
       {gate === "blueprint" && gaps && gaps.gaps.length > 0 && (
         <div className="cg-gaps">
-          <h4 className="admin-subhead">Capability gaps — the course needs {gaps.gaps.length} capabilit{gaps.gaps.length === 1 ? "y" : "ies"} this build lacks</h4>
-          <p className="gr-mono-note">Disposition each before approving. Commission writes a request for the code side; defer drops the lesson; redesign = request changes so the architect reworks it.</p>
+          <h4 className="admin-subhead">
+            This blueprint declares {gaps.gaps.length} capability gap{gaps.gaps.length === 1 ? "" : "s"}
+          </h4>
+          <p className="gr-mono-note">
+            Approving commissions all of them as work orders; you'll close them at the reconcile gate next.
+          </p>
           <table className="admin-table">
-            <thead><tr><th>Capability</th><th>Blocks lessons</th><th>Disposition</th></tr></thead>
+            <thead><tr><th>Capability</th><th>Blocks lessons</th></tr></thead>
             <tbody>
               {gaps.gaps.map((g) => (
                 <tr key={g.capabilityId}>
                   <td><code>{g.capabilityId}</code></td>
                   <td>{g.lessons.join(", ")}</td>
-                  <td>
-                    <select
-                      value={dispositions[g.capabilityId] ?? g.disposition ?? ""}
-                      onChange={(e) => setDispositions((d) => ({ ...d, [g.capabilityId]: e.target.value as GapDisposition }))}
-                    >
-                      <option value="" disabled>choose…</option>
-                      <option value="commission">Commission (build it)</option>
-                      <option value="defer">Defer (drop lesson)</option>
-                      <option value="redesign">Redesign (rework lesson)</option>
-                    </select>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1554,6 +1592,250 @@ function GateBar({ run, gate, onDecided, fullThrottle }: { run: CourseRunDetail;
           {error && <p className="admin-error">{error}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- reconcile gate (gap-reconciliation-pause plan §2–3) ---------- */
+
+/**
+ * A dedicated panel for the `reconcile` gate — NOT a GateBar variant. This is
+ * the hard-blocked human pause between blueprint and authoring: the operator
+ * builds each commissioned capability, restarts the API, and re-checks until
+ * every commissioned gap's id is registered. Approve is disabled until then;
+ * defer/redesign live here (not at the blueprint gate) so dropping an ideal
+ * lesson is a late, deliberate act after the real build cost is visible.
+ */
+function ReconcileGatePanel({ run, onDecided }: { run: CourseRunDetail; onDecided: (r: CourseRunDetail) => void }) {
+  const [gaps, setGaps] = useState<CapabilityGapReport | null>(null);
+  const [gapsError, setGapsError] = useState<string | null>(null);
+  const [briefs, setBriefs] = useState<Record<string, string | undefined>>({});
+  const [openBrief, setOpenBrief] = useState<string | null>(null);
+  const [redesignFor, setRedesignFor] = useState<string | null>(null);
+  const [redesignText, setRedesignText] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openCommissionedOverride, setOpenCommissionedOverride] = useState<string[] | null>(null);
+  const by = "operator";
+
+  useEffect(() => {
+    if (!run.artifacts.includes("capability-gaps.json")) { setGaps(null); return; }
+    courseRunApi.artifact(run.runId, "capability-gaps.json")
+      .then((a) => setGaps(JSON.parse(a.content) as CapabilityGapReport))
+      .catch((e) => setGapsError(String((e as Error).message)));
+  }, [run]);
+
+  // A gap disappears from the report once the deterministic re-diff finds its
+  // id registered — so "still open" is simply every remaining commissioned gap.
+  const openGaps = (gaps?.gaps ?? []).filter((g) => g.disposition === "commission");
+  const allClosed = gaps !== null && openGaps.length === 0;
+
+  const loadBrief = (capabilityId: string) => {
+    if (openBrief === capabilityId) { setOpenBrief(null); return; }
+    setOpenBrief(capabilityId);
+    if (briefs[capabilityId] !== undefined) return;
+    courseRunApi.artifact(run.runId, `capability-briefs/${capabilityId}.md`)
+      .then((a) => setBriefs((b) => ({ ...b, [capabilityId]: a.content })))
+      .catch(() => setBriefs((b) => ({ ...b, [capabilityId]: "(brief not found)" })));
+  };
+
+  const afterAction = (r: CourseRunDetail) => {
+    onDecided(r);
+    setOpenCommissionedOverride(null);
+    setError(null);
+  };
+
+  const recheck = () => {
+    setBusy("recheck"); setError(null);
+    courseRunApi.reconcileAction(run.runId, "recheck")
+      .then(afterAction)
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  const defer = (g: CapabilityGap) => {
+    const msg = `Defer capability "${g.capabilityId}"? This drops lesson(s) ${g.lessons.join(", ")} from the run and retracts its work order. This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    setBusy(`defer:${g.capabilityId}`); setError(null);
+    courseRunApi.reconcileAction(run.runId, "defer", { capabilityId: g.capabilityId })
+      .then(afterAction)
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  const submitRedesign = (capabilityId: string) => {
+    const instruction = redesignText.trim();
+    if (!instruction) return;
+    setBusy(`redesign:${capabilityId}`); setError(null);
+    courseRunApi.reconcileAction(run.runId, "redesign", { instruction, capabilityId })
+      .then((r) => { afterAction(r); setRedesignFor(null); setRedesignText(""); })
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  const approve = () => {
+    setBusy("approve"); setError(null);
+    courseRunApi.decide(run.runId, "reconcile", "approved", null, by)
+      .then(afterAction)
+      .catch((e) => {
+        const body = (e as { body?: { error?: string; openCommissioned?: string[] } }).body;
+        if (body?.openCommissioned) setOpenCommissionedOverride(body.openCommissioned);
+        setError(String((e as Error).message));
+        // The 409 means the gate is still open (a race, e.g. another operator
+        // re-checked in the meantime) — resync so the report reflects reality.
+        courseRunApi.get(run.runId).then(onDecided).catch(() => {});
+      })
+      .finally(() => setBusy(null));
+  };
+
+  const reject = () => {
+    if (!window.confirm("Reject and archive this run?")) return;
+    setBusy("reject"); setError(null);
+    courseRunApi.decide(run.runId, "reconcile", "rejected", null, by)
+      .then(afterAction)
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <div className="gr-card cg-gatebar">
+      <h3>Gate: reconcile</h3>
+      {gaps === null ? (
+        <p className="admin-loading">{gapsError ?? "Loading capability gaps…"}</p>
+      ) : (
+        <>
+          <p className={openGaps.length > 0 ? "admin-error" : "gr-mono-note"}>
+            {openGaps.length > 0
+              ? `${openGaps.length} commissioned capabilit${openGaps.length === 1 ? "y" : "ies"} still open`
+              : "All commissioned gaps closed — ready to approve"}
+          </p>
+          <p className="gr-mono-note">
+            1. Hand a gap's brief to Claude Code and implement the capability (registry entry + AUTHORING.md +
+            agreement test). 2. Restart the API to reload the registry. 3. Click Re-check.
+          </p>
+          <p className="gr-mono-note">
+            Green = the id is registered; correctness is proven by its agreement test, which must be passing
+            before you approve.
+          </p>
+
+          {gaps.gaps.length === 0 ? (
+            <p className="admin-empty">No capability gaps on this blueprint.</p>
+          ) : (
+            <table className="admin-table cg-gaps">
+              <thead>
+                <tr><th>Capability</th><th>Blocks lessons</th><th>Disposition</th><th>Status</th><th>Brief</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {gaps.gaps.map((g) => {
+                  const stillOpen = g.disposition === "commission";
+                  return (
+                    <Fragment key={g.capabilityId}>
+                      <tr>
+                        <td><code>{g.capabilityId}</code></td>
+                        <td>{g.lessons.join(", ")}</td>
+                        <td>{g.disposition ?? "—"}</td>
+                        <td>
+                          <span className={`admin-chip ${stillOpen ? "status-abandoned" : "status-mastered"}`}>
+                            {stillOpen ? "open" : "closed"}
+                          </span>
+                        </td>
+                        <td>
+                          <button className="gr-btn gr-btn-ghost gr-btn-small" onClick={() => loadBrief(g.capabilityId)}>
+                            {openBrief === g.capabilityId ? "Hide brief" : "View brief"}
+                          </button>
+                        </td>
+                        <td>
+                          {stillOpen && (
+                            <div className="admin-editor-actions">
+                              <button
+                                className="gr-btn gr-btn-ghost gr-btn-small admin-danger"
+                                disabled={busy !== null}
+                                onClick={() => defer(g)}
+                              >
+                                Defer (drop these lessons)
+                              </button>
+                              <button
+                                className="gr-btn gr-btn-ghost gr-btn-small"
+                                disabled={busy !== null}
+                                onClick={() => {
+                                  setRedesignFor(redesignFor === g.capabilityId ? null : g.capabilityId);
+                                  setRedesignText("");
+                                }}
+                              >
+                                {redesignFor === g.capabilityId ? "Cancel redesign" : "Redesign"}
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                      {openBrief === g.capabilityId && (
+                        <tr>
+                          <td colSpan={6}>
+                            {briefs[g.capabilityId] === undefined ? (
+                              <p className="admin-loading">Loading brief…</p>
+                            ) : (
+                              <pre className="gr-mono-note cg-brief">{briefs[g.capabilityId]}</pre>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      {redesignFor === g.capabilityId && (
+                        <tr>
+                          <td colSpan={6}>
+                            <div className="gr-field">
+                              <label htmlFor={`reconcile-redesign-${g.capabilityId}`}>
+                                Redesign instruction — reopens designing wholesale under this constraint
+                              </label>
+                              <textarea
+                                id={`reconcile-redesign-${g.capabilityId}`}
+                                rows={3}
+                                value={redesignText}
+                                onChange={(e) => setRedesignText(e.target.value)}
+                                placeholder={`e.g. Design this so it does not need capability "${g.capabilityId}"; rework its lessons onto existing capabilities.`}
+                              />
+                            </div>
+                            <div className="admin-editor-actions">
+                              <button
+                                className="gr-btn gr-btn-primary gr-btn-small"
+                                disabled={busy !== null || !redesignText.trim()}
+                                onClick={() => submitRedesign(g.capabilityId)}
+                              >
+                                {busy === `redesign:${g.capabilityId}` ? "Sending…" : "Send redesign"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+
+      {openCommissionedOverride && openCommissionedOverride.length > 0 && (
+        <p className="admin-error">Still open (server-confirmed): {openCommissionedOverride.join(", ")}</p>
+      )}
+      {error && <p className="admin-error">{error}</p>}
+
+      <div className="admin-editor-actions">
+        <button className="gr-btn gr-btn-ghost" disabled={busy !== null} onClick={recheck}>
+          {busy === "recheck" ? "Re-checking…" : "Re-check"}
+        </button>
+        <button
+          className="gr-btn gr-btn-primary"
+          disabled={busy !== null || !allClosed}
+          title={allClosed ? undefined : "Every commissioned gap must be closed before approving"}
+          onClick={approve}
+        >
+          {busy === "approve" ? "Approving…" : "Approve"}
+        </button>
+        <button className="gr-btn gr-btn-ghost admin-danger" disabled={busy !== null} onClick={reject}>
+          {busy === "reject" ? "Rejecting…" : "Reject"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1954,9 +2236,13 @@ interface ReviewOutcome {
 const PED_ORDER = ["priorKnowledge", "mentalModel", "activeLearning", "feedback", "mastery"];
 const PED_SHORT: Record<string, string> = { priorKnowledge: "PK", mentalModel: "MM", activeLearning: "AL", feedback: "FB", mastery: "MA" };
 
-function LessonBoard({ run }: { run: CourseRunDetail }) {
+function LessonBoard({ run, onRunChanged }: { run: CourseRunDetail; onRunChanged: (run: CourseRunDetail) => void }) {
   const [inv, setInv] = useState<InventoryEntry[] | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewOutcome>>({});
+  const [reviseLesson, setReviseLesson] = useState<string | null>(null);
+  const [revisePrompt, setRevisePrompt] = useState("");
+  const [reviseBusy, setReviseBusy] = useState(false);
+  const [reviseError, setReviseError] = useState<string | null>(null);
   useEffect(() => {
     if (run.artifacts.includes("lesson-inventory.json")) {
       courseRunApi.artifact(run.runId, "lesson-inventory.json").then((a) => setInv(JSON.parse(a.content))).catch(() => setInv([]));
@@ -1981,20 +2267,45 @@ function LessonBoard({ run }: { run: CourseRunDetail }) {
       : authored.has(id) ? "authored" : needsRevision.has(id) ? "needs-revision" : blocked.has(id) ? "blocked" : "pending";
   const stateClass = (s: string) => (s === "authored" ? "status-mastered" : s === "blocked" || s === "needs-revision" ? "status-abandoned" : "");
   const hasReviews = Object.keys(reviews).length > 0;
+  const pendingGate = awaitingGateId(run.status);
+  const submitRevision = () => {
+    if (!reviseLesson || !pendingGate || !revisePrompt.trim()) return;
+    setReviseBusy(true);
+    setReviseError(null);
+    courseRunApi.decide(
+      run.runId,
+      pendingGate,
+      "changes",
+      [{ lessonId: reviseLesson, comment: revisePrompt.trim() }],
+      "operator",
+    )
+      .then((updated) => {
+        onRunChanged(updated);
+        setReviseLesson(null);
+        setRevisePrompt("");
+      })
+      .catch((e) => setReviseError(String((e as Error).message)))
+      .finally(() => setReviseBusy(false));
+  };
 
   return (
     <div className="gr-card">
       <h3>Lessons</h3>
+      <p className="admin-lede-note">
+        Select <b>Revise plan</b> on a pending, blocked, or needs-revision lesson to send a targeted change request into the agent pass.
+      </p>
+      {reviseError && <p className="admin-error">{reviseError}</p>}
       <table className="admin-table">
         <thead>
-          <tr><th>#</th><th>Level</th><th>Lesson</th><th>State</th>{hasReviews && <th>Pedagogy (1–5)</th>}{hasReviews && <th>Tech / Cohesion</th>}</tr>
+          <tr><th>#</th><th>Level</th><th>Lesson</th><th>State</th>{hasReviews && <th>Pedagogy (1–5)</th>}{hasReviews && <th>Tech / Cohesion</th>}<th>Plan</th></tr>
         </thead>
         <tbody>
           {[...inv].sort((a, b) => a.sequence - b.sequence).map((l) => {
             const state = stateOf(l.lessonId);
             const o = reviews[l.lessonId];
             return (
-              <tr key={l.lessonId}>
+              <Fragment key={l.lessonId}>
+              <tr>
                 <td>{l.sequence}</td>
                 <td><span className="admin-chip">{l.level}</span></td>
                 <td>{l.title} <code className="gr-mono-note">{l.lessonId}</code></td>
@@ -2012,7 +2323,55 @@ function LessonBoard({ run }: { run: CourseRunDetail }) {
                   </td>
                 )}
                 {hasReviews && <td>{o ? <span className="gr-mono-note">{o.technical.verdict} / {o.cohesion.verdict}</span> : "—"}</td>}
+                <td>
+                  {(state === "pending" || state === "blocked" || state === "needs-revision") && (
+                    <button
+                      className={"gr-btn gr-btn-small " + (reviseLesson === l.lessonId ? "gr-btn-primary" : "gr-btn-ghost")}
+                      onClick={() => {
+                        setReviseLesson(reviseLesson === l.lessonId ? null : l.lessonId);
+                        setRevisePrompt("");
+                        setReviseError(null);
+                      }}
+                      disabled={reviseBusy}
+                      title={pendingGate ? "Send a targeted request into the next authoring pass" : "The run must be parked at a gate before a lesson can be revised"}
+                    >
+                      {reviseLesson === l.lessonId ? "Cancel" : "Revise plan"}
+                    </button>
+                  )}
+                  {!pendingGate && (state === "pending" || state === "blocked" || state === "needs-revision") && (
+                    <span className="gr-mono-note" style={{ display: "block", marginTop: 4 }}>park at a gate first</span>
+                  )}
+                </td>
               </tr>
+              {reviseLesson === l.lessonId && (
+                <tr key={l.lessonId + "-revision"}>
+                  <td colSpan={hasReviews ? 7 : 5}>
+                    <div className="gr-field">
+                      <label htmlFor={"lesson-revision-" + l.lessonId}>
+                        Revision request for <code>{l.lessonId}</code>
+                      </label>
+                      <textarea
+                        id={"lesson-revision-" + l.lessonId}
+                        rows={3}
+                        value={revisePrompt}
+                        onChange={(e) => setRevisePrompt(e.target.value)}
+                        placeholder={state === "pending"
+                          ? "e.g. Author this lesson now with a measurable lab and a passing verification checkpoint."
+                          : state === "blocked"
+                          ? "e.g. Re-author this lesson now that the missing capability has been built and the API restarted — it should prove/simulate cleanly on the current bench."
+                          : "e.g. Add a tests-green checkpoint and make the verifier run pytest -q."}
+                      />
+                    </div>
+                    <div className="admin-editor-actions">
+                      <button className="gr-btn gr-btn-primary gr-btn-small" onClick={submitRevision} disabled={reviseBusy || !pendingGate || !revisePrompt.trim()}>
+                        {reviseBusy ? "Sending…" : "Send revision request"}
+                      </button>
+                      {!pendingGate && <span className="gr-mono-note">Revision requests are available when this run is awaiting a gate.</span>}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>

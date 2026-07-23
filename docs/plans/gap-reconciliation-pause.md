@@ -1,8 +1,17 @@
 # Gap-reconciliation pause (designing → authoring)
 
-**Status:** proposed (no code yet) · **Branch:** `feature/course-planning-rework`
+**Status:** IMPLEMENTED 2026-07-23 · **Branch:** `feature/course-planning-rework`
 · **Owner directive:** design blueprints for the *ideal* course, then close the
 capability gaps deliberately before authoring.
+
+> As built: the gate ladder is now five — frame → blueprint → **reconcile** →
+> package → publish. Commission-by-default and the reconcile hard-block are
+> enforced **server-side** (`commissionBlueprintGaps` + the reconcile branch of
+> the gate-decision endpoint); the `reconciling` phase itself is deterministic.
+> Redesign's backward jump uses the new `CourseRunScheduler.rerunPhaseFromGate`.
+> Not yet covered by automated tests: the 409 hard-block, the outbox commission,
+> and `POST /course-runs/:id/reconcile/{recheck|defer|redesign}` (the e2e API
+> suite hits the real `trellis.db`, so it was not exercised).
 
 > Grilled 2026-07-23 — eleven decisions folded in (commission-by-default,
 > reconcile as a true human gate, scenario-only briefs, per-phase round knobs,

@@ -29,20 +29,22 @@ import {
   validateImprovementPlan,
   validateLessonPlan,
   validateRevisionGoal,
+  validateCapabilityBriefs,
   type Blueprint,
   type CourseRequestDoc,
   type Level,
   type LessonInventoryEntry,
   type LessonPlanDoc,
   type LabCapabilityGap,
+  type CapabilityBriefDoc,
 } from "./schemas.ts";
-import { computeCapabilityGaps, lessonsBlockedByGaps, mergeAuthorGaps, type CapabilityGapReport } from "./gaps.ts";
+import { computeCapabilityGaps, lessonsBlockedByGaps, mergeAuthorGaps, reconcileGaps, commissionedGaps, type CapabilityGapReport } from "./gaps.ts";
 import { enforceBudget } from "./budget.ts";
 import { personaPromptView } from "./personas.ts";
 import {
   critiqueInstruction,
   critiqueLoop,
-  critiqueRounds,
+  phaseRounds,
   validateCritiqueVerdict,
   type CritiqueLoopResult,
   type CritiqueSummaryEntry,
@@ -212,10 +214,11 @@ function taskInstruction(task: string): string {
       '    "conceptsIntroduced": string[],',
       '    "conceptsReinforced": string[],',
       '    "prerequisites": string[],      // lessonIds appearing EARLIER in this inventory',
-      '    "requiredCapabilities": string[] // ids from CONTEXT.availableCapabilities; any id NOT there becomes a capability gap',
+      '    "requiredCapabilities": string[], // ids this lesson SHOULD rely on — the pedagogically right ones, whether or not CONTEXT.availableCapabilities has them yet',
+      '    "observableAction": string        // the single concrete action the learner performs that the bench must observe — the measurable heart of the lesson (e.g. "runs the Selenium suite and sees a failing assertion", not "learns about waits")',
       '  } ]',
       '}',
-      'The prerequisiteGraph MUST be acyclic. Every prerequisites entry MUST reference a lessonId in this inventory. Prefer capabilities from CONTEXT.availableCapabilities; only introduce a new (gap) capability when a lesson genuinely needs it.',
+      'The prerequisiteGraph MUST be acyclic. Every prerequisites entry MUST reference a lessonId in this inventory. Design the pedagogically IDEAL course, unconstrained by what CONTEXT.availableCapabilities already provides — declare whatever capability each lesson SHOULD rely on in requiredCapabilities. A capability gap (a required id not yet in the registry) is normal, EXPECTED output, not something to avoid or route around.',
     ].join("\n");
   }
   if (task.startsWith("lesson:")) {
@@ -358,9 +361,30 @@ function taskInstruction(task: string): string {
       '    "conceptsIntroduced": string[],',
       '    "conceptsReinforced": string[],',
       '    "prerequisites": [],',
-      '    "requiredCapabilities": string[] // ids from CONTEXT.availableCapabilities; any id NOT there becomes a capability gap',
+      '    "requiredCapabilities": string[], // ids from CONTEXT.availableCapabilities; any id NOT there becomes a capability gap',
+      '    "observableAction": string        // the single concrete action the learner performs that the bench must observe — the measurable heart of the lesson (e.g. "runs the Selenium suite and sees a failing assertion", not "learns about waits")',
       '  }',
       '}',
+    ].join("\n");
+  }
+  if (task === "capability-briefs") {
+    return [
+      'Author ONE scenario-grounded capability-gap brief per entry in CONTEXT.gaps. Return JSON: an array (or { "briefs": [...] }) with EXACTLY one entry per gap, each an object with EXACTLY these keys:',
+      '{ "capabilityId": string, "markdown": string }',
+      'Every capabilityId MUST match a gap\'s capabilityId in CONTEXT.gaps — no more, no fewer, no duplicates.',
+      '"markdown" stays firmly on the DESIGN side of the wall — it says WHAT the gap is and WHY it matters, and STOPS there. It must NOT prescribe HOW to implement: no registry/array names, no firing-signal design, no definition-of-done checklist. Follow this exact template:',
+      '',
+      '# Capability gap: `<capability-id>`  ·  <one-line label>',
+      '',
+      '## What the bench must let the learner do / must observe',
+      '<the capability described in behavioral terms — the observable signal or surface the lesson needs. NOT registry terms.>',
+      '',
+      '## The blueprint scenario we must accommodate',
+      'For EACH lesson in that gap\'s blockedLessons:',
+      '- **Lesson** `<lessonId>` — "<title>" (level, sequence)',
+      '- **Purpose** <lesson.purpose, verbatim>',
+      '- **What the learner concretely does** <copied verbatim from that lesson\'s observableAction, then expanded step by step>',
+      '- **Why no existing capability covers it** <the design-level near-miss: which existing capability was considered and why it measures the wrong thing>',
     ].join("\n");
   }
   return `Produce the "${task}" artifact as strict JSON.`;
@@ -641,13 +665,14 @@ async function runCritiqued<T>(
   arts: RunArtifacts,
   subject: string, // artifact-safe: "frame" | "blueprint" | `lesson-<id>`
   goal: string,
+  maxRounds: number,
   produce: (critiqueFeedback: string[] | null, round: number) => Promise<T>,
   render: (value: T) => string,
 ): Promise<CritiqueLoopResult<T>> {
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
   const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
   const result = await critiqueLoop<T>({
-    maxRounds: critiqueRounds(),
+    maxRounds,
     produce,
     critique: (value, round) =>
       invokeValidated(
@@ -696,6 +721,7 @@ async function runFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts):
     arts,
     "frame",
     goal,
+    phaseRounds("framing", ctx.run.request),
     (critiqueFeedback) =>
       invokeValidated(
         deps,
@@ -730,6 +756,7 @@ async function runRevisionFraming(ctx: PhaseContext, deps: RunDeps, arts: RunArt
     arts,
     "frame",
     `State a revision goal for lesson "${rev.family}" that fixes what the experience report and operator notes describe.`,
+    phaseRounds("framing", ctx.run.request),
     (critiqueFeedback) =>
       invokeValidated(
         deps,
@@ -781,6 +808,7 @@ async function runRevisionDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunA
     arts,
     "blueprint",
     `Deliver the approved revision goal:\n${revisionGoal}`,
+    phaseRounds("designing", ctx.run.request),
     (critiqueFeedback) =>
       invokeValidated(
         deps,
@@ -829,6 +857,51 @@ async function runDesigning(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   for (const path of ["domain-map.md", "progression-spine.md", "course-conventions.md", "plan-review.md", "prerequisite-graph.json", "lesson-inventory.json"]) {
     ctx.emit("artifact.written", { path });
   }
+
+  // Gap-reconciliation pause §5: every gap ships a scenario-grounded brief
+  // BEFORE G2, authored by the architect (the role holding the design intent).
+  // Zero gaps ⇒ skip entirely — no model call, so the offline/mock path (whose
+  // fixture courses have no gaps) stays clean.
+  await authorCapabilityBriefs(deps, ctx, arts, bp, report);
+}
+
+/**
+ * One brief per gap id (gap-reconciliation-pause §5), authored by the architect
+ * in a SINGLE model call after the blueprint is accepted. Each blocked lesson is
+ * handed over verbatim (title/purpose/observableAction) so the brief's "what the
+ * learner concretely does" rests on authored intent, not a brief-time guess.
+ * Design-side only — no gap ⇒ no call.
+ */
+async function authorCapabilityBriefs(
+  deps: RunDeps,
+  ctx: PhaseContext,
+  arts: RunArtifacts,
+  bp: Blueprint,
+  report: CapabilityGapReport,
+): Promise<void> {
+  const gapIds = report.gaps.map((g) => g.capabilityId);
+  if (gapIds.length === 0) return;
+  const byId = new Map(bp.lessonInventory.map((l) => [l.lessonId, l]));
+  const gaps = report.gaps.map((g) => ({
+    capabilityId: g.capabilityId,
+    blockedLessons: g.lessons.map((lessonId) => {
+      const l = byId.get(lessonId);
+      return l
+        ? { lessonId: l.lessonId, title: l.title, level: l.level, sequence: l.sequence, purpose: l.purpose, observableAction: l.observableAction }
+        : { lessonId };
+    }),
+  }));
+  const briefs: CapabilityBriefDoc[] = await invokeValidated(
+    deps,
+    ctx,
+    "architect",
+    prompt("capability-briefs", { ...requestContext(ctx.run.request), gaps }),
+    (parsed) => validateCapabilityBriefs(parsed, gapIds),
+  );
+  for (const brief of briefs) {
+    arts.write(`capability-briefs/${brief.capabilityId}.md`, brief.markdown);
+  }
+  ctx.emit("capability-briefs.authored", { capabilities: gapIds });
 }
 
 /**
@@ -884,7 +957,7 @@ async function runBlueprintPanel(
 ): Promise<{ value: Blueprint; rounds: number; satisfied: boolean }> {
   const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
-  const maxRounds = critiqueRounds();
+  const maxRounds = phaseRounds("designing", ctx.run.request);
   let feedback: string[] | null = null;
   let bp!: Blueprint;
   let outcome: BlueprintReviewOutcome | null = null;
@@ -999,7 +1072,7 @@ async function runAuthoring(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts
   // can't host this lesson (2026-07-22). These merge into capability-gaps.json
   // so the operator dispositions them at the gate like any other gap.
   const authorGaps = new Map<string, LabCapabilityGap>();
-  const maxRounds = critiqueRounds();
+  const maxRounds = phaseRounds("authoring", ctx.run.request);
   const persona = ctx.run.request.persona ? personaPromptView(ctx.run.request.persona.profile) : undefined;
   const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
   // The course's baked Environment — carries the bench profile that tells the
@@ -1298,6 +1371,23 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
   ctx.emit("materialized", { ...result });
 }
 
+/**
+ * The `reconciling` phase (gap-reconciliation-pause §2): deterministic, no
+ * agents — like `runMaterializing`. Re-diffs the blueprint's declared
+ * capabilities against the (possibly just-restarted) live registry, carrying
+ * forward each surviving gap's disposition, and parks at the `reconcile` gate.
+ * `commissionedGaps` on the reconciled report is the hard-block set: while it
+ * is non-empty the gate cannot be approved.
+ */
+async function runReconciling(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
+  const prior = parseJson<CapabilityGapReport>(arts.read("capability-gaps.json") ?? '{"available":[],"gaps":[]}');
+  const reconciled = reconcileGaps(inventory, deps.availableCapabilities, prior);
+  arts.write("capability-gaps.json", JSON.stringify(reconciled, null, 2));
+  const open = commissionedGaps(reconciled);
+  ctx.emit("reconciled", { openCommissioned: open.map((g) => g.capabilityId), totalGaps: reconciled.gaps.length });
+}
+
 function qualityGates(inventory: LessonInventoryEntry[], authored: string[], needsRevision: string[], blocked: Set<string>, summary: ReviewOutcome[]) {
   const passed = new Set(authored);
   return {
@@ -1338,6 +1428,8 @@ export function createExecutor(deps: ExecutorDeps): PhaseExecutor {
           return await (revision ? runRevisionFraming(ctx, runDeps, arts) : runFraming(ctx, runDeps, arts));
         case "designing":
           return await (revision ? runRevisionDesigning(ctx, runDeps, arts) : runDesigning(ctx, runDeps, arts));
+        case "reconciling":
+          return await runReconciling(ctx, runDeps, arts); // deterministic re-diff; no-op for a 1-lesson revision run too
         case "authoring":
           return await runAuthoring(ctx, runDeps, arts); // 1-entry inventory for a revision
         case "materializing":

@@ -137,7 +137,7 @@ test("an advocate-condemned lesson still SHIPS — reservations recorded, not bl
     const h = harness(responder);
     const run = h.sched.create({ technology: "Git" });
     await h.sched.settle();
-    for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
+    for (const gate of ["frame", "blueprint", "reconcile", "package", "publish"] as const) {
       h.sched.decideGate(run.runId, gate, "approved", null, "op");
       await h.sched.settle();
     }

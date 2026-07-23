@@ -57,7 +57,7 @@ function harness(
 async function driveToApproved(h: ReturnType<typeof harness>, technology: string) {
   const run = h.sched.create({ technology });
   await h.sched.settle();
-  for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "publish"] as const) {
     h.sched.decideGate(run.runId, gate, "approved", null, "op");
     await h.sched.settle();
   }
@@ -281,8 +281,8 @@ test("a capability gap blocks its lessons from authoring", async () => {
   const withGap: MockResponder = (role, prompt) => {
     if (prompt.task !== "blueprint") return defaultMockResponder(role, prompt);
     const inv: LessonInventoryEntry[] = [
-      { lessonId: "x-101", level: "intro", sequence: 1, title: "A", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["a"], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed"] },
-      { lessonId: "x-201", level: "advanced", sequence: 2, title: "B", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["b"], conceptsReinforced: ["a"], prerequisites: ["x-101"], requiredCapabilities: ["http-client"] },
+      { lessonId: "x-101", level: "intro", sequence: 1, title: "A", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["a"], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed"], observableAction: "Views the provided file end to end." },
+      { lessonId: "x-201", level: "advanced", sequence: 2, title: "B", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["b"], conceptsReinforced: ["a"], prerequisites: ["x-101"], requiredCapabilities: ["http-client"], observableAction: "Sends an HTTP request and inspects the response." },
     ];
     return JSON.stringify({
       domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
@@ -353,7 +353,7 @@ test("blueprint validation rejects a cyclic prerequisite graph and unknown prere
       validateBlueprint({
         domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
         prerequisiteGraph: { concepts: ["a", "b"], edges: [{ from: "a", to: "b" }, { from: "b", to: "a" }] },
-        lessonInventory: [{ lessonId: "l-1", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: [] }],
+        lessonInventory: [{ lessonId: "l-1", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: [], observableAction: "Does the thing." }],
       }),
     ValidationError,
   );
@@ -366,6 +366,7 @@ test("blueprint validation enforces concept continuity (the free half of plan pe
   const lesson = (lessonId: string, sequence: number, introduced: string[], reinforced: string[]) => ({
     lessonId, level: "intro" as const, sequence, title: "t", purpose: "p", primaryCapability: "c",
     conceptsIntroduced: introduced, conceptsReinforced: reinforced, prerequisites: [], requiredCapabilities: [],
+    observableAction: "Does the thing.",
   });
   const bp = (inventory: ReturnType<typeof lesson>[]) => ({
     domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
@@ -400,7 +401,7 @@ test("blueprint validation reserves the -v<N> lesson-id namespace for versions (
   const bp = (lessonId: string) => ({
     domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
     prerequisiteGraph: { concepts: [], edges: [] },
-    lessonInventory: [{ lessonId, level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: [] }],
+    lessonInventory: [{ lessonId, level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: [], observableAction: "Does the thing." }],
   });
   assert.throws(() => validateBlueprint(bp("orient-101-v2")), /reserved for lesson versions/);
   // ids that merely end in digits are fine
@@ -409,7 +410,7 @@ test("blueprint validation reserves the -v<N> lesson-id namespace for versions (
 
 test("computeCapabilityGaps blocks a lesson whose capability is missing, whatever the disposition", () => {
   const inv: LessonInventoryEntry[] = [
-    { lessonId: "a", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed", "db-browser"] },
+    { lessonId: "a", level: "intro", sequence: 1, title: "t", purpose: "p", primaryCapability: "c", conceptsIntroduced: [], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed", "db-browser"], observableAction: "Browses a database table and reads a row." },
   ];
   const report = computeCapabilityGaps(inv, CAPS);
   assert.equal(report.gaps.length, 1);
@@ -421,4 +422,96 @@ test("computeCapabilityGaps blocks a lesson whose capability is missing, whateve
   assert.ok(lessonsBlockedByGaps(commissioned).has("a"), "commission still blocks (capability not yet built)");
   assert.equal(commissionedGaps(commissioned).length, 1);
   assert.ok(allGapsDispositioned(commissioned));
+});
+
+/** A blueprint responder whose second lesson needs a capability the build
+ *  lacks — shared by the reconcile-leg and redesign-reopen-leg tests below. */
+const withHttpClientGap: MockResponder = (role, prompt) => {
+  if (prompt.task !== "blueprint") return defaultMockResponder(role, prompt);
+  const inv: LessonInventoryEntry[] = [
+    { lessonId: "x-101", level: "intro", sequence: 1, title: "A", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["a"], conceptsReinforced: [], prerequisites: [], requiredCapabilities: ["file-viewed"], observableAction: "Views the provided file end to end." },
+    { lessonId: "x-201", level: "advanced", sequence: 2, title: "B", purpose: "p", primaryCapability: "c", conceptsIntroduced: ["b"], conceptsReinforced: ["a"], prerequisites: ["x-101"], requiredCapabilities: ["http-client"], observableAction: "Sends an HTTP request and inspects the response." },
+  ];
+  return JSON.stringify({
+    domainMap: "d", progressionSpine: "s", conventions: "c", planReview: "r",
+    prerequisiteGraph: { concepts: ["a", "b"], edges: [{ from: "a", to: "b" }] },
+    lessonInventory: inv,
+  });
+};
+
+test("reconcile leg: designing's gap parks at reconcile with a re-diffed report + brief; approving advances to authoring and onward to approved", async () => {
+  const h = harness(withHttpClientGap);
+  const run = h.sched.create({ technology: "Postman" });
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-reconcile", "designing's gap parks the run at the reconcile gate");
+
+  const arts = h.artifactsFor(run.runId);
+  // The architect authored a scenario-grounded brief for the gap BEFORE G2.
+  assert.ok(arts.exists("capability-briefs/http-client.md"), "a brief was authored for the gap");
+  assert.match(arts.read("capability-briefs/http-client.md")!, /http-client/);
+
+  // capability-gaps.json was RE-DIFFED by the deterministic `reconciling` phase
+  // (not merely carried over from designing) and the undecided gap defaulted to
+  // "commission" (gap-reconciliation-pause §3's commission-by-default).
+  const reconciled = JSON.parse(arts.read("capability-gaps.json")!);
+  assert.equal(reconciled.gaps.length, 1);
+  assert.equal(reconciled.gaps[0].capabilityId, "http-client");
+  assert.deepEqual(reconciled.gaps[0].lessons, ["x-201"]);
+  assert.equal(reconciled.gaps[0].disposition, "commission");
+  assert.ok(h.store.courseRunEvents(run.runId).some((e) => e.type === "reconciled"), "the reconciling phase emitted its re-diff event");
+
+  // Approving the reconcile gate (this package does not hard-block on
+  // commissioned gaps — that policy lives in apps/api/src/server.ts) advances
+  // the run to authoring, which blocks x-201 as before and ships x-101.
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
+  assert.ok(arts.exists("lessons/x-101/lesson.md"));
+  assert.ok(!arts.exists("lessons/x-201/lesson.md"), "the still-gapped lesson is not authored");
+
+  h.sched.decideGate(run.runId, "package", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "publish", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "approved");
+  assert.equal(h.materialized.at(-1)!.labIds.length, 1);
+});
+
+test("redesign-reopen leg: rerunPhaseFromGate at reconcile sends the run back to designing, which re-lands at awaiting-blueprint", async () => {
+  const h = harness(withHttpClientGap);
+  const run = h.sched.create({ technology: "Postman" });
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-reconcile");
+
+  h.sched.rerunPhaseFromGate(run.runId, "reconcile", "designing", [{ comment: "design this so it does not need capability http-client" }], "operator");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-blueprint", "designing re-ran wholesale and re-landed at G2");
+
+  // The reconcile gate got a "changes" decision recorded (no stale pending row).
+  const gates = h.store.courseRunGates(run.runId);
+  const reconcileGate = gates.filter((g) => g.gateId === "reconcile").at(-1)!;
+  assert.equal(reconcileGate.decision, "changes");
+  assert.ok(reconcileGate.notes?.some((n) => n.comment.includes("http-client")));
+
+  // Designing re-ran with the change note reaching the architect prompt, and
+  // re-emitted a (still-gapped, in this fixed responder) blueprint + brief.
+  const arts = h.artifactsFor(run.runId);
+  assert.ok(arts.exists("lesson-inventory.json"));
+  assert.ok(arts.exists("capability-briefs/http-client.md"));
+
+  // The run still flows forward normally from here: blueprint → reconcile → …
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-reconcile");
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
 });

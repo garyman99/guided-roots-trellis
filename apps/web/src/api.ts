@@ -451,7 +451,12 @@ export async function adminGetText(path: string): Promise<string> {
   return res.text();
 }
 
-/** Admin mutations — surfaces the API's error message when it has one. */
+/**
+ * Admin mutations — surfaces the API's error message when it has one. The
+ * whole error body is attached to the thrown Error (e.g. the reconcile gate's
+ * 409 `{ error, openCommissioned, run }`), so callers that need more than the
+ * message can read it off the caught error.
+ */
 export async function adminSend<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = localStorage.getItem(ADMIN_TOKEN_KEY);
   const res = await fetch(path, {
@@ -459,8 +464,8 @@ export async function adminSend<T>(method: string, path: string, body?: unknown)
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const payload = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw Object.assign(new Error(payload.error ?? `HTTP ${res.status}`), { status: res.status });
+  const payload = (await res.json().catch(() => ({}))) as { error?: string; [key: string]: unknown };
+  if (!res.ok) throw Object.assign(new Error(payload.error ?? `HTTP ${res.status}`), { status: res.status, body: payload });
   return payload as T;
 }
 
@@ -468,10 +473,10 @@ export async function adminSend<T>(method: string, path: string, body?: unknown)
 
 export type RunStatus =
   | "queued" | "framing" | "designing" | "authoring" | "materializing"
-  | "awaiting-frame" | "awaiting-blueprint" | "awaiting-package" | "awaiting-publish"
+  | "awaiting-frame" | "awaiting-blueprint" | "awaiting-reconcile" | "awaiting-package" | "awaiting-publish"
   | "approved" | "interrupted" | "archived" | "failed";
 
-export type GateId = "frame" | "blueprint" | "package" | "publish";
+export type GateId = "frame" | "blueprint" | "reconcile" | "package" | "publish";
 
 export interface GateNote {
   path?: string;
@@ -566,6 +571,10 @@ export interface CourseRunDetail extends CourseRunSummary {
     /** Budget guardrails (plan §3.2) — absent ⇒ unbounded. */
     maxModelCalls?: number;
     maxEstimatedCostUSD?: number;
+    /** Per-phase critique-round caps (gap-reconciliation-pause plan §1) — absent ⇒ the env-seeded default. */
+    framingRounds?: number;
+    designRounds?: number;
+    authoringRounds?: number;
   };
   pendingPhase: string | null;
   events: CourseRunEvent[];
@@ -693,6 +702,10 @@ export const courseRunApi = {
     adminGet<{ path: string; content: string }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/artifacts/${path.split("/").map(encodeURIComponent).join("/")}`),
   decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string, gaps?: GapDecision[]) =>
     adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by, ...(gaps && gaps.length ? { gaps } : {}) }).then((r) => r.run),
+  // Reconcile-gate actions (gap-reconciliation-pause plan §3): re-diff, drop a
+  // gap's lessons, or reopen designing under a free-text instruction.
+  reconcileAction: (runId: string, action: "recheck" | "defer" | "redesign", body?: Record<string, unknown>) =>
+    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/reconcile/${action}`, body ?? {}).then((r) => r.run),
   resume: (runId: string) => adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/resume`).then((r) => r.run),
   // Edit a parked run's request — today only targetPlatform is editable.
   updateRequest: (runId: string, patch: { targetPlatform: "windows" | "mac" }) =>

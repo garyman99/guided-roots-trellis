@@ -38,6 +38,23 @@ export function critiqueRounds(env: Record<string, string | undefined> = process
   return Number.isFinite(n) ? Math.min(10, Math.max(1, Math.floor(n))) : MAX_CRITIQUE_ROUNDS;
 }
 
+/**
+ * Per-phase round cap (gap-reconciliation-pause §1): each phase's critique loop
+ * reads ITS OWN cap off the run request — `framingRounds`/`designRounds`/
+ * `authoringRounds` — so cranking design iteration no longer multiplies
+ * authoring cost across every lesson. Absent ⇒ `critiqueRounds(env)`, which is
+ * now only the DEFAULT SEED for a new run, not the shared control surface.
+ */
+export function phaseRounds(
+  phase: "framing" | "designing" | "authoring",
+  request: { framingRounds?: number; designRounds?: number; authoringRounds?: number },
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = phase === "framing" ? request.framingRounds : phase === "designing" ? request.designRounds : request.authoringRounds;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.min(10, Math.max(1, Math.floor(raw)));
+  return critiqueRounds(env);
+}
+
 function fit(doc: unknown, label: string, errors: string[]): { ok: boolean; issues: string[] } {
   const d = (doc ?? {}) as Record<string, unknown>;
   if (typeof d.ok !== "boolean") errors.push(`critique.${label}.ok must be a boolean`);

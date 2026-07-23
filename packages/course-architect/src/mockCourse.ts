@@ -17,6 +17,40 @@ interface Requestish {
   outcome?: string;
 }
 
+/** One gap as handed to the "capability-briefs" task (executor.ts `authorCapabilityBriefs`). */
+interface MockGap {
+  capabilityId: string;
+  blockedLessons: Array<{ lessonId: string; title?: string; level?: string; sequence?: number; purpose?: string; observableAction?: string }>;
+}
+
+/** Deterministic, scenario-grounded capability brief (gap-reconciliation-pause
+ *  §5) so an offline run with gaps still produces a schema-valid brief per gap
+ *  (MIN_BRIEF_CHARS = 120) — the pipeline stays exercisable without a live model. */
+function mockCapabilityBriefMarkdown(gap: MockGap): string {
+  const lessons = gap.blockedLessons.length
+    ? gap.blockedLessons
+        .map((l) =>
+          [
+            `- **Lesson** \`${l.lessonId}\` — "${l.title ?? l.lessonId}" (${l.level ?? "level"}, ${l.sequence ?? "?"})`,
+            `  - **Purpose** ${l.purpose ?? "not stated"}`,
+            `  - **What the learner concretely does** ${l.observableAction ?? "not stated"}`,
+            `  - **Why no existing capability covers it** the registry has no id that observes this action today.`,
+          ].join("\n"),
+        )
+        .join("\n")
+    : "- (no blocked lessons recorded)";
+  return [
+    `# Capability gap: \`${gap.capabilityId}\`  ·  mock brief`,
+    ``,
+    `## What the bench must let the learner do / must observe`,
+    `The bench must be able to observe the "${gap.capabilityId}" action directly, not a proxy for it.`,
+    ``,
+    `## The blueprint scenario we must accommodate`,
+    lessons,
+    ``,
+  ].join("\n");
+}
+
 function reqOf(context: Record<string, unknown> | undefined): Requestish {
   const r = (context?.request ?? {}) as Requestish;
   return { technology: r.technology ?? "the technology", title: r.title, targetLearner: r.targetLearner, outcome: r.outcome };
@@ -54,15 +88,16 @@ interface LessonTemplate {
   primaryCapability: string;
   concept: string; // the concept this lesson introduces
   requiredCapabilities: string[];
+  observableAction: string; // the single concrete action the bench must observe
 }
 
 const COURSE_TEMPLATE: LessonTemplate[] = [
-  { level: "intro", title: (t) => `Meet ${t}`, purpose: (t) => `Build a first mental model of ${t} by reading a complete, working example.`, primaryCapability: "Recognize the core workflow and read a complete example.", concept: "mental-model", requiredCapabilities: ["file-viewed", "code"] },
-  { level: "beginner", title: (t) => `Your first ${t} task`, purpose: (t) => `Complete a small, guided ${t} task and prove the result.`, primaryCapability: "Complete a straightforward task using the course conventions.", concept: "core-workflow", requiredCapabilities: ["tests-run", "code"] },
-  { level: "beginner", title: () => `Read a failing result`, purpose: (t) => `Read a failing ${t} result calmly and extract the facts that matter.`, primaryCapability: "Interpret a failure report before changing anything.", concept: "reading-failures", requiredCapabilities: ["diff-viewed", "code"] },
-  { level: "intermediate", title: () => `Diagnose and repair`, purpose: (t) => `Find and fix a broken ${t} setup without changing what it protects.`, primaryCapability: "Diagnose a nontrivial failure and repair it surgically.", concept: "diagnosis", requiredCapabilities: ["any-command", "diff-viewed", "code"] },
-  { level: "advanced", title: () => `Design under constraints`, purpose: (t) => `Design a ${t} solution from an incomplete problem statement.`, primaryCapability: "Design a robust solution and justify the tradeoffs.", concept: "design", requiredCapabilities: ["file-viewed", "code"] },
-  { level: "expert", title: () => `Set the team conventions`, purpose: (t) => `Establish ${t} conventions others will follow, and defend them.`, primaryCapability: "Define standards and evaluate implementation quality.", concept: "governance", requiredCapabilities: ["file-viewed", "code"] },
+  { level: "intro", title: (t) => `Meet ${t}`, purpose: (t) => `Build a first mental model of ${t} by reading a complete, working example.`, primaryCapability: "Recognize the core workflow and read a complete example.", concept: "mental-model", requiredCapabilities: ["file-viewed", "code"], observableAction: "Opens the provided example file and views its contents end to end." },
+  { level: "beginner", title: (t) => `Your first ${t} task`, purpose: (t) => `Complete a small, guided ${t} task and prove the result.`, primaryCapability: "Complete a straightforward task using the course conventions.", concept: "core-workflow", requiredCapabilities: ["tests-run", "code"], observableAction: "Runs the provided test suite and sees it pass after completing the task." },
+  { level: "beginner", title: () => `Read a failing result`, purpose: (t) => `Read a failing ${t} result calmly and extract the facts that matter.`, primaryCapability: "Interpret a failure report before changing anything.", concept: "reading-failures", requiredCapabilities: ["diff-viewed", "code"], observableAction: "Views the diff of a failing change and identifies the offending line." },
+  { level: "intermediate", title: () => `Diagnose and repair`, purpose: (t) => `Find and fix a broken ${t} setup without changing what it protects.`, primaryCapability: "Diagnose a nontrivial failure and repair it surgically.", concept: "diagnosis", requiredCapabilities: ["any-command", "diff-viewed", "code"], observableAction: "Runs a diagnostic command, then edits the broken file and re-runs it green." },
+  { level: "advanced", title: () => `Design under constraints`, purpose: (t) => `Design a ${t} solution from an incomplete problem statement.`, primaryCapability: "Design a robust solution and justify the tradeoffs.", concept: "design", requiredCapabilities: ["file-viewed", "code"], observableAction: "Authors a design file that satisfies the stated constraints and reviews it." },
+  { level: "expert", title: () => `Set the team conventions`, purpose: (t) => `Establish ${t} conventions others will follow, and defend them.`, primaryCapability: "Define standards and evaluate implementation quality.", concept: "governance", requiredCapabilities: ["file-viewed", "code"], observableAction: "Writes a conventions document and reviews it against a sample implementation." },
 ];
 
 function mockBlueprint(context?: Record<string, unknown>): Blueprint {
@@ -80,6 +115,7 @@ function mockBlueprint(context?: Record<string, unknown>): Blueprint {
     conceptsReinforced: i > 0 ? [COURSE_TEMPLATE[i - 1].concept] : [],
     prerequisites: i > 0 ? [`${s}-10${i}`] : [],
     requiredCapabilities: t.requiredCapabilities,
+    observableAction: t.observableAction,
   }));
   const concepts = COURSE_TEMPLATE.map((t) => t.concept);
   return {
@@ -181,6 +217,7 @@ const GIT_PACK: CoursePack = {
         conceptsReinforced: [],
         prerequisites: [],
         requiredCapabilities: ["any-command", "code"],
+        observableAction: "Runs git add then git commit, and git status reports a clean working tree.",
       },
       {
         lessonId: "git-102",
@@ -193,6 +230,7 @@ const GIT_PACK: CoursePack = {
         conceptsReinforced: ["working-tree", "commit"],
         prerequisites: ["git-101"],
         requiredCapabilities: ["any-command", "code"],
+        observableAction: "Runs git restore config.txt so the file matches its committed contents.",
       },
     ],
   },
@@ -242,6 +280,7 @@ const SELENIUM_PACK: CoursePack = {
         conceptsReinforced: [],
         prerequisites: [],
         requiredCapabilities: ["file-edited", "code"],
+        observableAction: "Edits package.json to declare the four course dependencies, then verifies them.",
       },
     ],
   },
@@ -280,6 +319,17 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
   }
   if (prompt.task === "blueprint") {
     return JSON.stringify({ ...(pack?.blueprint ?? mockBlueprint(ctx)), summary: `Blueprinted the ${tech} course: lesson inventory, prerequisite graph, and conventions are ready for review.` });
+  }
+  // Capability briefs (gap-reconciliation-pause §5): one scenario-grounded
+  // markdown brief per gap, authored by the architect after the blueprint is
+  // accepted. Only called when the blueprint has >=1 gap (executor.ts skips
+  // this call entirely for a gap-free run), so most offline runs never hit it.
+  if (prompt.task === "capability-briefs") {
+    const gaps = (ctx?.gaps as MockGap[] | undefined) ?? [];
+    return JSON.stringify({
+      briefs: gaps.map((g) => ({ capabilityId: g.capabilityId, markdown: mockCapabilityBriefMarkdown(g) })),
+      summary: `Authored ${gaps.length} scenario-grounded capability brief${gaps.length === 1 ? "" : "s"} for the design-side gaps this blueprint surfaced.`,
+    });
   }
   if (prompt.task.startsWith("lesson:")) {
     const lessonId = (ctx?.lesson as LessonInventoryEntry | undefined)?.lessonId;
@@ -332,6 +382,7 @@ export const defaultMockResponder: MockResponder = (role, prompt) => {
         title: `Revised: ${family}`,
         purpose: "The same observable action, taught with an orientation-first opening.",
         primaryCapability: "file-edited",
+        observableAction: "Edits the target file to complete the task after reading the orientation.",
         conceptsIntroduced: [],
         conceptsReinforced: [],
         prerequisites: [],

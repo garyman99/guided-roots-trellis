@@ -90,6 +90,7 @@ import {
   ROLE_MODEL_TIERS,
   createExecutor,
   applyDispositions,
+  commissionAllGaps,
   commissionedGaps,
   isActive,
   isTerminal,
@@ -126,7 +127,7 @@ import {
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
-import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun } from "./capabilityRequests.ts";
+import { writeCapabilityRequest, listCapabilityRequests, deleteCapabilityRequestsForRun, deleteCapabilityRequest } from "./capabilityRequests.ts";
 import { createPersona, deletePersona, listPersonas, readInterview, readPersona, savePersona, writeInterview } from "./personaLibrary.ts";
 import { appendReplayEvents, deleteReplay, replayFileFor, rrwebEnabled } from "./replayStore.ts";
 import { SimTestManager, spawnSimTestRunner, simVerdict, type SimLessonResult, type SimTestJob, type SimTestRunner } from "./courseSimTest.ts";
@@ -1420,6 +1421,15 @@ function courseRunDetail(runId: string) {
   };
 }
 
+/** Parse capability-gaps.json, tolerating malformed/missing content (null). */
+function safeParseGapReport(raw: string): CapabilityGapReport | null {
+  try {
+    return JSON.parse(raw) as CapabilityGapReport;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * At the blueprint gate, apply the operator's per-gap dispositions to
  * capability-gaps.json and commission the chosen gaps (writes the outbox). No-op
@@ -1458,6 +1468,52 @@ function applyGapDispositions(runId: string, rawGaps: unknown): void {
       { gap, runId, technology: tech, rationale: `Lesson(s) ${gap.lessons.join(", ")} of the "${tech}" course need the "${gap.capabilityId}" capability, which this build's registry does not provide.` },
       at,
     );
+  }
+}
+
+/**
+ * G2 blueprint approval (plan §3): commission is the DEFAULT, not an operator
+ * choice — every gap the architect emitted is presumed worth building. Marks
+ * every gap "commission" in capability-gaps.json and writes one outbox request
+ * per gap, body'd from the architect's scenario-grounded brief when present
+ * (capability-briefs/<capabilityId>.md), else the generic rationale stub.
+ * `defer`/`redesign` are decided later, at the reconcile gate.
+ */
+function commissionBlueprintGaps(runId: string): void {
+  const arts = runArtifactsFor(runId);
+  const raw = arts.read("capability-gaps.json");
+  if (!raw) return;
+  let report: CapabilityGapReport;
+  try {
+    report = JSON.parse(raw) as CapabilityGapReport;
+  } catch {
+    return;
+  }
+  if (!report.gaps || report.gaps.length === 0) return;
+
+  const updated = commissionAllGaps(report);
+  arts.write("capability-gaps.json", JSON.stringify(updated, null, 2));
+
+  const run = store.getCourseRun(runId);
+  const tech = run?.request.technology ?? "";
+  const at = new Date().toISOString();
+  const commissioned = commissionedGaps(updated);
+  for (const gap of commissioned) {
+    const brief = arts.read(`capability-briefs/${gap.capabilityId}.md`);
+    writeCapabilityRequest(
+      capabilityRequestsDir(),
+      {
+        gap,
+        runId,
+        technology: tech,
+        rationale: `Lesson(s) ${gap.lessons.join(", ")} of the "${tech}" course need the "${gap.capabilityId}" capability, which this build's registry does not provide.`,
+        ...(brief ? { briefMarkdown: brief } : {}),
+      },
+      at,
+    );
+  }
+  if (commissioned.length > 0) {
+    emitRunLifecycle("capability.commissioned", runId, { capabilities: commissioned.map((g) => g.capabilityId) });
   }
 }
 
@@ -2055,6 +2111,11 @@ export const server = createServer(async (req, res) => {
               typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
             const maxModelCalls = finitePositive(body.maxModelCalls);
             const maxEstimatedCostUSD = finitePositive(body.maxEstimatedCostUSD);
+            // Per-phase round caps (plan §1): dialable per run, distinct from the
+            // single global critique-rounds env that now only seeds the default.
+            const framingRounds = finitePositive(body.framingRounds);
+            const designRounds = finitePositive(body.designRounds);
+            const authoringRounds = finitePositive(body.authoringRounds);
 
             let revision: NonNullable<CourseRun["request"]["revision"]> | undefined;
             if (body.revision && typeof body.revision === "object") {
@@ -2167,6 +2228,9 @@ export const server = createServer(async (req, res) => {
               ...(autoPublish ? { autoPublish } : {}),
               ...(maxModelCalls !== undefined ? { maxModelCalls } : {}),
               ...(maxEstimatedCostUSD !== undefined ? { maxEstimatedCostUSD } : {}),
+              ...(framingRounds !== undefined ? { framingRounds } : {}),
+              ...(designRounds !== undefined ? { designRounds } : {}),
+              ...(authoringRounds !== undefined ? { authoringRounds } : {}),
             });
             // Stamp the seeding report with the run that used it (D6).
             if (revision?.reportFile) {
@@ -2216,6 +2280,11 @@ export const server = createServer(async (req, res) => {
                 return json(res, 400, { error: "changes requires at least one note" });
               }
               const notes = parseGateNotes(body.notes);
+              // Re-author a dropped lesson (plan §7) needs NO new endpoint: a
+              // `changes` decision on "package" with a note carrying `lessonId`
+              // already reopens just that lesson — runAuthoring's `reopened` set
+              // (executor.ts) reopens only the named lesson while the summary.json
+              // ledger skips every other already-passed one.
               // No per-user identity behind the shared admin token; the web sends
               // the signed-in operator's name as `by` (POC), else "operator".
               const by = typeof body.by === "string" && body.by.trim() ? body.by.trim().slice(0, 80) : "operator";
@@ -2229,12 +2298,77 @@ export const server = createServer(async (req, res) => {
               if (fresh.status !== `awaiting-${gateId}`) {
                 return json(res, 409, { error: `gate "${gateId}" is not awaiting a decision (status: ${fresh.status})`, run: courseRunDetail(runId) });
               }
-              // Blueprint gate: apply any per-gap dispositions to the gap report
-              // and commission the ones the operator chose (writes the outbox).
+              // Blueprint gate: approving is a design-merit decision only — every
+              // gap the architect emitted is commissioned by default (plan §3).
+              // defer/redesign are decided later, at the reconcile gate.
               if (gateId === "blueprint" && decision === "approved") {
-                applyGapDispositions(runId, body.gaps);
+                commissionBlueprintGaps(runId);
+              }
+              // Reconcile gate: hard-block approve while any commissioned gap is
+              // still open (plan §3) — only an id-clean re-diff may advance to
+              // authoring. `changes` on reconcile is not a free-text edit here;
+              // route the operator to the dedicated reconcile-actions endpoint
+              // (recheck/defer/redesign) which knows what each action means.
+              if (gateId === "reconcile") {
+                if (decision === "changes") {
+                  return json(res, 400, {
+                    error: 'reconcile gate has no generic "changes" — use POST /course-runs/:id/reconcile/{recheck|defer|redesign}',
+                  });
+                }
+                if (decision === "approved") {
+                  const raw = runArtifactsFor(runId).read("capability-gaps.json");
+                  const report = raw ? safeParseGapReport(raw) : null;
+                  const open = report ? commissionedGaps(report) : [];
+                  if (open.length > 0) {
+                    return json(res, 409, {
+                      error: `reconcile gate blocked: ${open.length} commissioned capability(ies) still open — build them, restart, and re-check`,
+                      openCommissioned: open.map((g) => g.capabilityId),
+                      run: courseRunDetail(runId),
+                    });
+                  }
+                }
               }
               courseRuns.decideGate(runId, gateId, decision, notes, by);
+              return json(res, 200, { run: courseRunDetail(runId) });
+            }
+            // POST reconcile actions: /course-runs/:id/reconcile/:action —
+            // recheck (re-diff), defer (drop a gap's lessons), redesign (reopen
+            // designing under a free-text instruction). Plan §3.
+            if (req.method === "POST" && parts.length === 6 && parts[4] === "reconcile") {
+              const action = parts[5];
+              if (action !== "recheck" && action !== "defer" && action !== "redesign") {
+                return json(res, 400, { error: "action must be recheck|defer|redesign" });
+              }
+              const fresh = store.getCourseRun(runId);
+              if (!fresh) return json(res, 404, { error: "run not found" });
+              if (fresh.status !== "awaiting-reconcile") {
+                return json(res, 409, { error: `run is not awaiting reconcile (status: ${fresh.status})`, run: courseRunDetail(runId) });
+              }
+              const body = await readBody(req);
+              if (action === "recheck") {
+                courseRuns.decideGate(runId, "reconcile", "changes", [{ comment: "re-check" }], "operator");
+                return json(res, 200, { run: courseRunDetail(runId) });
+              }
+              if (action === "defer") {
+                const capabilityId = typeof body.capabilityId === "string" ? body.capabilityId.trim() : "";
+                if (!capabilityId) return json(res, 400, { error: "capabilityId is required" });
+                const arts = runArtifactsFor(runId);
+                const raw = arts.read("capability-gaps.json");
+                const report = raw ? safeParseGapReport(raw) : null;
+                if (report) {
+                  const updated = applyDispositions(report, { [capabilityId]: "defer" });
+                  arts.write("capability-gaps.json", JSON.stringify(updated, null, 2));
+                }
+                deleteCapabilityRequest(capabilityRequestsDir(), capabilityId);
+                courseRuns.decideGate(runId, "reconcile", "changes", [{ comment: `defer ${capabilityId}` }], "operator");
+                return json(res, 200, { run: courseRunDetail(runId) });
+              }
+              // redesign
+              const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
+              if (!instruction) return json(res, 400, { error: "instruction is required" });
+              const capabilityId = typeof body.capabilityId === "string" ? body.capabilityId.trim() : "";
+              if (capabilityId) deleteCapabilityRequest(capabilityRequestsDir(), capabilityId);
+              courseRuns.rerunPhaseFromGate(runId, "reconcile", "designing", [{ comment: instruction }], "operator");
               return json(res, 200, { run: courseRunDetail(runId) });
             }
             // PATCH request fields: /course-runs/:id — edit the run's request

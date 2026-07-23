@@ -20,6 +20,12 @@ export interface CapabilityRequestInput {
   technology: string;
   /** The proposed contract, sketched by the generator (free text for the POC). */
   rationale: string;
+  /** The architect's scenario-grounded brief (plan §5), authored to
+   *  `capability-briefs/<capabilityId>.md`. When present and non-empty, this
+   *  becomes the outbox `request.md` body in place of the generic
+   *  `renderRequestMd` stub — the operator still sees provenance + acceptance
+   *  guidance via a header/footer wrapped around it. */
+  briefMarkdown?: string;
 }
 
 export interface CapabilityRequestRecord {
@@ -55,8 +61,27 @@ export function writeCapabilityRequest(outboxDir: string, input: CapabilityReque
     rationale: input.rationale,
   };
   writeFileSync(join(dir, "request.json"), JSON.stringify(record, null, 2));
-  writeFileSync(join(dir, "request.md"), renderRequestMd(record));
+  writeFileSync(join(dir, "request.md"), input.briefMarkdown?.trim() ? renderBriefMd(record, input.briefMarkdown) : renderRequestMd(record));
   return record;
+}
+
+/** Shared footer: provenance + acceptance guidance, identical whether the body
+ *  is the generic stub or the architect's scenario-grounded brief. */
+function acceptanceFooter(r: CapabilityRequestRecord): string {
+  return [
+    `## Acceptance (additive — see labs/AUTHORING.md §13)`,
+    ``,
+    `- Implement the capability (a new workspace app + its events, a new task \`auto\``,
+    `  value in \`taskAutoDone()\`, or a new checkpoint kind) WITHOUT changing existing`,
+    `  behavior.`,
+    `- Register its id in the capability registry (\`apps/api/src/capabilities.ts\`) and`,
+    `  document it in \`labs/AUTHORING.md\` in the SAME change.`,
+    `- Add a deterministic test; the registry↔implementation agreement test must pass.`,
+    ``,
+    `Once shipped, this gap is satisfied automatically (the registry now includes`,
+    `\`${r.gapId}\`) and the blocked lessons can be authored on the next run.`,
+    ``,
+  ].join("\n");
 }
 
 function renderRequestMd(r: CapabilityRequestRecord): string {
@@ -71,18 +96,19 @@ function renderRequestMd(r: CapabilityRequestRecord): string {
     ``,
     r.rationale,
     ``,
-    `## Acceptance (additive — see labs/AUTHORING.md §13)`,
+    acceptanceFooter(r),
+  ].join("\n");
+}
+
+/** Body = the architect's scenario-grounded brief (plan §5), wrapped in a
+ *  short provenance header and the same acceptance footer as the generic stub. */
+function renderBriefMd(r: CapabilityRequestRecord, briefMarkdown: string): string {
+  return [
+    `<!-- requested-by: course-generation run ${r.runId} (${r.technology}) · requested-at: ${r.requestedAt} -->`,
     ``,
-    `- Implement the capability (a new workspace app + its events, a new task \`auto\``,
-    `  value in \`taskAutoDone()\`, or a new checkpoint kind) WITHOUT changing existing`,
-    `  behavior.`,
-    `- Register its id in the capability registry (\`apps/api/src/capabilities.ts\`) and`,
-    `  document it in \`labs/AUTHORING.md\` in the SAME change.`,
-    `- Add a deterministic test; the registry↔implementation agreement test must pass.`,
+    briefMarkdown.trim(),
     ``,
-    `Once shipped, this gap is satisfied automatically (the registry now includes`,
-    `\`${r.gapId}\`) and the blocked lessons can be authored on the next run.`,
-    ``,
+    acceptanceFooter(r),
   ].join("\n");
 }
 
@@ -110,6 +136,19 @@ export function deleteCapabilityRequestsForRun(outboxDir: string, runId: string)
     }
   }
   return removed;
+}
+
+/**
+ * Retract a single commissioned gap's outbox request (plan §3/§6 —
+ * defer/redesign at the reconcile gate). Removes
+ * curriculum/capability-requests/<safeId(capabilityId)>/ wholesale. Returns
+ * true if a dir existed and was removed, false if there was nothing to remove.
+ */
+export function deleteCapabilityRequest(outboxDir: string, capabilityId: string): boolean {
+  const dir = join(outboxDir, safeId(capabilityId));
+  if (!existsSync(dir)) return false;
+  rmSync(dir, { recursive: true, force: true });
+  return true;
 }
 
 /** List open capability requests in the outbox (for an admin view / the dev skill). */

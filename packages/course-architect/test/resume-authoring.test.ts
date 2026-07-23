@@ -77,6 +77,8 @@ test("resume after a mid-authoring interrupt skips the already-authored lesson",
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
   await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
   assert.equal(h.store.getCourseRun(run.runId)!.status, "interrupted");
 
   // The incremental ledger survived the crash with git-101's passing outcome.
@@ -111,6 +113,8 @@ test("package-gate changes re-author ONLY the lesson the note targets", async ()
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
   await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
   assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
 
   h.sched.decideGate(run.runId, "package", "changes", [{ lessonId: "git-102", comment: "tighten the failure-diagnosis section" }], "op");
@@ -118,6 +122,50 @@ test("package-gate changes re-author ONLY the lesson the note targets", async ()
   assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
   assert.equal(calls.get("lesson:git-101"), 1, "untargeted, already-passed lesson reused");
   assert.equal(calls.get("lesson:git-102"), 2, "the targeted lesson was re-authored");
+});
+
+test("re-author-dropped-lesson leg: a lesson-scoped 'changes' at the package gate re-enters authoring and skips already-passed lessons via the ledger", async () => {
+  // Mirrors the plan §7 re-author path: build the missing capability, restart,
+  // then re-author ONLY the previously-dropped lesson — a lesson-scoped
+  // "changes" decision at the package gate is exactly that mechanism, already
+  // proven generically above ("package-gate changes re-author ONLY the lesson
+  // the note targets"). This leg additionally asserts the summary.json LEDGER
+  // itself is what causes the skip (not merely the call count).
+  const { responder, calls } = counting(defaultMockResponder);
+  const h = harness(responder);
+  const run = h.sched.create({ technology: "Git" });
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "frame", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
+
+  const ledgerBefore = JSON.parse(h.artifactsFor(run.runId).read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean }>;
+  assert.deepEqual(ledgerBefore.map((o) => o.lessonId), ["git-101", "git-102"], "both lessons already passed before the re-author request");
+
+  h.sched.decideGate(run.runId, "package", "changes", [{ lessonId: "git-102", comment: "re-author: the missing capability now ships" }], "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package", "the run re-entered authoring and re-landed at G3");
+
+  // The ledger is the mechanism: git-101's outcome object is BYTE-IDENTICAL
+  // (never touched), while git-102's was overwritten by the re-author pass —
+  // proving the skip comes from reading reviews/summary.json, not luck.
+  const before101 = ledgerBefore.find((o) => o.lessonId === "git-101");
+  assert.equal(before101?.passed, true);
+  const ledgerAfter = JSON.parse(h.artifactsFor(run.runId).read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean }>;
+  assert.deepEqual(ledgerAfter.find((o) => o.lessonId === "git-101"), before101, "git-101's ledger entry is untouched");
+  assert.equal(calls.get("lesson:git-101"), 1, "git-101 was never re-invoked — the ledger skipped it");
+  assert.equal(calls.get("lesson:git-102"), 2, "only the targeted lesson was re-authored");
+
+  // Both lessons still ship at publish — the re-author was additive, not lossy.
+  h.sched.decideGate(run.runId, "package", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "publish", "approved", null, "op");
+  await h.sched.settle();
+  assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
 });
 
 test("a package-gate note with no lessonId re-opens every lesson", async () => {
@@ -128,6 +176,8 @@ test("a package-gate note with no lessonId re-opens every lesson", async () => {
   h.sched.decideGate(run.runId, "frame", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
   await h.sched.settle();
 
   h.sched.decideGate(run.runId, "package", "changes", [{ comment: "use friendlier language throughout" }], "op");
@@ -152,6 +202,8 @@ test("a needs-revision lesson IS re-attempted on re-entry (passed ones are not)"
   h.sched.decideGate(run.runId, "frame", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
   await h.sched.settle();
   const firstPassAuthored102 = calls.get("lesson:git-102")!;
   assert.ok(firstPassAuthored102 >= 1);
@@ -179,6 +231,8 @@ test("targetPlatform rides every prompt context and course-request.md", async ()
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
   await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
 
   // Author, all three reviewers, and the critic all saw the platform.
   for (const task of ["course-request", "blueprint", "lesson:git-101", "review:technical:git-101", "review:pedagogy:git-101", "review:cohesion:git-101", "critique:lesson-git-101"]) {
@@ -203,6 +257,8 @@ test("a course's Environment image carries a bench profile to the author AND rev
   h.sched.decideGate(run.runId, "frame", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
   await h.sched.settle();
 
   for (const task of ["lesson:git-101", "review:technical:git-101", "review:pedagogy:git-101", "review:cohesion:git-101", "critique:lesson-git-101"]) {
@@ -237,6 +293,8 @@ test("an operator's revision prompt reaches the AUTHOR, not only the architect",
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
   await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await h.sched.settle();
 
   const authorPrompt = prompts.get("lesson:git-101") ?? "";
   assert.match(authorPrompt, /OPERATOR'S REVISION REQUEST/, "the operator's prompt reaches the author as the primary instruction");
@@ -256,6 +314,8 @@ test("no Environment image → the default browserless bench, unchanged", async 
   h.sched.decideGate(run.runId, "frame", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
   await h.sched.settle();
 
   for (const task of ["lesson:git-101", "review:technical:git-101"]) {

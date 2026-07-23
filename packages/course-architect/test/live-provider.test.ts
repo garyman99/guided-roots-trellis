@@ -198,7 +198,7 @@ test("a full run completes over the live provider path (fake Claude)", async () 
 
   const run = sched.create({ technology: "Git", providerConfig: { provider: "anthropic", model: "claude-sonnet-5" } });
   await sched.settle();
-  for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "publish"] as const) {
     sched.decideGate(run.runId, gate, "approved", null, "op");
     await sched.settle();
   }
