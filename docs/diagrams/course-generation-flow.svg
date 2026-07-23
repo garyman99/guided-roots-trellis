@@ -1,0 +1,133 @@
+<svg viewBox="0 0 1020 1200" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Course-generation component and dataflow diagram</title>
+  <desc>An operator drives the Course Studio UI and CourseRunScheduler, which runs four phases. Framing and designing use the architect agent under critique; authoring loops a lesson-author against technical, pedagogy, cohesion and learner-advocate reviewers plus machine prove and simulate gates; materializing builds labs with no agents. Injected services and disk-authoritative persistence support the pipeline.</desc>
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#e6e8eb"/></marker>
+    <symbol id="doc" viewBox="0 0 100 64" preserveAspectRatio="none"><path d="M1 1 H99 V52 C66 66 33 42 1 52 Z" fill="none" stroke="#e6e8eb" stroke-width="1.3" vector-effect="non-scaling-stroke"/></symbol>
+  </defs>
+  <style>
+    .b{fill:none;stroke:#e6e8eb;stroke-width:1.4}
+    .panel{fill:none;stroke:#e6e8eb;stroke-width:1;opacity:.32}
+    .grp{fill:none;stroke:#e6e8eb;stroke-width:1;opacity:.55}
+    .gate{fill:none;stroke:#e6e8eb;stroke-width:1;stroke-dasharray:4 3;opacity:.8}
+    .ln{fill:none;stroke:#e6e8eb;stroke-width:1.4}
+    text{fill:#e6e8eb;font-size:12.5px}
+    .lbl{font-size:11px;letter-spacing:.05em;opacity:.65}
+    .sm{font-size:10.5px;opacity:.75}
+    .ttl{font-size:11px;opacity:.85}
+  </style>
+
+  <rect x="0" y="0" width="1020" height="1200" fill="#0d1017"/>
+
+  <g text-anchor="middle">
+    <rect class="b" x="20" y="20" width="150" height="52" rx="2"/><text x="95" y="50">Operator</text>
+    <rect class="b" x="210" y="20" width="200" height="52" rx="2"/><text x="310" y="50">Course Studio UI</text>
+    <rect class="b" x="450" y="20" width="320" height="52" rx="2"/><text x="610" y="46">CourseRunScheduler</text><text x="610" y="62" class="sm">&#8594; PhaseExecutor &#183; gates &#183; resume</text>
+    <path class="ln" d="M170 46 H206" marker-end="url(#a)"/>
+    <path class="ln" d="M410 46 H446" marker-end="url(#a)"/>
+    <path class="ln" d="M610 72 V104" marker-end="url(#a)"/>
+  </g>
+
+  <rect class="panel" x="20" y="110" width="980" height="150" rx="4"/>
+  <text x="34" y="130" class="lbl">FRAMING</text>
+  <rect class="gate" x="858" y="116" width="128" height="26" rx="3"/><text x="922" y="133" text-anchor="middle" class="ttl">G1 &#183; Frame</text>
+  <g text-anchor="middle">
+    <rect class="b" x="60" y="152" width="140" height="60" rx="2"/><text x="130" y="187">architect</text>
+    <use href="#doc" x="262" y="152" width="160" height="60"/><text x="342" y="184">course-request.md</text>
+    <rect class="b" x="480" y="152" width="160" height="60" rx="2"/><text x="560" y="187">learner advocate</text>
+    <path class="ln" d="M200 182 H258" marker-end="url(#a)"/>
+    <path class="ln" d="M422 182 H476" marker-end="url(#a)"/>
+    <path class="ln" d="M560 212 V236 H130 V216" marker-end="url(#a)"/>
+    <text x="330" y="252" class="sm">critique loop &#8212; persona-fit / goal-fit</text>
+  </g>
+  <path class="ln" d="M510 260 V282" marker-end="url(#a)"/>
+
+  <rect class="panel" x="20" y="288" width="980" height="188" rx="4"/>
+  <text x="34" y="308" class="lbl">DESIGNING</text>
+  <rect class="gate" x="826" y="294" width="160" height="26" rx="3"/><text x="906" y="311" text-anchor="middle" class="ttl">G2 &#183; Blueprint</text>
+  <g text-anchor="middle">
+    <rect class="b" x="60" y="330" width="140" height="58" rx="2"/><text x="130" y="364">architect</text>
+    <use href="#doc" x="260" y="330" width="150" height="58"/><text x="335" y="361">blueprint</text>
+    <rect class="b" x="452" y="322" width="230" height="74" rx="2"/><text x="567" y="352">review panel</text><text x="567" y="372" class="sm">technical &#183; pedagogy</text><text x="567" y="386" class="sm">cohesion &#183; advocate</text>
+    <use href="#doc" x="726" y="330" width="150" height="58"/><text x="801" y="361">capability-gaps</text>
+    <path class="ln" d="M200 359 H256" marker-end="url(#a)"/>
+    <path class="ln" d="M410 359 H448" marker-end="url(#a)"/>
+    <path class="ln" d="M682 359 H722" marker-end="url(#a)"/>
+    <path class="ln" d="M567 396 V440 H130 V390" marker-end="url(#a)"/>
+    <text x="345" y="432" class="sm">blockers re-plan  &#183;  + concept-continuity check (no model)</text>
+  </g>
+  <path class="ln" d="M510 476 V498" marker-end="url(#a)"/>
+
+  <rect class="panel" x="20" y="504" width="980" height="316" rx="4"/>
+  <text x="34" y="524" class="lbl">AUTHORING &#183; PER LESSON</text>
+  <rect class="gate" x="852" y="510" width="134" height="26" rx="3"/><text x="919" y="527" text-anchor="middle" class="ttl">G3 &#183; Package</text>
+
+  <g text-anchor="middle">
+    <rect class="b" x="46" y="548" width="128" height="236" rx="2"/><text x="110" y="670">lesson-author</text>
+    <use href="#doc" x="230" y="548" width="150" height="58"/><text x="305" y="579">lesson doc</text>
+
+    <rect class="b" x="470" y="546" width="160" height="42" rx="2"/><text x="550" y="571">technical reviewer</text>
+    <rect class="b" x="470" y="600" width="160" height="42" rx="2"/><text x="550" y="625">pedagogy reviewer</text>
+    <rect class="b" x="470" y="654" width="160" height="42" rx="2"/><text x="550" y="679">cohesion reviewer</text>
+    <rect class="b" x="470" y="708" width="160" height="42" rx="2"/><text x="550" y="733">learner advocate</text>
+
+    <rect class="grp" x="672" y="536" width="320" height="230" rx="4"/><text x="832" y="556" class="ttl">revision feedback</text>
+    <use href="#doc" x="700" y="566" width="150" height="42"/><text x="775" y="591" class="sm">technical feedback</text>
+    <use href="#doc" x="700" y="618" width="150" height="42"/><text x="775" y="643" class="sm">pedagogy feedback</text>
+    <use href="#doc" x="700" y="670" width="150" height="42"/><text x="775" y="695" class="sm">cohesion feedback</text>
+    <use href="#doc" x="700" y="722" width="150" height="42"/><text x="775" y="747" class="sm">advocate feedback</text>
+  </g>
+
+  <path class="ln" d="M174 577 H230" marker-end="url(#a)"/>
+  <path class="ln" d="M440 567 H392" marker-end="url(#a)"/>
+  <path class="ln" d="M440 567 V729"/>
+  <path class="ln" d="M440 567 H468"/><path class="ln" d="M440 621 H468"/><path class="ln" d="M440 675 H468"/><path class="ln" d="M440 729 H468"/>
+  <path class="ln" d="M630 567 H698" marker-end="url(#a)"/>
+  <path class="ln" d="M630 621 H698" marker-end="url(#a)"/>
+  <path class="ln" d="M630 675 H698" marker-end="url(#a)"/>
+  <path class="ln" d="M630 729 H698" marker-end="url(#a)"/>
+  <path class="ln" d="M832 766 V794 H110 V786" marker-end="url(#a)"/>
+  <text x="430" y="811" class="sm" text-anchor="middle">re-author with feedback (severity: only blockers loop) &#8212; up to critique-round cap</text>
+
+  <g text-anchor="middle">
+    <rect class="b" x="230" y="660" width="150" height="40" rx="2"/><text x="305" y="684" class="sm">auto-solve &#183; prove lab</text>
+    <rect class="b" x="230" y="710" width="150" height="40" rx="2"/><text x="305" y="734" class="sm">simulate learner</text>
+    <path class="ln" d="M230 680 H176" marker-end="url(#a)"/>
+    <path class="ln" d="M230 730 H176" marker-end="url(#a)"/>
+  </g>
+
+  <path class="ln" d="M510 820 V842" marker-end="url(#a)"/>
+
+  <rect class="panel" x="20" y="848" width="980" height="120" rx="4"/>
+  <text x="34" y="868" class="lbl">MATERIALIZING &#183; NO AGENTS</text>
+  <rect class="gate" x="724" y="854" width="262" height="26" rx="3"/><text x="855" y="871" text-anchor="middle" class="ttl">G4 &#183; Publish &#8594; approved &#8594; Go-live</text>
+  <g text-anchor="middle">
+    <rect class="b" x="60" y="892" width="170" height="52" rx="2"/><text x="145" y="923">Materializer</text>
+    <use href="#doc" x="300" y="892" width="150" height="52"/><text x="375" y="921">playable labs</text>
+    <use href="#doc" x="500" y="892" width="150" height="52"/><text x="575" y="921">draft course</text>
+    <path class="ln" d="M230 918 H296" marker-end="url(#a)"/>
+    <path class="ln" d="M450 918 H496" marker-end="url(#a)"/>
+    <text x="800" y="922" class="sm" text-anchor="middle">deterministic &#183; no model tokens</text>
+  </g>
+
+  <rect class="panel" x="20" y="982" width="980" height="94" rx="4"/>
+  <text x="34" y="1001" class="lbl">INJECTED SERVICES (ExecutorDeps)</text>
+  <g text-anchor="middle">
+    <rect class="b" x="34" y="1012" width="146" height="48" rx="2"/><text x="107" y="1035">RunArtifacts</text><text x="107" y="1050" class="sm">curriculum/runs</text>
+    <rect class="b" x="192" y="1012" width="146" height="48" rx="2"/><text x="265" y="1035">Capability registry</text><text x="265" y="1050" class="sm">gap diff</text>
+    <rect class="b" x="350" y="1012" width="146" height="48" rx="2"/><text x="423" y="1035">LessonProver</text><text x="423" y="1050" class="sm">local/docker</text>
+    <rect class="b" x="508" y="1012" width="146" height="48" rx="2"/><text x="581" y="1035">LessonSimulator</text><text x="581" y="1050" class="sm">sim-test</text>
+    <rect class="b" x="666" y="1012" width="146" height="48" rx="2"/><text x="739" y="1035">Capability outbox</text><text x="739" y="1050" class="sm">commission gaps</text>
+    <rect class="b" x="824" y="1012" width="162" height="48" rx="2"/><text x="905" y="1032">Provider seam</text><text x="905" y="1050" class="sm">Mock | Live &#183; Anthropic/OpenAI</text>
+  </g>
+  <text x="510" y="1092" text-anchor="middle" class="sm">every agent box calls a model through the provider seam (RoleInvoker)</text>
+
+  <rect class="panel" x="20" y="1104" width="980" height="80" rx="4"/>
+  <text x="34" y="1123" class="lbl">PERSISTENCE &#8212; DISK AUTHORITATIVE</text>
+  <g text-anchor="middle">
+    <rect class="b" x="34" y="1134" width="238" height="40" rx="2"/><text x="153" y="1159">DiskMirroredCourseRunStore</text>
+    <rect class="b" x="288" y="1134" width="176" height="40" rx="2"/><text x="376" y="1159">SQLite index</text>
+    <rect class="b" x="480" y="1134" width="176" height="40" rx="2"/><text x="568" y="1159">run.json mirror</text>
+    <rect class="b" x="672" y="1134" width="220" height="40" rx="2"/><text x="782" y="1159">recoverFromDisk (boot)</text>
+  </g>
+</svg>

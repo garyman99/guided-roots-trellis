@@ -26,6 +26,12 @@ framing → G1·Frame → designing → G2·Blueprint → authoring → G3·Pack
         —— Go-live (separate action) ——> course published
 ```
 
+The component/dataflow view — agents (boxes), the artifacts they produce
+(document shapes), the per-phase review loops, the injected services, and
+persistence:
+
+![Course-generation component and dataflow diagram](diagrams/course-generation-flow.svg)
+
 - **framing** — writes `course-request.md` (title, learner, outcome, scope).
 - **designing** — writes the blueprint (domain map, spine, prerequisite graph,
   conventions, **lesson inventory**) and diffs required capabilities against the
