@@ -229,13 +229,6 @@ export interface CourseRunGate {
   decision: GateDecision | null;
   decidedBy: string | null;
   notes: GateNote[] | null;
-  /**
-   * The lesson this gate row is about, when the gate was decided per-lesson
-   * (rehearsal-phase §5). Absent for a whole-run decision. Bounce-cap
-   * accounting counts prior `changes` rows for (gateId, lessonId), so without
-   * this a second lesson's first bounce would inherit the first lesson's count.
-   */
-  lessonId?: string;
 }
 
 export interface CourseRunEvent {
@@ -260,6 +253,15 @@ export interface CourseRun {
   /** Lessons the next phase run is scoped to (rehearsal-phase §2). Absent/null
    *  ⇒ the whole course. Set when a gate decision targets specific lessons. */
   pendingLessonScope?: string[] | null;
+  /**
+   * Phases to run after `pendingPhase` completes, WITHOUT parking at their
+   * gates (rehearsal-phase §5). A rehearsal bounce is one operator decision —
+   * "fix this lesson" — but three phases of work (re-author → re-materialize →
+   * re-rehearse). Without a chain the run would park at the package gate
+   * mid-bounce and ask the operator to approve a step they already approved.
+   * Empty/absent ⇒ park at the completed phase's gate, as normal.
+   */
+  pendingChain?: Phase[] | null;
   /** Last error message when interrupted/failed. */
   lastError?: string | null;
   createdAt: string;

@@ -32,6 +32,10 @@ import {
   isActive,
 } from "./types.ts";
 
+/** How many times one lesson may be bounced before it needs a human
+ *  (rehearsal-phase §5). Overridable per run via `request.rehearsalBounces`. */
+export const DEFAULT_REHEARSAL_BOUNCES = 2;
+
 export interface SchedulerOptions {
   /** Injected clock — defaults to Date.now via new Date(); tests pass a stub. */
   now?: () => string;
@@ -113,16 +117,24 @@ export class CourseRunScheduler {
     this.emit(runId, "gate.decided", { gateId, decision, by: by ?? undefined, noteCount: notes?.length ?? 0 });
 
     if (decision === "rejected") {
-      this.patch(run, { status: "archived", pendingPhase: null, pendingChangeNotes: null });
+      this.patch(run, { status: "archived", pendingPhase: null, pendingChangeNotes: null, pendingLessonScope: null, pendingChain: null });
     } else if (decision === "changes") {
-      // Re-run the phase that produced this gate, handing it the notes.
-      // A lesson-scoped publish request means the operator wants the lesson
-      // sent back through authoring/review agents, not merely rematerialized.
-      // Unscoped publish changes retain the cheaper materialization-only retry.
-      const lessonRevisionAtPublish = gateId === "publish" && !!notes?.some((note) => !!note.lessonId);
-      const pendingPhase = lessonRevisionAtPublish ? "authoring" : PHASE_OF_GATE[gateId];
-      this.patch(run, { status: "queued", pendingPhase, pendingChangeNotes: notes ?? null });
-      this.emit(runId, "run.queued", { pendingPhase, reason: "changes-requested" });
+      // A lesson-scoped `changes` at a POST-MATERIALIZE gate is a rehearsal
+      // bounce (rehearsal-phase §5): the named lessons go back through
+      // authoring, then get rebuilt and re-rehearsed, while the rest of the
+      // course stays exactly where it is. Everything else keeps the old
+      // behaviour — re-run the phase that produced this gate with the notes.
+      const bounceLessons =
+        gateId === "publish" || gateId === "rehearse"
+          ? [...new Set((notes ?? []).map((n) => n.lessonId).filter((id): id is string => !!id))]
+          : [];
+      if (bounceLessons.length) {
+        this.bounce(run, gateId, bounceLessons, notes ?? null);
+      } else {
+        const pendingPhase = PHASE_OF_GATE[gateId];
+        this.patch(run, { status: "queued", pendingPhase, pendingChangeNotes: notes ?? null, pendingLessonScope: null, pendingChain: null });
+        this.emit(runId, "run.queued", { pendingPhase, reason: "changes-requested" });
+      }
     } else {
       const next = NEXT_PHASE_AFTER_GATE[gateId];
       if (next === null) {
@@ -131,12 +143,64 @@ export class CourseRunScheduler {
         this.patch(run, { status: "approved", pendingPhase: null, pendingChangeNotes: null });
         this.emit(runId, "run.approved", {});
       } else {
-        this.patch(run, { status: "queued", pendingPhase: next, pendingChangeNotes: null });
+        this.patch(run, { status: "queued", pendingPhase: next, pendingChangeNotes: null, pendingLessonScope: null, pendingChain: null });
         this.emit(runId, "run.queued", { pendingPhase: next });
       }
     }
     this.pump();
     return this.store.getCourseRun(runId)!;
+  }
+
+  /**
+   * A REHEARSAL BOUNCE (rehearsal-phase §5): send the named lessons back
+   * through authoring → materializing → rehearsing as one chained unit, so the
+   * operator's single "fix this lesson" decision doesn't ask them to re-approve
+   * the package and rehearse gates it passes through on the way.
+   *
+   * Bounded per lesson. This is the only cycle in the pipeline that spends both
+   * model tokens AND real browser time, so a lesson the loop cannot fix would
+   * otherwise burn an unattended run's entire budget by itself. A lesson at its
+   * cap is dropped from the bounce and reported; when every named lesson is
+   * capped, nothing is queued and the gate is re-opened for a human to decide
+   * differently (accept it as-is, waive it, or reject the run).
+   */
+  private bounce(run: CourseRun, gateId: GateId, lessons: string[], notes: GateNote[] | null): void {
+    const cap = Math.max(1, run.request.rehearsalBounces ?? DEFAULT_REHEARSAL_BOUNCES);
+    const priorBounces = new Map<string, number>();
+    for (const ev of this.store.courseRunEvents(run.runId)) {
+      if (ev.type !== "lesson.bounced") continue;
+      const id = (ev.payload as { lessonId?: string } | undefined)?.lessonId;
+      if (id) priorBounces.set(id, (priorBounces.get(id) ?? 0) + 1);
+    }
+
+    const eligible: string[] = [];
+    for (const lessonId of lessons) {
+      const used = priorBounces.get(lessonId) ?? 0;
+      if (used >= cap) {
+        this.emit(run.runId, "lesson.bounce-capped", { lessonId, bounces: used, cap });
+        continue;
+      }
+      eligible.push(lessonId);
+      this.emit(run.runId, "lesson.bounced", { lessonId, bounce: used + 1, cap, fromGate: gateId });
+    }
+
+    if (!eligible.length) {
+      // Every named lesson is spent. Re-open the gate rather than queueing a
+      // re-author we already know will not converge — the decision is a
+      // human's now, and leaving no pending row would strand the run.
+      this.requestGate(run.runId, gateId);
+      this.emit(run.runId, "rehearsal.bounce-cap-reached", { lessons, cap });
+      return;
+    }
+
+    this.patch(run, {
+      status: "queued",
+      pendingPhase: "authoring",
+      pendingChangeNotes: notes,
+      pendingLessonScope: eligible,
+      pendingChain: ["materializing", "rehearsing"],
+    });
+    this.emit(run.runId, "run.queued", { pendingPhase: "authoring", reason: "rehearsal-bounce", lessons: eligible });
   }
 
   /**
@@ -230,6 +294,22 @@ export class CourseRunScheduler {
     }
 
     this.emit(run.runId, "phase.completed", { phase });
+
+    // Mid-chain (a rehearsal bounce): run the next phase instead of parking at
+    // this one's gate. The lesson scope rides along — every phase in the chain
+    // is scoped to the same lessons.
+    const current = this.store.getCourseRun(run.runId)!;
+    const [nextInChain, ...rest] = current.pendingChain ?? [];
+    if (nextInChain) {
+      this.patch(current, { status: "queued", pendingPhase: nextInChain, pendingChain: rest.length ? rest : null });
+      this.emit(run.runId, "run.queued", { pendingPhase: nextInChain, reason: "bounce-chain" });
+      return;
+    }
+
+    // Chain done (or never started): the scope has been consumed by the phases
+    // that needed it, so clear it before the run parks — a stale scope would
+    // silently narrow the NEXT phase the operator asks for.
+    if (current.pendingLessonScope) this.patch(current, { pendingLessonScope: null });
     this.requestGate(run.runId, GATE_OF_PHASE[phase]);
   }
 

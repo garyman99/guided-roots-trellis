@@ -631,3 +631,79 @@ test("rehearsing: a settled course (nothing bounced) gets a single course-wide c
   assert.equal(summary.cohesion.blockers.length, 1);
   assert.equal(summary.cohesion.blockers[0].lessonId, "git-102");
 });
+
+test("bounce chain: a lesson-scoped 'changes' at publish re-authors, re-materializes and re-rehearses ONLY that lesson", async () => {
+  // rehearsal-phase §5. The operator makes ONE decision — "fix git-102" — and
+  // the run must do three phases of work without stopping to ask them to
+  // re-approve the package and rehearse gates it passes through on the way.
+  let sims = 0;
+  const rehearseLesson: LessonRehearser = async ({ lessonId }) => {
+    sims++;
+    return lessonId === "git-102" ? { ok: false, detail: "the persona got stuck" } : { ok: true };
+  };
+  const h = harness(defaultMockResponder, undefined, undefined, rehearseLesson);
+  const run = h.sched.create({ technology: "Git" });
+  await h.sched.settle();
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "rehearse"] as const) {
+    h.sched.decideGate(run.runId, gate, "approved", null, "op");
+    await h.sched.settle();
+  }
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-publish");
+  assert.equal(sims, 2, "both lessons rehearsed on the first pass");
+  const materializeCallsBefore = h.materializeCalls.length;
+
+  // The bounce.
+  h.sched.decideGate(run.runId, "publish", "changes", [{ lessonId: "git-102", comment: "the checkpoint is unreachable" }], "op");
+  await h.sched.settle();
+
+  // It walked authoring → materializing → rehearsing and landed back at publish,
+  // never parking at the package or rehearse gates in between.
+  const after = h.store.getCourseRun(run.runId)!;
+  assert.equal(after.status, "awaiting-publish", "the chain ran to completion and re-parked at publish");
+  assert.equal(after.pendingLessonScope ?? null, null, "the scope is cleared once the chain is consumed");
+  assert.equal(after.pendingChain ?? null, null);
+
+  // Only the bounced lesson was rebuilt and replayed.
+  const scopedCall = h.materializeCalls.at(-1)!;
+  assert.deepEqual(scopedCall.lessonIds, ["git-102"], "materializing was scoped to the bounced lesson");
+  assert.equal(scopedCall.lessons.length, 2, "but the materializer still sees the whole course");
+  assert.ok(h.materializeCalls.length > materializeCallsBefore);
+  assert.equal(sims, 3, "only the bounced lesson was re-rehearsed, not the whole course");
+
+  const events = h.store.courseRunEvents(run.runId);
+  assert.ok(events.some((e) => e.type === "lesson.bounced" && (e.payload as { lessonId?: string }).lessonId === "git-102"));
+  const gateStops = events.filter((e) => e.type === "gate.requested").map((e) => (e.payload as { gateId: string }).gateId);
+  assert.equal(gateStops.filter((g) => g === "package").length, 1, "the bounce did not re-open the package gate");
+});
+
+test("bounce cap: a lesson that keeps failing stops the loop and hands the decision back", async () => {
+  // The one cycle that spends BOTH tokens and browser time. Without a cap an
+  // unattended run would re-author the same unfixable lesson forever.
+  const rehearseLesson: LessonRehearser = async ({ lessonId }) =>
+    lessonId === "git-102" ? { ok: false, detail: "still stuck" } : { ok: true };
+  const h = harness(defaultMockResponder, undefined, undefined, rehearseLesson);
+  const run = h.sched.create({ technology: "Git", rehearsalBounces: 2 });
+  await h.sched.settle();
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "rehearse"] as const) {
+    h.sched.decideGate(run.runId, gate, "approved", null, "op");
+    await h.sched.settle();
+  }
+
+  const bounce = async () => {
+    h.sched.decideGate(run.runId, "publish", "changes", [{ lessonId: "git-102", comment: "still broken" }], "op");
+    await h.sched.settle();
+  };
+  await bounce(); // 1 of 2
+  await bounce(); // 2 of 2
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-publish");
+
+  await bounce(); // over cap — nothing is queued
+  const after = h.store.getCourseRun(run.runId)!;
+  assert.equal(after.status, "awaiting-publish", "the run stays parked for a human rather than looping");
+  assert.equal(after.pendingPhase, null, "no phase was queued");
+
+  const events = h.store.courseRunEvents(run.runId);
+  assert.equal(events.filter((e) => e.type === "lesson.bounced").length, 2, "exactly `cap` bounces were spent");
+  assert.ok(events.some((e) => e.type === "lesson.bounce-capped"));
+  assert.ok(events.some((e) => e.type === "rehearsal.bounce-cap-reached"));
+});
