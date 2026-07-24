@@ -2303,6 +2303,24 @@ export const server = createServer(async (req, res) => {
                 return json(res, 400, { error: "changes requires at least one note" });
               }
               const notes = parseGateNotes(body.notes);
+              // A gate approval may carry a lesson scope — "materialize/rehearse
+              // only these lessons" (rehearsal-phase §1, §3). Only package and
+              // rehearse understand one; silently ignoring it on any other gate
+              // would look like it worked when it did nothing.
+              let lessonIds: string[] | null = null;
+              if (body.lessonIds !== undefined && body.lessonIds !== null) {
+                if (
+                  !Array.isArray(body.lessonIds) ||
+                  body.lessonIds.length === 0 ||
+                  !body.lessonIds.every((id: unknown) => typeof id === "string" && id.trim().length > 0)
+                ) {
+                  return json(res, 400, { error: "lessonIds must be a non-empty array of non-empty strings" });
+                }
+                if (gateId !== "package" && gateId !== "rehearse") {
+                  return json(res, 400, { error: `gate "${gateId}" does not accept a lesson scope — only "package" and "rehearse" do` });
+                }
+                lessonIds = body.lessonIds;
+              }
               // Re-author a dropped lesson (plan §7) needs NO new endpoint: a
               // `changes` decision on "package" with a note carrying `lessonId`
               // already reopens just that lesson — runAuthoring's `reopened` set
@@ -2351,7 +2369,7 @@ export const server = createServer(async (req, res) => {
                   }
                 }
               }
-              courseRuns.decideGate(runId, gateId, decision, notes, by);
+              courseRuns.decideGate(runId, gateId, decision, notes, by, lessonIds);
               return json(res, 200, { run: courseRunDetail(runId) });
             }
             // POST reconcile actions: /course-runs/:id/reconcile/:action —

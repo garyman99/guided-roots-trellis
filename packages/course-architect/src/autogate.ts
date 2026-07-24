@@ -82,9 +82,32 @@ export const GATE_REVIEWER_SYSTEM = [
   "rounds are a scarce budget, not a conversation.",
 ].join("\n");
 
+/** What each gate actually asks the reviewer to judge — spelled out for gates
+ *  whose artifacts don't explain themselves (unlike e.g. package's plain
+ *  review/critique summaries). Empty string = no extra framing needed. */
+function gateContext(gateId: GateId): string {
+  if (gateId === "rehearse") {
+    return [
+      `This is the rehearse gate: a simulated persona played each materialized`,
+      `lesson in a real browser. "rehearsal/summary.json" and "lessons/state.json"`,
+      `carry the per-lesson verdicts (completed? checkpoint passed? friction`,
+      `within budget?). Approve to send the course on to the publish gate.`,
+      `Request changes to send a lesson back through authoring — when a single`,
+      `lesson is at fault, its note MUST carry that lesson's "lessonId". That is`,
+      `what triggers the scoped re-author → re-materialize → re-rehearse bounce`,
+      `for just that lesson. A note with NO "lessonId" is a much blunter tool: it`,
+      `rebuilds the whole course from scratch, so only use it for a fault that`,
+      `belongs to no single lesson.`,
+      ``,
+    ].join("\n");
+  }
+  return "";
+}
+
 /** The exact output contract — real models need the shape spelled out. */
 export function gateVerdictInstruction(gateId: GateId): string {
   return [
+    gateContext(gateId),
     `Decide the "${gateId}" gate. Return ONLY a JSON object, no prose or fences:`,
     `{`,
     `  "decision": "approved" | "changes",`,

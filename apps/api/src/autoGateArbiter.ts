@@ -67,6 +67,7 @@ const GATE_ARTIFACTS: Record<GateId, string[]> = {
   frame: ["course-request.md"],
   blueprint: ["lesson-inventory.json", "plan-review.md", "capability-gaps.json"],
   package: ["reviews/summary.json", "critiques/summary.json"],
+  rehearse: ["rehearsal/summary.json", "lessons/state.json"],
   publish: ["manifest.json"],
   // Never reviewed by the arbiter (decideOne returns early) — entry only to
   // satisfy the Record<GateId, ...> keying now that GateId includes it.

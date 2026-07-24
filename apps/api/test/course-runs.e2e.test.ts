@@ -219,6 +219,56 @@ test("deleting a run cascades to its course, scenarios, and on-disk artifacts", 
   assert.equal((await admin("DELETE", "/api/admin/course-runs/cg-nope-000")).status, 404);
 });
 
+test("a scoped re-materialize (server-side materialize's scoped branch) is additive, not destructive", async () => {
+  const created = await admin("POST", "/api/admin/course-runs", { technology: "Git", title: "Git Scoped Rematerialize" });
+  assert.equal(created.status, 201);
+  const runId = (created.body as { run: RunDetail }).run.runId;
+  await courseRuns.settle();
+
+  // Walk to a materialized 2-lesson course (package approved unscoped).
+  for (const gate of ["frame", "blueprint", "reconcile", "package"] as const) {
+    const r = await admin("POST", `/api/admin/course-runs/${runId}/gates/${gate}/decision`, { decision: "approved", by: "eva" });
+    assert.equal(r.status, 200, `approving ${gate}`);
+    await courseRuns.settle();
+  }
+  const parked = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: RunDetail }).run;
+  assert.equal(parked.status, "awaiting-rehearse", "package approval ran materializing unscoped");
+
+  const courseBefore = store.listCourses().find((c) => c.sourceRunId === runId);
+  assert.ok(courseBefore, "a draft course exists after materializing");
+  assert.ok(courseBefore.lessons.length >= 2, "at least two lessons materialized");
+  const [keepLessonId, scopedLessonId] = courseBefore.lessons.map((l) => l.labId);
+
+  // Take the lesson we will NOT rebuild live, so we can prove its published
+  // flag survives the scoped rebuild untouched.
+  const wentLive = await admin("POST", `/api/admin/courses/${courseBefore.courseId}/lessons/${keepLessonId}/publish`);
+  assert.equal(wentLive.status, 200);
+  assert.ok(
+    (store.getCourse(courseBefore.courseId)?.lessons ?? []).find((l) => l.labId === keepLessonId)?.published,
+    "the kept lesson is live before the scoped rebuild",
+  );
+
+  // Scope the next materialize run to the OTHER lesson, then re-run the phase
+  // directly (mirroring packages/course-architect's own scoped-materialize
+  // test) — this exercises the real, server-injected `materialize` from
+  // apps/api/src/server.ts, which the earlier package-level test could not.
+  const stored = store.getCourseRun(runId)!;
+  store.updateCourseRun({ ...stored, pendingLessonScope: [scopedLessonId] });
+  courseRuns.rerunPhaseFromGate(runId, "rehearse", "materializing", null, "eva");
+  await courseRuns.settle();
+  const afterScoped = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: RunDetail }).run;
+  assert.equal(afterScoped.status, "awaiting-rehearse", "scoped materializing still lands at the rehearse gate");
+
+  // The scoped rebuild was additive, not destructive: the other lesson still
+  // exists in the course, and its published flag is untouched.
+  const courseAfter = store.getCourse(courseBefore.courseId);
+  assert.ok(courseAfter, "course still exists");
+  const keptLesson = courseAfter!.lessons.find((l) => l.labId === keepLessonId);
+  assert.ok(keptLesson, "the out-of-scope lesson still exists in the course");
+  assert.equal(keptLesson!.published, true, "the out-of-scope lesson's published flag survived the scoped rebuild");
+  assert.ok(courseAfter!.lessons.some((l) => l.labId === scopedLessonId), "the scoped lesson also still exists");
+});
+
 test("changes requires notes; the state machine rejects out-of-order and unknown decisions", async () => {
   const created = await admin("POST", "/api/admin/course-runs", { technology: "Docker" });
   const runId = (created.body as { run: RunDetail }).run.runId;

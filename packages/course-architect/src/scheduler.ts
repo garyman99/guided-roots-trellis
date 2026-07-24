@@ -108,7 +108,14 @@ export class CourseRunScheduler {
   }
 
   /** Record a gate decision and advance the run. Throws if the gate isn't pending. */
-  decideGate(runId: string, gateId: GateId, decision: GateDecision, notes: GateNote[] | null, by: string | null): CourseRun {
+  decideGate(
+    runId: string,
+    gateId: GateId,
+    decision: GateDecision,
+    notes: GateNote[] | null,
+    by: string | null,
+    lessonIds?: string[] | null,
+  ): CourseRun {
     const run = this.require(runId);
     if (run.status !== awaitingGate(gateId)) {
       throw new RunStateError(`gate "${gateId}" is not awaiting a decision for run ${runId} (status: ${run.status})`);
@@ -143,7 +150,11 @@ export class CourseRunScheduler {
         this.patch(run, { status: "approved", pendingPhase: null, pendingChangeNotes: null });
         this.emit(runId, "run.approved", {});
       } else {
-        this.patch(run, { status: "queued", pendingPhase: next, pendingChangeNotes: null, pendingLessonScope: null, pendingChain: null });
+        // An approval of `package` or `rehearse` may carry a scope — "materialize
+        // only these lessons" / "rehearse only these lessons" (rehearsal-phase
+        // §1, §3). Any other gate ignores the parameter.
+        const scope = (gateId === "package" || gateId === "rehearse") && lessonIds && lessonIds.length ? lessonIds : null;
+        this.patch(run, { status: "queued", pendingPhase: next, pendingChangeNotes: null, pendingLessonScope: scope, pendingChain: null });
         this.emit(runId, "run.queued", { pendingPhase: next });
       }
     }

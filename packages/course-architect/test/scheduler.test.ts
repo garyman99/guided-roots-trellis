@@ -102,6 +102,32 @@ test("changes loop: re-runs the phase with the notes and revisions the artifact"
   assert.equal(gates.find((g) => g.decision === "changes")!.notes![0].comment, notes[0].comment);
 });
 
+test("approving package or rehearse with lessonIds sets pendingLessonScope; other gates ignore it", async () => {
+  const h = harness();
+  const sched = new CourseRunScheduler(h.store, fakeExecutor(h.artifactsFor), { now: h.now, idSuffix: h.idSuffix });
+  const run = sched.create({ technology: "Git" });
+  await sched.settle();
+
+  // frame/blueprint approvals: a scope argument is accepted but ignored — only
+  // package and rehearse understand one (rehearsal-phase §1, §3).
+  sched.decideGate(run.runId, "frame", "approved", null, "op", ["git-101"]);
+  await sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.pendingLessonScope, null, "frame ignores a lesson scope");
+
+  sched.decideGate(run.runId, "blueprint", "approved", null, "op");
+  await sched.settle();
+  sched.decideGate(run.runId, "reconcile", "approved", null, "op");
+  await sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
+
+  // Approving package WITH a scope carries it onto materializing.
+  sched.decideGate(run.runId, "package", "approved", null, "op", ["git-101"]);
+  await sched.settle();
+  // materializing consumed the scope, then cleared it before parking at rehearse.
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse");
+  assert.equal(h.store.getCourseRun(run.runId)!.pendingLessonScope, null, "the scope is cleared once the phase it was meant for has run");
+});
+
 test("reject archives the run and no further gate can be decided", async () => {
   const h = harness();
   const sched = new CourseRunScheduler(h.store, fakeExecutor(h.artifactsFor), { now: h.now, idSuffix: h.idSuffix });
