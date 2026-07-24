@@ -701,8 +701,23 @@ export const courseRunApi = {
     adminSend<{ run: CourseRunDetail }>("POST", "/api/admin/course-runs", body).then((r) => r.run),
   artifact: (runId: string, path: string) =>
     adminGet<{ path: string; content: string }>(`/api/admin/course-runs/${encodeURIComponent(runId)}/artifacts/${path.split("/").map(encodeURIComponent).join("/")}`),
-  decide: (runId: string, gateId: GateId, decision: "approved" | "changes" | "rejected", notes: GateNote[] | null, by: string, gaps?: GapDecision[]) =>
-    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, { decision, notes, by, ...(gaps && gaps.length ? { gaps } : {}) }).then((r) => r.run),
+  // lessonIds: a scope on `package`/`rehearse` approvals only (rehearsal-phase
+  // plan §1, §3) — "materialize/rehearse only these lessons"; the server 400s
+  // it on any other gate. Absent/empty ⇒ the whole course, today's behaviour.
+  decide: (
+    runId: string,
+    gateId: GateId,
+    decision: "approved" | "changes" | "rejected",
+    notes: GateNote[] | null,
+    by: string,
+    gaps?: GapDecision[],
+    lessonIds?: string[],
+  ) =>
+    adminSend<{ run: CourseRunDetail }>("POST", `/api/admin/course-runs/${encodeURIComponent(runId)}/gates/${gateId}/decision`, {
+      decision, notes, by,
+      ...(gaps && gaps.length ? { gaps } : {}),
+      ...(lessonIds && lessonIds.length ? { lessonIds } : {}),
+    }).then((r) => r.run),
   // Reconcile-gate actions (gap-reconciliation-pause plan §3): re-diff, drop a
   // gap's lessons, or reopen designing under a free-text instruction.
   reconcileAction: (runId: string, action: "recheck" | "defer" | "redesign", body?: Record<string, unknown>) =>

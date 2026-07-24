@@ -1268,6 +1268,13 @@ function RunDetail({ runId, onBack, onCoursesChanged }: { runId: string; onBack:
 
       {gate === "reconcile" ? (
         <ReconcileGatePanel run={run} onDecided={setRun} />
+      ) : gate === "rehearse" ? (
+        <RehearseGatePanel run={run} gate={gate} onDecided={setRun} />
+      ) : gate === "publish" ? (
+        <>
+          <RehearseGatePanel run={run} gate={gate} onDecided={setRun} />
+          <GateBar run={run} gate={gate} onDecided={setRun} fullThrottle={fullThrottle} />
+        </>
       ) : (
         gate && <GateBar run={run} gate={gate} onDecided={setRun} fullThrottle={fullThrottle} />
       )}
@@ -1839,6 +1846,263 @@ function ReconcileGatePanel({ run, onDecided }: { run: CourseRunDetail; onDecide
           {busy === "reject" ? "Rejecting…" : "Reject"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ---------- rehearse gate board (rehearsal-phase plan §3–5) ---------- */
+
+interface LessonLedgerEntry {
+  state: "materialized" | "rehearsed" | "accepted" | "waived" | "bounced";
+  at: string;
+  labId?: string;
+}
+interface RehearsalSummaryLesson { lessonId: string; labId: string; ok: boolean; detail?: string }
+interface RehearsalSummary {
+  lessons: RehearsalSummaryLesson[];
+  rehearsed: number;
+  bounced: number;
+  simulatorWired: boolean;
+  cohesion: { ran: boolean; verdict?: string; blockers: Array<{ lessonId?: string; text: string }> };
+}
+
+/**
+ * A dedicated panel for the `rehearse` and `publish` gates (rehearsal-phase
+ * plan §3–5), modeled directly on ReconcileGatePanel above: one row per
+ * lesson with its own state, verdict, and actions. At `rehearse` it is the
+ * cost control — a rehearsal is a real browser plus a live model, so which
+ * materialized lessons actually get played is a first-class choice. It stays
+ * mounted at `publish` too (alongside the normal GateBar) because a bad
+ * verdict discovered after rehearsal completed still needs a place to send a
+ * lesson back from, and that is also where the course-wide cohesion sweep's
+ * result — the thing actually gating publish approval — is shown.
+ */
+function RehearseGatePanel({ run, gate, onDecided }: { run: CourseRunDetail; gate: GateId; onDecided: (r: CourseRunDetail) => void }) {
+  const [ledger, setLedger] = useState<Record<string, LessonLedgerEntry> | null>(null);
+  const [summary, setSummary] = useState<RehearsalSummary | null>(null);
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  // A course is a SEQUENCE — an operator reading the board needs the lessons in
+  // the order a learner meets them, not in dictionary order.
+  const [order, setOrder] = useState<Record<string, number>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sendBackFor, setSendBackFor] = useState<string | null>(null);
+  const [sendBackText, setSendBackText] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const by = "operator";
+
+  useEffect(() => {
+    if (run.artifacts.includes("lessons/state.json")) {
+      courseRunApi.artifact(run.runId, "lessons/state.json")
+        .then((a) => setLedger(JSON.parse(a.content) as Record<string, LessonLedgerEntry>))
+        .catch(() => setLedger({}));
+    } else {
+      setLedger({});
+    }
+    if (run.artifacts.includes("rehearsal/summary.json")) {
+      courseRunApi.artifact(run.runId, "rehearsal/summary.json")
+        .then((a) => setSummary(JSON.parse(a.content) as RehearsalSummary))
+        .catch(() => setSummary(null));
+    } else {
+      setSummary(null);
+    }
+    if (run.artifacts.includes("lesson-inventory.json")) {
+      courseRunApi.artifact(run.runId, "lesson-inventory.json")
+        .then((a) => {
+          const inv = JSON.parse(a.content) as Array<{ lessonId: string; title: string; sequence?: number }>;
+          setTitles(Object.fromEntries(inv.map((l) => [l.lessonId, l.title])));
+          setOrder(Object.fromEntries(inv.map((l, i) => [l.lessonId, l.sequence ?? i + 1])));
+        })
+        .catch(() => { setTitles({}); setOrder({}); });
+    }
+    setSelected(new Set());
+  }, [run]);
+
+  const afterAction = (r: CourseRunDetail) => { onDecided(r); setError(null); };
+
+  const verdictOf = (lessonId: string) => summary?.lessons.find((l) => l.lessonId === lessonId);
+
+  // One row per lesson the ledger or the sim report knows about — a lesson
+  // that hasn't been materialized yet has no ledger entry and stays off the
+  // board (there is nothing to rehearse yet).
+  const lessonIdsKnown = Array.from(new Set([
+    ...Object.keys(ledger ?? {}),
+    ...(summary?.lessons.map((l) => l.lessonId) ?? []),
+  ])).sort((a, b) => (order[a] ?? Number.MAX_SAFE_INTEGER) - (order[b] ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b));
+
+  const toggle = (lessonId: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(lessonId)) next.delete(lessonId); else next.add(lessonId);
+      return next;
+    });
+
+  const rehearseSelected = () => {
+    setBusy("rehearse"); setError(null);
+    const lessonIds = selected.size > 0 ? Array.from(selected) : undefined;
+    courseRunApi.decide(run.runId, "rehearse", "approved", null, by, undefined, lessonIds)
+      .then((r) => { afterAction(r); setSelected(new Set()); })
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  const sendBack = (lessonId: string) => {
+    const comment = sendBackText.trim();
+    if (!comment) return;
+    setBusy(`retry:${lessonId}`); setError(null);
+    courseRunApi.decide(run.runId, gate, "changes", [{ lessonId, comment }], by)
+      .then((r) => { afterAction(r); setSendBackFor(null); setSendBackText(""); })
+      .catch((e) => setError(String((e as Error).message)))
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <div className="gr-card cg-gatebar">
+      <h3>Rehearsal board {gate === "publish" ? "— publish gate" : "— rehearse gate"}</h3>
+
+      {gate === "rehearse" && (
+        <p className="gr-mono-note">
+          Check the lessons the simulated learner should actually play, then approve — a real browser plus a live
+          model runs per lesson, so this is the cost control. Approving with none checked rehearses every
+          materialized lesson.
+        </p>
+      )}
+      {gate === "publish" && (
+        <p className="gr-mono-note">
+          Rehearsal already ran; this board is here so a verdict you missed (or the cohesion sweep below) can still
+          send a lesson back before you approve publish.
+        </p>
+      )}
+
+      {summary?.simulatorWired === false && (
+        <p className="admin-error">The simulator isn't wired up in this environment — verdicts below may be stubbed.</p>
+      )}
+
+      {ledger === null ? (
+        <p className="admin-loading">Loading rehearsal board…</p>
+      ) : lessonIdsKnown.length === 0 ? (
+        <p className="admin-empty">No lessons materialized yet.</p>
+      ) : (
+        <table className="admin-table cg-gaps">
+          <thead>
+            <tr>
+              {gate === "rehearse" && <th></th>}
+              <th>Lesson</th><th>State</th><th>Verdict</th><th>Recording</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lessonIdsKnown.map((lessonId) => {
+              const entry = ledger[lessonId];
+              const verdict = verdictOf(lessonId);
+              const labId = entry?.labId ?? verdict?.labId;
+              const everRehearsed = entry && entry.state !== "materialized";
+              return (
+                <Fragment key={lessonId}>
+                  <tr>
+                    {gate === "rehearse" && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(lessonId)}
+                          onChange={() => toggle(lessonId)}
+                          aria-label={`Select ${titles[lessonId] ?? lessonId} for rehearsal`}
+                        />
+                      </td>
+                    )}
+                    <td>{titles[lessonId] ?? lessonId} <code className="gr-mono-note">{lessonId}</code></td>
+                    <td>
+                      <span className={`admin-chip ${entry && (entry.state === "accepted" || entry.state === "rehearsed") ? "status-mastered" : entry?.state === "bounced" ? "status-abandoned" : ""}`}>
+                        {entry?.state ?? "not materialized"}
+                      </span>
+                    </td>
+                    <td>
+                      {verdict ? (
+                        verdict.ok
+                          ? <span className="admin-chip status-mastered">ok</span>
+                          : <><span className="admin-chip status-abandoned">failed</span>{verdict.detail && <div className="gr-mono-note">{verdict.detail}</div>}</>
+                      ) : "—"}
+                    </td>
+                    <td>
+                      {everRehearsed && labId ? (
+                        <a className="gr-btn gr-btn-small gr-btn-ghost" href={simTestApi.videoUrl(run.runId, labId)} target="_blank" rel="noreferrer">
+                          Video ↗
+                        </a>
+                      ) : "—"}
+                    </td>
+                    <td>
+                      <div className="admin-editor-actions">
+                        <button
+                          className="gr-btn gr-btn-ghost gr-btn-small"
+                          disabled={busy !== null}
+                          onClick={() => {
+                            setSendBackFor(sendBackFor === lessonId ? null : lessonId);
+                            setSendBackText("");
+                          }}
+                        >
+                          {sendBackFor === lessonId ? "Cancel" : "Send back"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {sendBackFor === lessonId && (
+                    <tr>
+                      <td colSpan={gate === "rehearse" ? 6 : 5}>
+                        <div className="gr-field">
+                          <label htmlFor={`rehearse-sendback-${lessonId}`}>What must change — reopens authoring for this lesson only</label>
+                          <textarea
+                            id={`rehearse-sendback-${lessonId}`}
+                            rows={2}
+                            value={sendBackText}
+                            onChange={(e) => setSendBackText(e.target.value)}
+                            placeholder="e.g. The checkpoint never triggers because the setup step is missing a save."
+                          />
+                        </div>
+                        <div className="admin-editor-actions">
+                          <button
+                            className="gr-btn gr-btn-primary gr-btn-small"
+                            disabled={busy !== null || !sendBackText.trim()}
+                            onClick={() => sendBack(lessonId)}
+                          >
+                            {busy === `retry:${lessonId}` ? "Sending…" : "Send back"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {summary?.cohesion.ran && (
+        <div className="cg-gaps">
+          <h4 className="admin-subhead">Course-wide cohesion sweep</h4>
+          <p className={summary.cohesion.blockers.length > 0 ? "admin-error" : "gr-mono-note"}>
+            {summary.cohesion.verdict ?? (summary.cohesion.blockers.length > 0 ? "blocked" : "clean")}
+          </p>
+          {summary.cohesion.blockers.length > 0 && (
+            <ul>
+              {summary.cohesion.blockers.map((b, i) => (
+                <li key={i} className="gr-mono-note">
+                  {b.lessonId && <code>{b.lessonId}</code>} {b.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {error && <p className="admin-error">{error}</p>}
+
+      {gate === "rehearse" && (
+        <div className="admin-editor-actions">
+          <button className="gr-btn gr-btn-primary" disabled={busy !== null} onClick={rehearseSelected}>
+            {busy === "rehearse" ? "Sending…" : selected.size > 0 ? `Rehearse ${selected.size} selected` : "Rehearse all"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
