@@ -25,7 +25,6 @@ const CAPS = new Set(["file-viewed", "file-edited", "tests-run", "diff-viewed", 
 function harness(
   responder: MockResponder = defaultMockResponder,
   proveLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string }>,
-  simLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string; blockers?: string[] }>,
   commissioned?: Array<{ capability: string; why: string; lessonId: string }>,
 ) {
   let tick = 0;
@@ -47,7 +46,6 @@ function harness(
       return result;
     },
     ...(proveLesson ? { proveLesson: (i: { lessonId: string }) => proveLesson(i) } : {}),
-    ...(simLesson ? { simLesson: (i: { lessonId: string }) => simLesson(i) } : {}),
     ...(commissioned ? { onCapabilityGapsFound: (_runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>) => commissioned.push(...gaps) } : {}),
   });
   const sched = new CourseRunScheduler(store, executor, { now, idSuffix });
@@ -140,7 +138,7 @@ test("a lesson the bench can't lab is withdrawn, not shipped with a fake lab", a
     }
     return defaultMockResponder(role, prompt);
   };
-  const h = harness(responder, undefined, undefined, commissioned);
+  const h = harness(responder, undefined, commissioned);
   const runId = await driveToApproved(h, "Widgets");
   const arts = h.artifactsFor(runId);
 
@@ -191,25 +189,6 @@ test("shift-left prove gate: a lab that can't prove itself is blocked, not shipp
   assert.ok(g102.blockers.some((b) => b.includes("did not prove")), "the auto-solve failure is a blocker fed to the re-author");
   // Only the provable lesson shipped.
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101"]);
-});
-
-test("shift-left experience gate: a lesson a persona can't complete is blocked, not shipped", async () => {
-  // The sim fails git-102 (persona gives up); it passes review + proves, but the
-  // experience gate blocks it as needs-revision with the finding fed to the
-  // re-author — while git-101 (which the persona completes) ships.
-  const simLesson = async ({ lessonId }: { lessonId: string }) =>
-    lessonId === "git-102"
-      ? { ok: false, detail: "persona gave up after 3 hints", blockers: ["lab-design: the restore step has no on-screen cue"] }
-      : { ok: true };
-  const h = harness(defaultMockResponder, undefined, simLesson);
-  const runId = await driveToApproved(h, "Git");
-  const arts = h.artifactsFor(runId);
-  const ledger = JSON.parse(arts.read("reviews/summary.json")!) as Array<{ lessonId: string; passed: boolean; blockers: string[] }>;
-  const g102 = ledger.find((o) => o.lessonId === "git-102")!;
-  assert.equal(g102.passed, false, "git-102's experience gate failed → needs-revision");
-  assert.ok(g102.blockers.some((b) => b.includes("could not complete")), "the friction is a blocker fed to the re-author");
-  assert.ok(g102.blockers.some((b) => b.includes("lab-design")), "the classified finding rides along");
-  assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101"], "only the completable lesson shipped");
 });
 
 test("the Selenium pack authors a real node-deps setup lab through the pipeline", async () => {

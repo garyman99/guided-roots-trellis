@@ -123,7 +123,6 @@ import {
   type LiveActivity,
   type Materializer,
   type LessonProver,
-  type LessonSimulator,
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
@@ -958,62 +957,6 @@ if (courseRunRecovery.recovered.length) {
   console.log(`[trellis-api] recovered ${courseRunRecovery.recovered.length} course run(s) from disk${extra}`);
 }
 
-/**
- * The shift-left EXPERIENCE gate impl (plan L9). OFF by default — set
- * SIM_TEST_DURING_AUTHORING=1 to enable. It needs a live model + a reachable app
- * (TRELLIS_WEB_URL/API_URL) + the run's persona; when the flag is off, the
- * persona is missing, or the sim errors, it SKIPS (returns ok) so authoring is
- * never blocked by an unavailable simulator. The live browser+model run is
- * proven in a full env; the gate DECISION (simVerdict) and the executor wiring
- * are unit-tested.
- */
-const simLessonDuringAuthoring: LessonSimulator = async ({ run, lessonId, lab, title, concepts }) => {
-  if (process.env.SIM_TEST_DURING_AUTHORING !== "1") return { ok: true };
-  const persona = run.request.persona;
-  if (!persona) return { ok: true, detail: "no persona embedded — experience gate skipped" };
-  try {
-    // Publish the lab so the running app can serve it to the simulated learner.
-    const labShell = (run.request.targetPlatform ?? "windows") === "windows" ? ("pwsh" as const) : undefined;
-    const files = buildLabFilesFor(lab, { lessonId, title, objective: lab.objective }, run.runId, labShell, run.request.environmentImage);
-    writeGeneratedLab(publishedDir(), lessonId, files);
-
-    const arts = runArtifactsFor(run.runId);
-    if (!arts.read("persona.json")) arts.write("persona.json", JSON.stringify(persona, null, 2));
-    const result = await simRunner({
-      runId: run.runId,
-      labId: lessonId,
-      title,
-      blurb: lab.objective,
-      concepts,
-      personaPath: join(runsDir(), run.runId, "persona.json"),
-      webUrl: process.env.TRELLIS_WEB_URL ?? "http://localhost:5173",
-      apiUrl: process.env.TRELLIS_API_URL ?? "http://127.0.0.1:8787",
-    });
-    const budget = process.env.SIM_TEST_FRICTION_BUDGET ? Number(process.env.SIM_TEST_FRICTION_BUDGET) : undefined;
-    const verdict = simVerdict(result, { frictionBudget: budget });
-
-    // Classify the trace and route findings (best-effort): content/lab-design →
-    // re-author blockers; guide-behavior/platform → the dev outbox. A lesson
-    // revision can't fix a broken terminal or a guide bug, so those never block.
-    let findingBlockers: string[] = [];
-    if (result.sessionId) {
-      try {
-        const findings = await classifySimTrace(result.sessionId, lessonId, run.request.providerConfig);
-        const routed = routeExperienceFindings(findings);
-        findingBlockers = routed.blockers;
-        if (routed.outbox.length) writeSimGateOutbox(run.runId, lessonId, routed.outbox);
-      } catch { /* classification is advisory — never let it break the gate */ }
-    }
-
-    if (!verdict.ok) return { ...verdict, blockers: [...(verdict.blockers ?? []), ...findingBlockers] };
-    if (findingBlockers.length) return { ok: false, detail: "the simulated run surfaced content/lab-design issues", blockers: findingBlockers };
-    return { ok: true };
-  } catch (err) {
-    // A sim hiccup must never strand authoring — degrade to a skip.
-    return { ok: true, detail: `experience gate skipped: ${(err as Error).message}` };
-  }
-};
-
 /** Run the experience analyst on ONE simulated session → classified findings.
  *  Model-dependent; the caller wraps it best-effort. */
 async function classifySimTrace(sessionId: string, labId: string, cfg: RunProviderConfig | undefined): Promise<ExperienceFinding[]> {
@@ -1111,7 +1054,6 @@ export const courseRuns = new CourseRunScheduler(
     availableCapabilities: capabilityIdSet(),
     materialize,
     proveLesson, // shift-left: prove each lesson's lab during authoring (plan L8)
-    simLesson: simLessonDuringAuthoring, // shift-left experience gate (plan L9)
     onActivity: (runId, activity) => {
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);
