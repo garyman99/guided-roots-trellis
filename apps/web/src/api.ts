@@ -472,11 +472,12 @@ export async function adminSend<T>(method: string, path: string, body?: unknown)
 /* ---------- course-generation runs (Course studio) ---------- */
 
 export type RunStatus =
-  | "queued" | "framing" | "designing" | "authoring" | "materializing"
-  | "awaiting-frame" | "awaiting-blueprint" | "awaiting-reconcile" | "awaiting-package" | "awaiting-publish"
+  | "queued" | "framing" | "designing" | "reconciling" | "authoring" | "materializing" | "rehearsing"
+  | "awaiting-frame" | "awaiting-blueprint" | "awaiting-reconcile" | "awaiting-package"
+  | "awaiting-rehearse" | "awaiting-publish"
   | "approved" | "interrupted" | "archived" | "failed";
 
-export type GateId = "frame" | "blueprint" | "reconcile" | "package" | "publish";
+export type GateId = "frame" | "blueprint" | "reconcile" | "package" | "rehearse" | "publish";
 
 export interface GateNote {
   path?: string;

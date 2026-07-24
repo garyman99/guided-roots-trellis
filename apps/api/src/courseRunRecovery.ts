@@ -127,7 +127,11 @@ function synthesizeRunRecord(runId: string, runDir: string): CourseRun | null {
   const authored = has("reviews/summary.json") || lessonAuthored(runDir);
 
   let status: RunStatus;
-  if (has("manifest.json")) status = "awaiting-publish"; // materialized (step 3 fixes a lost course)
+  // Materialized runs park at `rehearse` now, not `publish` — the rehearsal
+  // phase sits between them (rehearsal-phase §4). A run that already rehearsed
+  // (its roll-up is on disk) parks at publish as before.
+  if (has("rehearsal/summary.json")) status = "awaiting-publish";
+  else if (has("manifest.json")) status = "awaiting-rehearse"; // materialized (step 3 fixes a lost course)
   else if (authored) status = "awaiting-package";
   else if (has("lesson-inventory.json") || has("prerequisite-graph.json")) status = "awaiting-blueprint";
   else if (has("course-request.md")) status = "awaiting-frame";

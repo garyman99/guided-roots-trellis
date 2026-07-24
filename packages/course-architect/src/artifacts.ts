@@ -41,7 +41,12 @@ const ALLOW: RegExp[] = [
   /^critiques\/[a-z0-9-]+\.round([1-9]|10)\.json$/,
   /^critiques\/summary\.json$/,
   /^sim-tests\/[a-z0-9-]+\/(result\.json|simulator-trace\.md)$/,
-  /^gates\/(frame|blueprint|reconcile|package|publish)\.verdict\.json$/,
+  // The `rehearsing` phase's output (rehearsal-phase §4): a per-lesson sim
+  // result + trace, plus the phase's roll-up. Distinct from `sim-tests/`, which
+  // is the older post-publish advisory queue.
+  /^rehearsal\/summary\.json$/,
+  /^rehearsal\/[a-z0-9-]+\/(result\.json|simulator-trace\.md)$/,
+  /^gates\/(frame|blueprint|reconcile|package|rehearse|publish)\.verdict\.json$/,
 ];
 
 export function isAllowedArtifactPath(relPath: string): boolean {

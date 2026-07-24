@@ -39,14 +39,14 @@ import { LessonExperiencePanel } from "./LessonExperience.tsx";
 // Linear order of run states, so a phase/gate rail node can tell whether the
 // run is before it, on it, or past it.
 const STATUS_ORDER: RunStatus[] = [
-  "queued", "framing", "awaiting-frame", "designing", "awaiting-blueprint", "awaiting-reconcile",
-  "authoring", "awaiting-package", "materializing", "awaiting-publish", "approved",
+  "queued", "framing", "awaiting-frame", "designing", "awaiting-blueprint", "reconciling", "awaiting-reconcile",
+  "authoring", "awaiting-package", "materializing", "awaiting-rehearse", "rehearsing", "awaiting-publish", "approved",
 ];
 const orderOf = (s: RunStatus): number => {
   const i = STATUS_ORDER.indexOf(s);
   return i === -1 ? 99 : i;
 };
-const ACTIVE_PHASES: RunStatus[] = ["framing", "designing", "authoring", "materializing"];
+const ACTIVE_PHASES: RunStatus[] = ["framing", "designing", "reconciling", "authoring", "materializing", "rehearsing"];
 const isActive = (s: RunStatus) => ACTIVE_PHASES.includes(s);
 // No progress recorded for over 20 minutes while a phase is running — the
 // host may be down or the phase wedged (docs/plans/autonomous-course-pipeline.md §3.3).
@@ -64,10 +64,11 @@ const awaitingGateId = (s: RunStatus): GateId | null =>
   s.startsWith("awaiting-") ? (s.slice("awaiting-".length) as GateId) : null;
 
 const STATUS_LABEL: Record<string, string> = {
-  queued: "Queued", framing: "Framing", designing: "Designing", authoring: "Authoring",
-  materializing: "Materializing", "awaiting-frame": "Awaiting frame gate",
+  queued: "Queued", framing: "Framing", designing: "Designing", reconciling: "Reconciling",
+  authoring: "Authoring", materializing: "Materializing", rehearsing: "Rehearsing",
+  "awaiting-frame": "Awaiting frame gate",
   "awaiting-blueprint": "Awaiting blueprint gate", "awaiting-reconcile": "Reconcile gap",
-  "awaiting-package": "Awaiting package gate",
+  "awaiting-package": "Awaiting package gate", "awaiting-rehearse": "Awaiting rehearse gate",
   "awaiting-publish": "Awaiting publish gate", approved: "Approved", interrupted: "Interrupted",
   archived: "Archived", failed: "Failed",
 };
@@ -81,6 +82,8 @@ const RAIL: Array<{ kind: "phase" | "gate" | "done"; status: RunStatus; gate?: G
   { kind: "phase", status: "authoring", label: "Author" },
   { kind: "gate", status: "awaiting-package", gate: "package", label: "G3 · Package" },
   { kind: "phase", status: "materializing", label: "Materialize" },
+  { kind: "gate", status: "awaiting-rehearse", gate: "rehearse", label: "G3.5 · Rehearse" },
+  { kind: "phase", status: "rehearsing", label: "Rehearse" },
   { kind: "gate", status: "awaiting-publish", gate: "publish", label: "G4 · Publish" },
   { kind: "done", status: "approved", label: "Approved" },
 ];
@@ -1347,7 +1350,7 @@ function PhaseRail({ run }: { run: CourseRunDetail }) {
 
 /* ---------- autopilot gate verdicts ---------- */
 
-const GATE_NUMBER: Record<GateId, string> = { frame: "G1", blueprint: "G2", reconcile: "G2.5", package: "G3", publish: "G4" };
+const GATE_NUMBER: Record<GateId, string> = { frame: "G1", blueprint: "G2", reconcile: "G2.5", package: "G3", rehearse: "G3.5", publish: "G4" };
 
 function GateVerdicts({ run }: { run: CourseRunDetail }) {
   const verdictPaths = useMemo(

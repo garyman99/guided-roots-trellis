@@ -1372,6 +1372,20 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
 }
 
 /**
+ * The `rehearsing` phase (rehearsal-phase §4): the target persona plays each
+ * MATERIALIZED lesson and the trace is classified into a friction verdict.
+ *
+ * SLICE 0 — inert. The ladder now has the phase and its `publish` gate, but no
+ * simulator is wired to it yet, so it records that it ran and parks. Slice 3
+ * replaces this body with the real per-lesson rehearsal; slice 4 appends the
+ * course-wide cohesion sweep.
+ */
+async function runRehearsing(ctx: PhaseContext, _deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  arts.write("rehearsal/summary.json", JSON.stringify({ lessons: [], simulatorWired: false }, null, 2));
+  ctx.emit("rehearsal.skipped", { reason: "no simulator wired yet (rehearsal-phase slice 0)" });
+}
+
+/**
  * The `reconciling` phase (gap-reconciliation-pause §2): deterministic, no
  * agents — like `runMaterializing`. Re-diffs the blueprint's declared
  * capabilities against the (possibly just-restarted) live registry, carrying
@@ -1434,6 +1448,8 @@ export function createExecutor(deps: ExecutorDeps): PhaseExecutor {
           return await runAuthoring(ctx, runDeps, arts); // 1-entry inventory for a revision
         case "materializing":
           return await runMaterializing(ctx, runDeps, arts); // the injected materializer is revision-aware
+        case "rehearsing":
+          return await runRehearsing(ctx, runDeps, arts);
       }
     } finally {
       // The phase is done (or threw) — clear the live buffer.

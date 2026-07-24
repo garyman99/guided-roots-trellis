@@ -32,12 +32,19 @@ export const DEFAULT_TARGET_PLATFORM: TargetPlatform = "windows";
  * blueprint's declared capabilities against the live registry and parks at the
  * `reconcile` gate. It sits between `designing` and `authoring` so every
  * commissioned capability gap is closed BEFORE any lesson is authored.
+ *
+ * `rehearsing` is the simulated-learner phase (docs/plans/rehearsal-phase.md).
+ * It follows `materializing` because it is the first phase that needs a PLAYABLE
+ * lab: the target persona plays each materialized lesson and the trace is
+ * classified into a friction verdict. A lesson that fails rehearsal is sent back
+ * to `authoring` lesson-scoped, so authoring → materializing → rehearsing is the
+ * pipeline's one cycle (bounded by the per-lesson bounce cap).
  */
-export const PHASES = ["framing", "designing", "reconciling", "authoring", "materializing"] as const;
+export const PHASES = ["framing", "designing", "reconciling", "authoring", "materializing", "rehearsing"] as const;
 export type Phase = (typeof PHASES)[number];
 
-/** The five human approval gates (plan D4 + the reconcile pause). */
-export const GATES = ["frame", "blueprint", "reconcile", "package", "publish"] as const;
+/** The six human approval gates (plan D4 + the reconcile pause + rehearsal). */
+export const GATES = ["frame", "blueprint", "reconcile", "package", "rehearse", "publish"] as const;
 export type GateId = (typeof GATES)[number];
 
 export const GATE_OF_PHASE: Record<Phase, GateId> = {
@@ -45,14 +52,16 @@ export const GATE_OF_PHASE: Record<Phase, GateId> = {
   designing: "blueprint",
   reconciling: "reconcile",
   authoring: "package",
-  materializing: "publish",
+  materializing: "rehearse",
+  rehearsing: "publish",
 };
 export const PHASE_OF_GATE: Record<GateId, Phase> = {
   frame: "framing",
   blueprint: "designing",
   reconcile: "reconciling",
   package: "authoring",
-  publish: "materializing",
+  rehearse: "materializing",
+  publish: "rehearsing",
 };
 /** On a gate APPROVAL, the phase the run advances to next (publish ends the run). */
 export const NEXT_PHASE_AFTER_GATE: Record<GateId, Phase | null> = {
@@ -60,6 +69,7 @@ export const NEXT_PHASE_AFTER_GATE: Record<GateId, Phase | null> = {
   blueprint: "reconciling",
   reconcile: "authoring",
   package: "materializing",
+  rehearse: "rehearsing",
   publish: null,
 };
 
@@ -75,6 +85,7 @@ export type RunStatus =
   | "awaiting-blueprint"
   | "awaiting-reconcile"
   | "awaiting-package"
+  | "awaiting-rehearse"
   | "awaiting-publish" // parked at a gate, awaiting a human decision
   | "approved" //        publish gate approved; the course exists as a draft
   | "interrupted" //     caught mid-phase on boot/crash — operator resumes (D8)
@@ -189,6 +200,14 @@ export interface CourseRunRequest {
   framingRounds?: number;
   designRounds?: number;
   authoringRounds?: number;
+  /**
+   * How many times ONE lesson may be sent back from the rehearse/publish gates
+   * before it parks for a human decision (rehearsal-phase §5). The cycle
+   * authoring → materializing → rehearsing is the only one that spends both
+   * model tokens AND browser time, so an unattended run needs a hard stop.
+   * Absent ⇒ the env default seed (COURSE_GEN_REHEARSAL_BOUNCES, default 2).
+   */
+  rehearsalBounces?: number;
 }
 
 /** Structured request-changes comment; the exact text an executor must address. */
@@ -210,6 +229,13 @@ export interface CourseRunGate {
   decision: GateDecision | null;
   decidedBy: string | null;
   notes: GateNote[] | null;
+  /**
+   * The lesson this gate row is about, when the gate was decided per-lesson
+   * (rehearsal-phase §5). Absent for a whole-run decision. Bounce-cap
+   * accounting counts prior `changes` rows for (gateId, lessonId), so without
+   * this a second lesson's first bounce would inherit the first lesson's count.
+   */
+  lessonId?: string;
 }
 
 export interface CourseRunEvent {

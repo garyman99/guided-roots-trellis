@@ -57,7 +57,7 @@ function harness(
 async function driveToApproved(h: ReturnType<typeof harness>, technology: string) {
   const run = h.sched.create({ technology });
   await h.sched.settle();
-  for (const gate of ["frame", "blueprint", "reconcile", "package", "publish"] as const) {
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "rehearse", "publish"] as const) {
     h.sched.decideGate(run.runId, gate, "approved", null, "op");
     await h.sched.settle();
   }
@@ -474,6 +474,9 @@ test("reconcile leg: designing's gap parks at reconcile with a re-diffed report 
   assert.ok(!arts.exists("lessons/x-201/lesson.md"), "the still-gapped lesson is not authored");
 
   h.sched.decideGate(run.runId, "package", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse", "materializing now parks at the rehearse gate");
+  h.sched.decideGate(run.runId, "rehearse", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "publish", "approved", null, "op");
   await h.sched.settle();

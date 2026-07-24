@@ -99,6 +99,8 @@ test("resume after a mid-authoring interrupt skips the already-authored lesson",
   // Both lessons ship at approval.
   h.sched.decideGate(run.runId, "package", "approved", null, "op");
   await h.sched.settle();
+  h.sched.decideGate(run.runId, "rehearse", "approved", null, "op");
+  await h.sched.settle();
   h.sched.decideGate(run.runId, "publish", "approved", null, "op");
   await h.sched.settle();
   assert.deepEqual(h.materialized.at(-1)!.labIds, ["git-101", "git-102"]);
@@ -162,6 +164,8 @@ test("re-author-dropped-lesson leg: a lesson-scoped 'changes' at the package gat
 
   // Both lessons still ship at publish — the re-author was additive, not lossy.
   h.sched.decideGate(run.runId, "package", "approved", null, "op");
+  await h.sched.settle();
+  h.sched.decideGate(run.runId, "rehearse", "approved", null, "op");
   await h.sched.settle();
   h.sched.decideGate(run.runId, "publish", "approved", null, "op");
   await h.sched.settle();

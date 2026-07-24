@@ -1,6 +1,6 @@
-<svg viewBox="0 0 1020 1410" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-  <title>Course-generation flow with a gap-reconciliation pause</title>
-  <desc>Proposed change: designing runs longer and unconstrained by current capabilities, so it deliberately produces capability gaps. Approving the blueprint at G2 commissions every gap by default. A new gap-reconciliation pause sits between designing and authoring: it is a true human gate (autopilot halts here). The operator builds the missing capabilities, restarts to reload the registry, and re-checks; a no-agent reconcile re-diffs the gaps (an id-presence check) in a loop until all commissioned gaps are closed before authoring begins. At the gate the operator may instead defer a gap (drop its lessons) or redesign (a free-text prompt that reopens designing).</desc>
+<svg viewBox="0 0 1020 1746" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Course-generation flow with a gap-reconciliation pause and a rehearsal phase</title>
+  <desc>Two proposed changes. (1) A gap-reconciliation pause between designing and authoring: designing runs unconstrained by current capabilities so it deliberately produces gaps, approving the blueprint commissions them, and a no-agent reconcile re-diffs the registry until every commissioned gap is closed. (2) A new REHEARSAL phase after materializing: materializing becomes per-lesson and idempotent, so the operator can send the whole course or a single lesson to be built into playable labs; the target persona then plays each materialized lab in a real browser and the trace is classified into a friction verdict. A lesson whose rehearsal fails is sent back to authoring lesson-scoped — only that lesson re-authors, re-materializes and re-rehearses, under a bounce cap. Once no lesson is bounced, one course-wide cohesion sweep runs before the publish gate can be approved; its blockers bounce lessons the same way. The learner simulation therefore leaves the authoring loop, which keeps only the deterministic auto-solve prove gate.</desc>
   <defs>
     <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0 L7 3 L0 6 Z" fill="#e6e8eb"/></marker>
     <symbol id="doc" viewBox="0 0 100 64" preserveAspectRatio="none"><path d="M1 1 H99 V52 C66 66 33 42 1 52 Z" fill="none" stroke="#e6e8eb" stroke-width="1.3" vector-effect="non-scaling-stroke"/></symbol>
@@ -20,7 +20,7 @@
     .new{font-size:10px;letter-spacing:.08em;opacity:.9}
   </style>
 
-  <rect x="0" y="0" width="1020" height="1410" fill="#0d1017"/>
+  <rect x="0" y="0" width="1020" height="1746" fill="#0d1017"/>
 
   <g text-anchor="middle">
     <rect class="b" x="20" y="20" width="150" height="52" rx="2"/><text x="95" y="50">Operator</text>
@@ -91,7 +91,7 @@
   <text x="780" y="500" class="sm">redesign &#8594; reopen designing (human prompt)</text>
 
   <rect class="panel" x="20" y="714" width="980" height="316" rx="4"/>
-  <text x="34" y="734" class="lbl">AUTHORING &#183; PER LESSON</text>
+  <text x="34" y="734" class="lbl">AUTHORING &#183; PER LESSON &#183; PROSE + LAB, DETERMINISTIC PROOF ONLY</text>
   <rect class="gate" x="852" y="720" width="134" height="26" rx="3"/><text x="919" y="737" text-anchor="middle" class="ttl">G3 &#183; Package</text>
 
   <g text-anchor="middle">
@@ -123,43 +123,74 @@
 
   <g text-anchor="middle">
     <rect class="b" x="230" y="870" width="150" height="40" rx="2"/><text x="305" y="894" class="sm">auto-solve &#183; prove lab</text>
-    <rect class="b" x="230" y="920" width="150" height="40" rx="2"/><text x="305" y="944" class="sm">simulate learner</text>
+    <rect class="gate" x="230" y="920" width="150" height="44" rx="2"/><text x="305" y="937" class="sm">&#8212; learner sim MOVED &#8212;</text><text x="305" y="954" class="sm">needs a playable lab</text>
     <path class="ln" d="M230 890 H176" marker-end="url(#a)"/>
-    <path class="ln" d="M230 940 H176" marker-end="url(#a)"/>
   </g>
 
   <path class="ln" d="M510 1030 V1052" marker-end="url(#a)"/>
+  <text x="524" y="1046" class="sm">G3 approve &#8212; scope: whole course, or ONE lesson</text>
 
-  <rect class="panel" x="20" y="1058" width="980" height="120" rx="4"/>
-  <text x="34" y="1078" class="lbl">MATERIALIZING &#183; NO AGENTS</text>
-  <rect class="gate" x="724" y="1064" width="262" height="26" rx="3"/><text x="855" y="1081" text-anchor="middle" class="ttl">G4 &#183; Publish &#8594; approved &#8594; Go-live</text>
+  <rect class="panel" x="20" y="1058" width="980" height="150" rx="4"/>
+  <text x="34" y="1078" class="lbl">MATERIALIZING &#183; NO AGENTS &#183; PER-LESSON SCOPE &#183; IDEMPOTENT</text>
+  <rect class="gate" x="790" y="1064" width="196" height="26" rx="3"/><text x="888" y="1081" text-anchor="middle" class="ttl">G4 &#183; Rehearse?</text>
   <g text-anchor="middle">
-    <rect class="b" x="60" y="1102" width="170" height="52" rx="2"/><text x="145" y="1133">Materializer</text>
-    <use href="#doc" x="300" y="1102" width="150" height="52"/><text x="375" y="1131">playable labs</text>
-    <use href="#doc" x="500" y="1102" width="150" height="52"/><text x="575" y="1131">draft course</text>
-    <path class="ln" d="M230 1128 H296" marker-end="url(#a)"/>
-    <path class="ln" d="M450 1128 H496" marker-end="url(#a)"/>
-    <text x="800" y="1132" class="sm" text-anchor="middle">deterministic &#183; no model tokens</text>
+    <rect class="b" x="46" y="1100" width="170" height="56" rx="2"/><text x="131" y="1122" class="sm">materialize scope</text><text x="131" y="1140" class="sm">all lessons | one lesson</text>
+    <rect class="b" x="256" y="1100" width="150" height="56" rx="2"/><text x="331" y="1133">Materializer</text>
+    <use href="#doc" x="446" y="1100" width="150" height="56"/><text x="521" y="1131">playable labs</text>
+    <use href="#doc" x="636" y="1100" width="150" height="56"/><text x="711" y="1131">draft course</text>
+    <path class="ln" d="M216 1128 H252" marker-end="url(#a)"/>
+    <path class="ln" d="M406 1128 H442" marker-end="url(#a)"/>
+    <path class="ln" d="M596 1128 H632" marker-end="url(#a)"/>
+    <text x="510" y="1184" class="sm">deterministic &#183; no model tokens &#183; per-lesson ledger &#8212; rebuilding one lesson leaves the rest standing</text>
   </g>
 
-  <rect class="panel" x="20" y="1192" width="980" height="94" rx="4"/>
-  <text x="34" y="1211" class="lbl">INJECTED SERVICES (ExecutorDeps)</text>
-  <g text-anchor="middle">
-    <rect class="b" x="34" y="1222" width="146" height="48" rx="2"/><text x="107" y="1245">RunArtifacts</text><text x="107" y="1260" class="sm">curriculum/runs</text>
-    <rect class="b" x="192" y="1222" width="146" height="48" rx="2"/><text x="265" y="1245">Capability registry</text><text x="265" y="1260" class="sm">gap diff</text>
-    <rect class="b" x="350" y="1222" width="146" height="48" rx="2"/><text x="423" y="1245">LessonProver</text><text x="423" y="1260" class="sm">local/docker</text>
-    <rect class="b" x="508" y="1222" width="146" height="48" rx="2"/><text x="581" y="1245">LessonSimulator</text><text x="581" y="1260" class="sm">sim-test</text>
-    <rect class="b" x="666" y="1222" width="146" height="48" rx="2"/><text x="739" y="1245">Capability outbox</text><text x="739" y="1260" class="sm">commission gaps</text>
-    <rect class="b" x="824" y="1222" width="162" height="48" rx="2"/><text x="905" y="1242">Provider seam</text><text x="905" y="1260" class="sm">Mock | Live &#183; Anthropic/OpenAI</text>
-  </g>
-  <text x="510" y="1302" text-anchor="middle" class="sm">every agent box calls a model through the provider seam (RoleInvoker)</text>
+  <path class="ln" d="M510 1208 V1230" marker-end="url(#a)"/>
 
-  <rect class="panel" x="20" y="1314" width="980" height="80" rx="4"/>
-  <text x="34" y="1333" class="lbl">PERSISTENCE &#8212; DISK AUTHORITATIVE</text>
+  <rect class="newband" x="20" y="1236" width="980" height="260" rx="4"/>
+  <rect class="panel" x="20" y="1236" width="980" height="260" rx="4"/>
+  <text x="34" y="1256" class="new">&#9679; NEW &#183; REHEARSAL &#183; SIMULATED LEARNER PLAYS THE LAB &#183; PER LESSON</text>
+  <text x="34" y="1274" class="sm">the first point a real learner EXPERIENCE exists &#8212; requires the materialized, playable lab</text>
+  <rect class="gate" x="800" y="1242" width="186" height="26" rx="3"/><text x="893" y="1259" text-anchor="middle" class="ttl">G5 &#183; Publish</text>
   <g text-anchor="middle">
-    <rect class="b" x="34" y="1344" width="238" height="40" rx="2"/><text x="153" y="1369">DiskMirroredCourseRunStore</text>
-    <rect class="b" x="288" y="1344" width="176" height="40" rx="2"/><text x="376" y="1369">SQLite index</text>
-    <rect class="b" x="480" y="1344" width="176" height="40" rx="2"/><text x="568" y="1369">run.json mirror</text>
-    <rect class="b" x="672" y="1344" width="220" height="40" rx="2"/><text x="782" y="1369">recoverFromDisk (boot)</text>
+    <use href="#doc" x="40" y="1304" width="140" height="52"/><text x="110" y="1334">target persona</text>
+    <rect class="b" x="206" y="1296" width="170" height="68" rx="2"/><text x="291" y="1320">simulated learner</text><text x="291" y="1338" class="sm">real browser &#183; zero app context</text><text x="291" y="1354" class="sm">rrweb replay + video</text>
+    <rect class="b" x="402" y="1296" width="170" height="68" rx="2"/><text x="487" y="1320">trace classifier</text><text x="487" y="1338" class="sm">completed? checkpoint?</text><text x="487" y="1354" class="sm">friction &#8804; budget</text>
+    <use href="#doc" x="598" y="1304" width="160" height="52"/><text x="678" y="1334">sim report &#183; per lesson</text>
+    <rect class="b" x="792" y="1296" width="176" height="68" rx="2"/><text x="880" y="1320">operator review</text><text x="880" y="1338" class="sm">watch replay &#183; read trace</text><text x="880" y="1354" class="sm">accept &#183; send back &#183; waive</text>
+
+    <path class="ln" d="M180 1330 H202" marker-end="url(#a)"/>
+    <path class="ln" d="M376 1330 H398" marker-end="url(#a)"/>
+    <path class="ln" d="M572 1330 H594" marker-end="url(#a)"/>
+    <path class="ln" d="M758 1330 H788" marker-end="url(#a)"/>
+
+    <path class="ln" d="M830 1364 V1394 H10 V876 H42" marker-end="url(#a)"/>
+    <text x="464" y="1388" class="sm">send back &#8212; lesson-scoped: ONLY this lesson re-authors, re-materializes, re-rehearses (bounce cap)</text>
+
+    <rect class="b" x="680" y="1414" width="286" height="58" rx="2"/><text x="823" y="1433">course-wide cohesion sweep</text><text x="823" y="1449" class="sm">runs once no lesson is bounced</text><text x="823" y="1464" class="sm">blockers &#8594; authoring (lesson-scoped)</text>
+    <rect class="b" x="340" y="1414" width="266" height="58" rx="2"/><text x="473" y="1437">G5 approve &#8594; Go-live</text><text x="473" y="1457" class="sm">every lesson accepted or waived</text>
+    <path class="ln" d="M930 1364 V1410" marker-end="url(#a)"/>
+    <path class="ln" d="M680 1443 H610" marker-end="url(#a)"/>
+  </g>
+  <text x="24" y="1050" class="sm">&#9664; rehearsal feedback re-opens ONE lesson</text>
+
+  <rect class="panel" x="20" y="1524" width="980" height="94" rx="4"/>
+  <text x="34" y="1543" class="lbl">INJECTED SERVICES (ExecutorDeps)</text>
+  <g text-anchor="middle">
+    <rect class="b" x="34" y="1554" width="146" height="48" rx="2"/><text x="107" y="1577">RunArtifacts</text><text x="107" y="1592" class="sm">curriculum/runs</text>
+    <rect class="b" x="192" y="1554" width="146" height="48" rx="2"/><text x="265" y="1577">Capability registry</text><text x="265" y="1592" class="sm">gap diff</text>
+    <rect class="b" x="350" y="1554" width="146" height="48" rx="2"/><text x="423" y="1577">LessonProver</text><text x="423" y="1592" class="sm">authoring &#183; local/docker</text>
+    <rect class="b" x="508" y="1554" width="146" height="48" rx="2"/><text x="581" y="1577">LessonSimulator</text><text x="581" y="1592" class="sm">rehearsal &#183; sim-test</text>
+    <rect class="b" x="666" y="1554" width="146" height="48" rx="2"/><text x="739" y="1577">Capability outbox</text><text x="739" y="1592" class="sm">commission gaps</text>
+    <rect class="b" x="824" y="1554" width="162" height="48" rx="2"/><text x="905" y="1574">Provider seam</text><text x="905" y="1592" class="sm">Mock | Live &#183; Anthropic/OpenAI</text>
+  </g>
+  <text x="510" y="1634" text-anchor="middle" class="sm">every agent box calls a model through the provider seam (RoleInvoker)</text>
+
+  <rect class="panel" x="20" y="1646" width="980" height="80" rx="4"/>
+  <text x="34" y="1665" class="lbl">PERSISTENCE &#8212; DISK AUTHORITATIVE</text>
+  <g text-anchor="middle">
+    <rect class="b" x="34" y="1676" width="238" height="40" rx="2"/><text x="153" y="1701">DiskMirroredCourseRunStore</text>
+    <rect class="b" x="288" y="1676" width="176" height="40" rx="2"/><text x="376" y="1701">SQLite index</text>
+    <rect class="b" x="480" y="1676" width="176" height="40" rx="2"/><text x="568" y="1701">run.json mirror</text>
+    <rect class="b" x="672" y="1676" width="220" height="40" rx="2"/><text x="782" y="1701">recoverFromDisk (boot)</text>
   </g>
 </svg>

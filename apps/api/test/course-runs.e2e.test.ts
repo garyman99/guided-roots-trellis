@@ -63,7 +63,7 @@ test("course-runs are admin-gated", async () => {
   assert.equal((await api("POST", "/api/admin/course-runs", { technology: "Git" })).status, 401);
 });
 
-test("a run walks all four gates to approved, writing a marker artifact per phase", async () => {
+test("a run walks all six gates to approved, writing a marker artifact per phase", async () => {
   const created = await admin("POST", "/api/admin/course-runs", { technology: "Git", title: "Git Fundamentals" });
   assert.equal(created.status, 201);
   const runId = (created.body as { run: RunDetail }).run.runId;
@@ -85,8 +85,10 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
 
   for (const [gate, next] of [
     ["frame", "awaiting-blueprint"],
-    ["blueprint", "awaiting-package"],
-    ["package", "awaiting-publish"],
+    ["blueprint", "awaiting-reconcile"],
+    ["reconcile", "awaiting-package"],
+    ["package", "awaiting-rehearse"],
+    ["rehearse", "awaiting-publish"],
     ["publish", "approved"],
   ] as const) {
     const r = await admin("POST", `/api/admin/course-runs/${runId}/gates/${gate}/decision`, { decision: "approved", by: "eva" });
@@ -97,7 +99,7 @@ test("a run walks all four gates to approved, writing a marker artifact per phas
   }
 
   const final = ((await admin("GET", `/api/admin/course-runs/${runId}`)).body as { run: RunDetail }).run;
-  assert.equal(final.gates.filter((g) => g.decision === "approved").length, 4);
+  assert.equal(final.gates.filter((g) => g.decision === "approved").length, 6);
   assert.ok(final.gates.every((g) => g.decidedBy === "eva"));
 
   // Materialization created a DRAFT course (hidden from the public shelf) plus
@@ -186,7 +188,7 @@ test("deleting a run cascades to its course, scenarios, and on-disk artifacts", 
   const created = await admin("POST", "/api/admin/course-runs", { technology: "Git", title: "Git Delete Demo" });
   const runId = (created.body as { run: RunDetail }).run.runId;
   await courseRuns.settle();
-  for (const gate of ["frame", "blueprint", "package", "publish"] as const) {
+  for (const gate of ["frame", "blueprint", "reconcile", "package", "rehearse", "publish"] as const) {
     await admin("POST", `/api/admin/course-runs/${runId}/gates/${gate}/decision`, { decision: "approved", by: "eva" });
     await courseRuns.settle();
   }

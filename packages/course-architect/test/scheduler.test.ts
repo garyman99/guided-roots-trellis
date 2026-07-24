@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { createStore, type EventStore } from "../../../apps/api/src/store.ts";
 import { CourseRunScheduler } from "../src/scheduler.ts";
 import { RunArtifacts } from "../src/artifacts.ts";
-import { RunStateError, type Phase, type PhaseContext, type PhaseExecutor } from "../src/types.ts";
+import { RunStateError, type GateId, type Phase, type PhaseContext, type PhaseExecutor } from "../src/types.ts";
 
 const ARTIFACT_OF_PHASE: Record<Phase, string> = {
   framing: "course-request.md",
@@ -21,6 +21,7 @@ const ARTIFACT_OF_PHASE: Record<Phase, string> = {
   reconciling: "capability-gaps.json",
   authoring: "reviews/coverage-matrix.md",
   materializing: "manifest.json",
+  rehearsing: "rehearsal/summary.json",
 };
 
 /** A deterministic monotonic clock + id source so queue ordering is stable. */
@@ -44,7 +45,7 @@ function fakeExecutor(artifactsFor: (id: string) => RunArtifacts): PhaseExecutor
   };
 }
 
-test("happy path: a run walks all five gates to approved, writing an artifact per phase", async () => {
+test("happy path: a run walks all six gates to approved, writing an artifact per phase", async () => {
   const h = harness();
   const sched = new CourseRunScheduler(h.store, fakeExecutor(h.artifactsFor), { now: h.now, idSuffix: h.idSuffix });
 
@@ -56,11 +57,12 @@ test("happy path: a run walks all five gates to approved, writing an artifact pe
   assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-frame");
   assert.ok(h.artifactsFor(run.runId).exists("course-request.md"));
 
-  const gates: Array<["frame" | "blueprint" | "reconcile" | "package" | "publish", string]> = [
+  const gates: Array<[GateId, string]> = [
     ["frame", "awaiting-blueprint"],
     ["blueprint", "awaiting-reconcile"],
     ["reconcile", "awaiting-package"],
-    ["package", "awaiting-publish"],
+    ["package", "awaiting-rehearse"],
+    ["rehearse", "awaiting-publish"],
     ["publish", "approved"],
   ];
   for (const [gate, nextStatus] of gates) {
@@ -72,7 +74,7 @@ test("happy path: a run walks all five gates to approved, writing an artifact pe
   // Every phase artifact was written; every gate row is decided approved.
   for (const p of Object.values(ARTIFACT_OF_PHASE)) assert.ok(h.artifactsFor(run.runId).exists(p), `${p} written`);
   const decided = h.store.courseRunGates(run.runId);
-  assert.equal(decided.length, 5);
+  assert.equal(decided.length, 6);
   assert.ok(decided.every((g) => g.decision === "approved" && g.decidedBy === "operator@local"));
 });
 
