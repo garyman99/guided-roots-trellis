@@ -257,6 +257,9 @@ export interface CourseRun {
   pendingPhase: Phase | null;
   /** Change notes to hand the executor on the next (re-)run of pendingPhase. */
   pendingChangeNotes?: GateNote[] | null;
+  /** Lessons the next phase run is scoped to (rehearsal-phase §2). Absent/null
+   *  ⇒ the whole course. Set when a gate decision targets specific lessons. */
+  pendingLessonScope?: string[] | null;
   /** Last error message when interrupted/failed. */
   lastError?: string | null;
   createdAt: string;

@@ -69,6 +69,9 @@ export interface MaterializeInput {
   courseRequestMarkdown: string;
   lessons: Array<{ lessonId: string; level: Level; title: string; lab: LessonPlanDoc["lab"] }>;
   artifacts: RunArtifacts;
+  /** When present, only these lessons need (re)building; the rest are already
+   *  materialized and must be preserved. Absent ⇒ build them all. */
+  lessonIds?: string[];
 }
 
 interface Brief extends LessonInventoryEntry {
@@ -80,6 +83,10 @@ export interface MaterializeResult {
   scenarioCount: number;
   /** Per-lab auto-solve proof (broken-as-shipped AND solvable), when run. */
   autoSolve?: Array<{ labId: string; ok: boolean; detail?: string }>;
+  /** lessonId → the labId it materialized to. Explicit because `labIds` holds
+   *  only the labs actually built, so it cannot be zipped against the lesson
+   *  list (rehearsal-phase §2 — the ledger needs a reliable mapping). */
+  labIdByLesson?: Record<string, string>;
 }
 /** Builds published labs, persists the draft course + scenario entries (injected). */
 export type Materializer = (input: MaterializeInput) => Promise<MaterializeResult>;
@@ -1305,12 +1312,22 @@ function writeReviewArtifacts(arts: RunArtifacts, lessonId: string, o: ReviewOut
   arts.write(`reviews/${lessonId}.cohesion.md`, renderVerdictMd("Cohesion review", o.cohesion.verdict, o.cohesion.issues));
 }
 
+/** Shape of one entry in the `lessons/state.json` ledger (rehearsal-phase §2). */
+interface LessonLedgerEntry {
+  state: "materialized" | "rehearsed" | "accepted" | "waived" | "bounced";
+  at: string;
+  labId: string;
+}
+
 async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
   const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
   // Only ship lessons that PASSED review — a needs-revision lesson has a
   // lessons/<id>/lesson.md too, but it must not reach learners.
   const summary = parseJson<ReviewOutcome[]>(arts.read("reviews/summary.json") ?? "[]");
   const passed = new Set(summary.filter((o) => o.passed).map((o) => o.lessonId));
+  // The full set of shippable lessons — needed even for a scoped rebuild,
+  // because the materializer must still know the whole course to write a
+  // correct manifest; only WHICH of them get rebuilt is scoped.
   const lessons: MaterializeInput["lessons"] = [];
   for (const lesson of inventory) {
     if (!passed.has(lesson.lessonId)) continue; // blocked, unauthored, or needs-revision
@@ -1323,9 +1340,37 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
     }
     lessons.push({ lessonId: lesson.lessonId, level: lesson.level, title: lesson.title, lab: brief.lab });
   }
-  const result = await deps.materialize({ run: ctx.run, courseRequestMarkdown: arts.read("course-request.md") ?? "", lessons, artifacts: arts });
+  // A gate decision may have scoped the rebuild to specific lessons
+  // (rehearsal-phase §2 — the "send them one at a time" control). Absent ⇒
+  // build everything, matching today's behaviour.
+  const scope = ctx.run.pendingLessonScope ?? null;
+  const result = await deps.materialize({
+    run: ctx.run,
+    courseRequestMarkdown: arts.read("course-request.md") ?? "",
+    lessons,
+    artifacts: arts,
+    ...(scope ? { lessonIds: scope } : {}),
+  });
   arts.write("manifest.json", JSON.stringify({ ...result, generatedAt: null, lessons: lessons.map((l) => l.lessonId) }, null, 2));
-  ctx.emit("materialized", { ...result });
+
+  // The per-lesson ledger is what survives a restart and what a scoped
+  // rebuild must not clobber: merge in only the lessons this pass actually
+  // touched, leaving every other lesson's prior entry (materialized,
+  // rehearsed, accepted, …) exactly as it was.
+  const ledger = parseJson<Record<string, LessonLedgerEntry>>(arts.read("lessons/state.json") ?? "{}");
+  const at = new Date().toISOString();
+  // labIds cannot be zipped positionally against `lessons`: the materializer
+  // pushes an id only for a lab it actually BUILT, so one failed or skipped
+  // lesson shifts every id after it onto the wrong lesson. The materializer
+  // reports the mapping explicitly instead.
+  const touched = scope ?? lessons.map((l) => l.lessonId);
+  for (const lessonId of touched) {
+    ledger[lessonId] = { state: "materialized", at, labId: result.labIdByLesson?.[lessonId] ?? lessonId };
+  }
+  // A ledger, not a document: rewritten every pass, so no `.vN` archive copies.
+  arts.write("lessons/state.json", JSON.stringify(ledger, null, 2), { archive: false });
+
+  ctx.emit("materialized", { ...result, scoped: scope ?? undefined });
 }
 
 /**

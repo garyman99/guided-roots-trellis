@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { createStore, type EventStore } from "../../../apps/api/src/store.ts";
 import { CourseRunScheduler } from "../src/scheduler.ts";
 import { RunArtifacts } from "../src/artifacts.ts";
-import { createExecutor, type MaterializeResult } from "../src/executor.ts";
+import { createExecutor, type MaterializeResult, type MaterializeInput } from "../src/executor.ts";
 import { MockRoleInvoker, type MockResponder } from "../src/roles.ts";
 import { defaultMockResponder } from "../src/mockCourse.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, applyDispositions, commissionedGaps, allGapsDispositioned } from "../src/gaps.ts";
@@ -35,12 +35,17 @@ function harness(
   const artifactsFor = (runId: string) => new RunArtifacts(join(runsDir, runId));
   const store = createStore({ TRELLIS_PERSISTENCE: "off" } as NodeJS.ProcessEnv) as EventStore;
   const materialized: MaterializeResult[] = [];
+  // Captures the full input of every materialize() call — including the
+  // scope, if any — so scoped-rebuild tests can assert on it directly.
+  const materializeCalls: MaterializeInput[] = [];
   const invoker = new MockRoleInvoker(responder);
   const executor = createExecutor({
     rolesFor: () => invoker,
     artifactsFor,
     availableCapabilities: CAPS,
-    materialize: async ({ lessons }) => {
+    materialize: async (input) => {
+      materializeCalls.push(input);
+      const { lessons } = input;
       const result = { courseId: "cg-course", labIds: lessons.map((l) => l.lessonId), scenarioCount: lessons.length };
       materialized.push(result);
       return result;
@@ -49,7 +54,7 @@ function harness(
     ...(commissioned ? { onCapabilityGapsFound: (_runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>) => commissioned.push(...gaps) } : {}),
   });
   const sched = new CourseRunScheduler(store, executor, { now, idSuffix });
-  return { sched, store, artifactsFor, materialized };
+  return { sched, store, artifactsFor, materialized, materializeCalls };
 }
 
 async function driveToApproved(h: ReturnType<typeof harness>, technology: string) {
@@ -496,4 +501,45 @@ test("redesign-reopen leg: rerunPhaseFromGate at reconcile sends the run back to
   h.sched.decideGate(run.runId, "reconcile", "approved", null, "op");
   await h.sched.settle();
   assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-package");
+});
+
+test("materializing is scoped and idempotent: a scoped rebuild is additive, not destructive", async () => {
+  // rehearsal-phase §2: a gate decision can scope the next materialize run to
+  // one lesson. Rebuilding it must not erase the other lessons' ledger rows.
+  const h = harness();
+  const run = h.sched.create({ technology: "Git" });
+  await h.sched.settle();
+  for (const gate of ["frame", "blueprint", "reconcile", "package"] as const) {
+    h.sched.decideGate(run.runId, gate, "approved", null, "op");
+    await h.sched.settle();
+  }
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse", "package approval ran materializing unscoped");
+
+  const arts = h.artifactsFor(run.runId);
+  type LedgerEntry = { state: string; at: string; labId: string };
+  const firstLedger = JSON.parse(arts.read("lessons/state.json")!) as Record<string, LedgerEntry>;
+  assert.deepEqual(Object.keys(firstLedger).sort(), ["git-101", "git-102"], "every shipped lesson gets a ledger entry");
+  assert.equal(firstLedger["git-101"].state, "materialized");
+  assert.equal(h.materializeCalls.at(-1)!.lessonIds, undefined, "the unscoped call carries no lessonIds");
+  const priorGit102 = firstLedger["git-102"];
+
+  // Scope the next materialize run to git-101 only, then re-run the phase
+  // directly (mirroring what the rehearse-gate "changes" wiring will do).
+  const stored = h.store.getCourseRun(run.runId)!;
+  h.store.updateCourseRun({ ...stored, pendingLessonScope: ["git-101"] });
+  h.sched.rerunPhaseFromGate(run.runId, "rehearse", "materializing", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse");
+
+  // The materializer was told to scope to just git-101...
+  assert.deepEqual(h.materializeCalls.at(-1)!.lessonIds, ["git-101"]);
+  // ...but still received the full lesson list, since it must know the whole
+  // course to keep manifest.json correct.
+  assert.deepEqual(h.materializeCalls.at(-1)!.lessons.map((l) => l.lessonId), ["git-101", "git-102"]);
+
+  // The ledger updated git-101's entry and left git-102's untouched.
+  const secondLedger = JSON.parse(arts.read("lessons/state.json")!) as Record<string, LedgerEntry>;
+  assert.deepEqual(Object.keys(secondLedger).sort(), ["git-101", "git-102"]);
+  assert.deepEqual(secondLedger["git-102"], priorGit102, "the unscoped lesson's ledger entry is untouched by the scoped rebuild");
+  assert.equal(secondLedger["git-101"].state, "materialized");
 });

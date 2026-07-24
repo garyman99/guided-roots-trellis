@@ -418,16 +418,39 @@ const proveLesson: LessonProver = async ({ run, lessonId, lab }) => {
   }
 };
 
-const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }) => {
+const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown, lessonIds }) => {
   if (run.request.revision) return materializeRevision(run, run.request.revision, lessons);
   const tech = run.request.technology;
   const published = publishedDir();
   const skipProof = process.env.TRELLIS_SKIP_AUTOSOLVE === "1";
   const labIds: string[] = [];
+  const labIdByLesson: Record<string, string> = {};
   const proofs: Array<{ labId: string; ok: boolean; detail?: string }> = [];
+  // A SCOPED rebuild (rehearsal-phase §2): only these lessons are rebuilt and
+  // re-proved. Every other lesson keeps the lab it already has — we still walk
+  // the full list so `labIds` stays in lesson order and the course keeps all of
+  // its lessons. Absent ⇒ build them all, as before.
+  const scoped = lessonIds && lessonIds.length ? new Set(lessonIds) : null;
+  // Needed inside the loop now (to carry an out-of-scope lesson's existing lab
+  // through), as well as below for the published-flag/version preservation.
+  const prior = store.listCourses().find((c) => c.sourceRunId === run.runId);
+  const priorLabIds = new Set((prior?.lessons ?? []).map((l) => l.labId));
 
   for (const lesson of lessons) {
     const labId = lesson.lessonId; // already course-slugged, kebab-case
+
+    if (scoped && !scoped.has(lesson.lessonId)) {
+      // Untouched by this pass. Carry its lab forward only if it really shipped
+      // before; a lesson that never built stays unshipped rather than being
+      // resurrected as a course entry pointing at nothing.
+      const carried = (prior?.lessons ?? []).find((l) => (l.family ?? familyOf(l.labId)) === labId)?.labId;
+      if (carried ?? priorLabIds.has(labId)) {
+        const keep = carried ?? labId;
+        labIds.push(keep);
+        labIdByLesson[lesson.lessonId] = keep;
+      }
+      continue;
+    }
     // A hand-authored REPO lab with this id is a hard collision. A generated
     // lab in the published dir is overwritten — regeneration supersedes.
     if (existsSync(join(labsRoot, labId, "lab.json"))) {
@@ -469,11 +492,11 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
       targetPlatform: run.request.targetPlatform ?? "windows",
     });
     labIds.push(labId);
+    labIdByLesson[lesson.lessonId] = labId;
   }
 
   const at = new Date().toISOString();
   // Reuse this run's existing draft course on a re-materialization; else mint one.
-  const prior = store.listCourses().find((c) => c.sourceRunId === run.runId);
   const courseId = prior?.courseId ?? newCourseId(run.request.title ?? tech);
   // Course lessons carry each lesson's level + title so /home can group by level.
   const byId = new Map(lessons.map((l) => [l.lessonId, l]));
@@ -512,7 +535,7 @@ const materialize: Materializer = async ({ run, lessons, courseRequestMarkdown }
     createdAt: prior?.createdAt ?? at,
     updatedAt: at,
   });
-  return { courseId, labIds, scenarioCount: labIds.length, autoSolve: proofs };
+  return { courseId, labIds, scenarioCount: labIds.length, autoSolve: proofs, labIdByLesson };
 };
 
 /**

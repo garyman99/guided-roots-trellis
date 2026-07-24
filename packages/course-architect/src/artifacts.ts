@@ -32,6 +32,10 @@ const ALLOW: RegExp[] = [
   /^briefs\/[a-z0-9-]+\.json$/,
   /^lessons\/[a-z0-9-]+\/lesson\.md$/,
   /^lessons\/[a-z0-9-]+\/lab\/[A-Za-z0-9._\/-]+$/,
+  // The materializing phase's per-lesson ledger (rehearsal-phase §2) — tracks
+  // materialized/rehearsed/accepted/waived/bounced per lesson so a scoped
+  // rebuild has somewhere to merge into instead of clobbering the rest.
+  /^lessons\/state\.json$/,
   /^reviews\/[a-z0-9-]+\.(technical\.md|pedagogy\.json|cohesion\.md)$/,
   // `blueprint.summary.json` is the blueprint panel's outcome ledger (the plan's
   // equivalent of reviews/summary.json). Its three verdict artifacts —
