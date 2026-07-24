@@ -61,6 +61,27 @@ for (const [name, make] of [
       assert.deepEqual(store.listCourseRuns().map((r) => r.runId), ["cg-git-a1"]);
     });
 
+    test("a bounce's scope and chain survive a round-trip", () => {
+      // rehearsal-phase §5. These two fields are how an interrupted run resumes
+      // mid-bounce. The sqlite store serializes an explicit field list, so a
+      // field missing from it is dropped SILENTLY: the run would come back and
+      // re-run the phase unscoped — rebuilding the whole course instead of the
+      // one bounced lesson — and then park instead of continuing the chain.
+      const store = make();
+      store.createCourseRun(sampleRun("cg-git-bounce"));
+      const got = store.getCourseRun("cg-git-bounce")!;
+      store.updateCourseRun({
+        ...got,
+        status: "queued",
+        pendingPhase: "authoring",
+        pendingLessonScope: ["git-102"],
+        pendingChain: ["materializing", "rehearsing"],
+      });
+      const after = store.getCourseRun("cg-git-bounce")!;
+      assert.deepEqual(after.pendingLessonScope, ["git-102"]);
+      assert.deepEqual(after.pendingChain, ["materializing", "rehearsing"]);
+    });
+
     test("events append in order with ids", () => {
       const store = make();
       store.createCourseRun(sampleRun("cg-git-e1"));

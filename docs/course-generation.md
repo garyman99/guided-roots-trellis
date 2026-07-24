@@ -5,51 +5,63 @@ the operational findings from real-model runs. The *design rationale* lives in
 [docs/plans/course-generation-approval-gates.md](plans/course-generation-approval-gates.md)
 (the plan + the 12 grilled decisions); this file is the current reality.
 
-Status: Phases A–E implemented on `feature/course-planning-rework`, plus the
+Status: The six-phase pipeline (frame → blueprint → reconcile → package →
+rehearse → publish) shipped on `feature/course-planning-rework`, plus the
 build/auto-solve materializer, capability commission loop, 3-stage review
-scoring, per-run UI-selectable live providers, streaming thinking, and the
-five-level /home redesign.
+scoring, per-run UI-selectable live providers, streaming thinking, the
+per-lesson rehearsal board, and the five-level /home redesign.
 
 ---
 
 ## What it is
 
 An operator starts a **course-generation run** in the Admin **Course studio**
-tab. The run moves through a phase/gate state machine, pausing at four human
+tab. The run moves through a phase/gate state machine, pausing at six human
 gates. Generation runs **in-process** in the API over a per-run model provider
 (mock, Claude, or OpenAI-compatible). Nothing reaches learners without operator
 approval + a separate Go-live.
 
 ```
-framing → G1·Frame → designing → G2·Blueprint → authoring → G3·Package
-        → materializing → G4·Publish → approved   (course = draft, hidden)
+framing → G1·Frame → designing → G2·Blueprint → reconciling → G3·Reconcile
+        → authoring → G4·Package → materializing → G5·Rehearse → rehearsing
+        → G6·Publish → approved   (course = draft, hidden)
         —— Go-live (separate action) ——> course published
 ```
 
 The component/dataflow view — agents (boxes), the artifacts they produce
 (document shapes), the per-phase review loops, the injected services, and
-persistence:
-
-![Course-generation component and dataflow diagram](diagrams/course-generation-flow.svg)
+persistence — is in the decision document [docs/plans/rehearsal-phase.md](plans/rehearsal-phase.md):
 
 - **framing** — writes `course-request.md` (title, learner, outcome, scope).
 - **designing** — writes the blueprint (domain map, spine, prerequisite graph,
   conventions, **lesson inventory**) and diffs required capabilities against the
   registry into `capability-gaps.json`.
+- **reconciling** — human-gated only; no agents run (deterministic). The operator
+  dispositions each capability gap: commission (blocks the lesson until it ships),
+  defer (drop it), or redesign (send back to designing).
 - **authoring** — per lesson: author → 3 reviews (technical / pedagogy 1–5 /
   cohesion) + the advisory learner-advocate → **revise** on failure (up to
   `COURSE_GEN_CRITIQUE_ROUNDS`) → ship or `needs-revision`. Two rules make that
-  loop converge (2026-07-22 — see *Why lessons used to loop forever* below):
-  technical/cohesion issues carry a **severity**, and only `blocker` blocks;
-  and a revision round is handed its **own previous draft to edit**, not a
-  blank page.
-- **materializing** — builds a **complete, playable lab** per shipped lesson and
-  **auto-solves** it (broken-as-shipped AND solvable) before it ships; assembles
-  a **draft** course + runtime scenario entries.
+  loop converge: technical/cohesion issues carry a **severity**, and only
+  `blocker` blocks; and a revision round is handed its **own previous draft to
+  edit**, not a blank page.
+- **materializing** — per lesson (idempotent, scoped): builds a **complete,
+  playable lab** and **auto-solves** it (broken-as-shipped AND solvable); a
+  **per-lesson ledger** (`lessons/state.json`) records each lesson's
+  materialization state. When approved scoped, only named lessons rebuild; other
+  lessons' labs and published flag survive.
+- **rehearsing** — per lesson (idempotent, scoped): a persona **plays the
+  materialized lesson** (real browser, zero app context, rrweb replay), emits a
+  **sim report** (`rehearsal/<lessonId>/result.json`), and is classified by
+  `simVerdict`. At rehearse or publish gates, a lesson-scoped **bounce** (send
+  back) chains authoring → materializing → rehearsing for that lesson only, up
+  to a per-lesson cap (default 2). When no lesson is bounced, a course-wide
+  cohesion review runs before publish (`rehearsal/summary.json`).
 
-Approving G4·Publish only marks the run `approved`; the labs were already built
-during *materializing* (which the G3·Package approval kicks off). **Go-live** is
-a separate, reversible status flip that makes the draft course visible.
+G3·Package approval kicks off materializing; G4·Rehearse/G5·Publish approvals
+drive the bounce chain or park the lesson for a human decision (accept/waive/
+send back). **Go-live** is a separate, reversible status flip that makes the
+draft course and its lessons visible.
 
 ## Where things live
 
@@ -60,8 +72,11 @@ a separate, reversible status flip that makes the draft course visible.
 | Disk mirror of run state (`run.json`) + boot reconcile | `packages/course-architect/src/mirror.ts`, `apps/api/src/courseRunRecovery.ts` |
 | Materializer + generated labs + provider wiring + endpoints | `apps/api/src/server.ts`, `generatedLab.ts`, `gitLabs.ts`, `capabilityRequests.ts` |
 | Capability registry (twin of `labs/AUTHORING.md`) | `apps/api/src/capabilities.ts` |
-| Course studio UI | `apps/web/src/pages/CourseStudio.tsx` |
+| Sim/rehearsal + bounce chain + cohesion sweep | `packages/course-architect/src/executor.ts`, `scheduler.ts`; `apps/api/src/server.ts` |
+| Course studio UI (per-lesson rehearsal board) | `apps/web/src/pages/CourseStudio.tsx` |
 | Run artifacts (content) | `curriculum/runs/<runId>/` (gitignored) |
+| Per-lesson materialization ledger | `curriculum/runs/<runId>/lessons/state.json` |
+| Per-lesson sim results + cohesion sweep | `curriculum/runs/<runId>/rehearsal/<lessonId>/result.json`, `rehearsal/summary.json` |
 | Published generated labs | `curriculum/published/<labId>/` (gitignored) |
 | Capability requests (commission outbox) | `curriculum/capability-requests/<gapId>/` (gitignored) |
 
@@ -94,18 +109,23 @@ Net guarantee: shut the app down mid-run, lose the DB entirely, restart — the
 run reappears in Course studio at its last point of progress. Covered by
 `packages/course-architect/test/mirror.test.ts`.
 
-### Authoring resumes mid-phase (2026-07-20)
+### Authoring and materializing resume mid-phase (2026-07-20 and later)
 
-`reviews/summary.json` is the **authoring ledger**: it's rewritten after every
-lesson (not just at phase end), so a re-entered authoring phase — Resume after
-an interrupt (e.g. the model endpoint died), or a changes-requested Package
-gate — **skips lessons that already passed** instead of re-authoring from
-lesson 1. Only needs-revision and unreached lessons are (re)attempted, seeded
-with the prior pass's blockers. Gate notes override: a note naming a
-`lessonId` re-opens that lesson; a note with no `lessonId` re-opens every
-lesson. A re-run of designing resets the ledger (a new inventory invalidates
-outcomes authored against the old one). Skipped lessons emit `lesson.skipped`.
-Covered by `packages/course-architect/test/resume-authoring.test.ts`.
+**Authoring ledger:** `reviews/summary.json` is rewritten after every lesson
+(not just at phase end), so a re-entered authoring phase — Resume after an
+interrupt (e.g. the model endpoint died), or a lesson-scoped bounce — **skips
+lessons that already passed** instead of re-authoring from lesson 1. Only
+needs-revision and unreached lessons are (re)attempted, seeded with the prior
+pass's blockers. Gate notes override: a note naming a `lessonId` re-opens that
+lesson; a note with no `lessonId` re-opens every lesson. A re-run of designing
+resets the ledger. Skipped lessons emit `lesson.skipped`. Covered by
+`packages/course-architect/test/resume-authoring.test.ts`.
+
+**Materializing ledger** (2026-07-23): `lessons/state.json` is the per-lesson
+materialization record, persisted through `run.json`. When a lesson-scoped
+approval arrives (via gate scope or bounce), only named lessons rebuild; other
+lessons' labs survive intact. The ledger drives `CourseRun.pendingLessonScope`
+and survives a restart.
 
 ## Agent chat (operator visibility, 2026-07-20)
 
@@ -212,9 +232,12 @@ create time — a live choice with no key/model/base-URL is rejected up front.
 | `COURSE_GEN_MAX_ATTEMPTS` | `3` | Attempts per model call before a phase interrupts (each retry re-sends with the validation errors). |
 | `COURSE_GEN_MAX_TOKENS` | `8192` | Max output tokens per call. |
 | `COURSE_GEN_TIMEOUT_MS` | `300000` | Per-request HTTP timeout (5 min — the transport's 30s default is far too short). |
-| `COURSE_GEN_PHASE_TIMEOUT_MS` | `3600000` | Per-phase wall-clock cap (60 min — a phase makes many slow calls). |
+| `COURSE_GEN_PHASE_TIMEOUT_MS` | `3600000` | Per-phase wall-clock cap (60 min — a phase makes many slow calls). Overridden per-phase. |
+| `COURSE_GEN_REHEARSAL_TIMEOUT_MS` | `21600000` | Per-phase cap for `rehearsing` (6 hours — one lesson's sim alone may take 45 minutes). |
 | `COURSE_GEN_THINKING` | on for Claude | Extended thinking. Set `0` to disable. |
 | `COURSE_GEN_THINKING_BUDGET` | `4096` | Thinking token budget (max_tokens auto-raised above it). |
+| `COURSE_GEN_FRICTION_BUDGET` | — | Sim/friction budget per lesson (rehearsal-phase §5 cost control). |
+| `COURSE_GEN_REHEARSAL_BOUNCES` | `2` | Default bounce cap: max times one lesson may be bounced before requiring human decision. Overridable per run via `request.rehearsalBounces`. |
 | `TRELLIS_RUNS_DIR` / `TRELLIS_PUBLISHED_DIR` / `TRELLIS_CAPABILITY_REQUESTS_DIR` | under `curriculum/` | Artifact / published-lab / outbox dirs (read lazily; tests point them at temp dirs). |
 | `TRELLIS_SKIP_AUTOSOLVE` | off | `1` skips the auto-solve proof (for environments without a shell). |
 
@@ -486,13 +509,13 @@ D1–D11 in the improvement-loop plan):
   an older version. Taking a version live swaps the family's Free-practice
   catalog entry.
 - **Revision runs**: "Commission revision" from a report starts a run through
-  the SAME 4-gate machine, lesson-scoped — G1 approves the revision goal, **G2
-  approves the improvement plan before authoring spends tokens**, G3 reviews the
-  revised lesson, materializing mints the proven `<family>-v<N>` (version number
-  resolved from the course row) and moves the pointer HIDDEN; per-lesson go-live
-  flips it. One active revision per family; the seeding report is stamped
-  `usedByRunId`. Deleting a revision run removes only its version and reverts
-  the pointer; deleting the course-owning run removes every version.
+  the SAME six-gate ladder, lesson-scoped — G1 approves the revision goal,
+  **G2 approves the improvement plan before authoring spends tokens**, G4
+  authors the revised lesson, G5 materializes and rehearses, G6 publishes the
+  proven `<family>-v<N>` (version number resolved from the course row) HIDDEN
+  for per-lesson go-live. One active revision per family; the seeding report is
+  stamped `usedByRunId`. Deleting a revision run removes only its version and
+  reverts the pointer; deleting the course-owning run removes every version.
 
 ## What's not built yet
 

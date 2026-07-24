@@ -236,6 +236,13 @@ function courseRunPayload(run: CourseRun): Record<string, unknown> {
     request: run.request,
     pendingPhase: run.pendingPhase,
     pendingChangeNotes: run.pendingChangeNotes ?? null,
+    // Both are load-bearing across a restart: a run interrupted mid-bounce
+    // resumes from these. Without them it would re-run the phase UNSCOPED —
+    // rebuilding and re-rehearsing the whole course instead of the one lesson
+    // that bounced — and then park at the package gate instead of continuing
+    // the chain (rehearsal-phase §5).
+    pendingLessonScope: run.pendingLessonScope ?? null,
+    pendingChain: run.pendingChain ?? null,
     lastError: run.lastError ?? null,
   };
 }
@@ -248,6 +255,8 @@ function rowToCourseRun(row: CourseRunRow): CourseRun {
     request: p.request ?? ({ technology: "" } as CourseRun["request"]),
     pendingPhase: p.pendingPhase ?? null,
     pendingChangeNotes: p.pendingChangeNotes ?? null,
+    pendingLessonScope: p.pendingLessonScope ?? null,
+    pendingChain: p.pendingChain ?? null,
     lastError: p.lastError ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

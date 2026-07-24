@@ -1,9 +1,30 @@
 # Rehearsal phase (materializing → publish)
 
-**Status:** PROPOSED 2026-07-23 · **Branch:** `feature/course-planning-rework`
+**Status:** IMPLEMENTED 2026-07-23 · **Branch:** `feature/course-planning-rework`
 · **Owner directive:** materializing should be per-lesson, and the simulated
 learner deserves its own phase — it is the first thing in the pipeline that
 needs a *playable* lab.
+
+> As built: the gate ladder is now six — frame → blueprint → reconcile →
+> **package** → **rehearse** → publish. Materializing is per-lesson and
+> idempotent, driven by `CourseRun.pendingLessonScope`; the per-lesson ledger
+> (`lessons/state.json`) is persisted through run.json and survives a restart.
+> `CourseRunGate.lessonId` was added in slice 0 then REMOVED in slice 5 — the
+> bounce cap counts `lesson.bounced` events instead, because the event log is
+> already the durable per-lesson record. `phaseTimeoutMs` became per-phase;
+> `rehearsing` gets 6 hours by default (COURSE_GEN_REHEARSAL_TIMEOUT_MS) because
+> one lesson's sim alone may take 45 minutes. Rehearsal bounce is part of a
+> chained cycle: a `changes` decision at rehearse or publish gates drives
+> authoring → materializing(scoped) → rehearsing(scoped) as one unit.
+>
+> New env: COURSE_GEN_FRICTION_BUDGET, COURSE_GEN_REHEARSAL_TIMEOUT_MS. New
+> run-request field: `rehearsalBounces` (default 2). New artifacts:
+> `lessons/state.json` (per-lesson ledger), `rehearsal/summary.json` +
+> `rehearsal/<lessonId>/result.json` (per-lesson sim results). Not covered by
+> tests: the Course Studio per-lesson rehearsal board (apps/web/test has no
+> component-test harness). Still failing and pre-existing: apps/api/test/autopilot.e2e.test.ts
+> and revision.e2e.test.ts stall at `awaiting-reconcile` because the auto-gate
+> arbiter refuses the reconcile gate by design.
 
 ## Problem
 
