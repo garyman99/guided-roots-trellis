@@ -107,6 +107,33 @@ export function validateCohesionReview(doc: unknown): CohesionReview {
   return validateVerdictDoc(doc, "cohesion-review");
 }
 
+/** An issue from the course-wide cohesion sweep (rehearsal-phase §6). Same
+ *  shape as `ReviewIssue`, plus an optional `lessonId` — the sweep runs over
+ *  the WHOLE finished course, so an issue may name which single lesson must
+ *  change, or (rarely) be a genuinely course-level problem with no one owner. */
+export interface CourseCohesionIssue extends ReviewIssue {
+  lessonId?: string;
+}
+export interface CourseCohesionReview {
+  verdict: Verdict;
+  issues?: CourseCohesionIssue[];
+}
+
+function normalizeCourseCohesionIssue(raw: unknown): CourseCohesionIssue | null {
+  const base = normalizeIssue(raw);
+  if (!base) return null;
+  if (!raw || typeof raw !== "object") return base;
+  const lessonId = String((raw as Record<string, unknown>).lessonId ?? "").trim();
+  return lessonId ? { ...base, lessonId } : base;
+}
+
+export function validateCourseCohesionReview(doc: unknown): CourseCohesionReview {
+  const d = (doc ?? {}) as Record<string, unknown>;
+  if (d.verdict !== "approved" && d.verdict !== "revise") throw new ValidationError([`course-cohesion-review.verdict must be "approved" or "revise"`]);
+  const issues = Array.isArray(d.issues) ? d.issues.map(normalizeCourseCohesionIssue).filter((i): i is CourseCohesionIssue => !!i) : undefined;
+  return { verdict: d.verdict, ...(issues ? { issues } : {}) };
+}
+
 /** Shared scored-rubric validator — the lesson and blueprint rubrics differ only
  *  in their category set. */
 function validateScoredReview<C extends string>(doc: unknown, categories: readonly C[], label: string): { scores: Record<C, number>; verdict: Verdict; justifications?: Partial<Record<C, string>> } {

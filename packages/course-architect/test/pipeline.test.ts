@@ -587,3 +587,47 @@ test("rehearsing: a wired simulator rehearses each materialized lesson and recor
 
   assert.ok(arts.exists("rehearsal/git-102/result.json"), "the failing lesson's per-lesson result is recorded");
 });
+
+test("rehearsing: a settled course (nothing bounced) gets a single course-wide cohesion sweep that can bounce a named lesson", async () => {
+  // rehearsal-phase §6: both git lessons rehearse clean, so the sweep runs.
+  // A custom responder returns a course-cohesion blocker naming git-102 —
+  // every OTHER task falls through to the default mock responder.
+  const rehearseLesson: LessonRehearser = async () => ({ ok: true });
+  const responder: MockResponder = (role, p) => {
+    if (p.task === "review:cohesion:course") {
+      return JSON.stringify({
+        verdict: "revise",
+        issues: [{ severity: "blocker", text: "git-102 restores config.txt, but no earlier lesson ever creates it.", lessonId: "git-102" }],
+      });
+    }
+    return defaultMockResponder(role, p);
+  };
+  const h = harness(responder, undefined, undefined, rehearseLesson);
+  const run = h.sched.create({ technology: "Git" });
+  await h.sched.settle();
+  for (const gate of ["frame", "blueprint", "reconcile", "package"] as const) {
+    h.sched.decideGate(run.runId, gate, "approved", null, "op");
+    await h.sched.settle();
+  }
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse");
+
+  h.sched.decideGate(run.runId, "rehearse", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-publish");
+
+  const arts = h.artifactsFor(run.runId);
+  assert.ok(arts.exists("reviews/course.cohesion.md"), "the sweep's verdict is written to the allowlisted course.cohesion.md path");
+
+  type LedgerEntry = { state: string; at: string; labId: string };
+  const ledger = JSON.parse(arts.read("lessons/state.json")!) as Record<string, LedgerEntry>;
+  assert.equal(ledger["git-102"].state, "bounced", "the blocker named git-102, so the sweep flips its ledger state to bounced");
+  assert.equal(ledger["git-101"].state, "rehearsed", "git-101 was not named by any blocker and stays rehearsed");
+
+  const summary = JSON.parse(arts.read("rehearsal/summary.json")!) as {
+    cohesion: { ran: boolean; verdict?: string; blockers: Array<{ lessonId?: string; text: string }> };
+  };
+  assert.equal(summary.cohesion.ran, true);
+  assert.equal(summary.cohesion.verdict, "revise");
+  assert.equal(summary.cohesion.blockers.length, 1);
+  assert.equal(summary.cohesion.blockers[0].lessonId, "git-102");
+});

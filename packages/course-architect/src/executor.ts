@@ -58,6 +58,7 @@ import {
   validatePedagogyReview,
   validateBlueprintPedagogyReview,
   validateCohesionReview,
+  validateCourseCohesionReview,
   REVISION_THRESHOLD,
   type ReviewOutcome,
   type BlueprintReviewOutcome,
@@ -315,6 +316,21 @@ function taskInstruction(task: string): string {
       'Judge: does the course tell a single coherent story from first lesson to last? Is terminology consistent across the inventory? Are there redundant lessons, or gaps where the narrative jumps? Does each lesson visibly earn its place, and does the spine match the inventory it claims to describe?',
       'severity "blocker" = a genuine break in the journey (a contradiction between spine and inventory, a lesson with no place in the arc). severity "minor" = wording and taste.',
       '"approved" with an empty issues list is a valid outcome.',
+    ].join("\n");
+  }
+  // Course-wide cohesion sweep (rehearsal-phase §6): the LAST review the
+  // course gets before publish, run once over every AUTHORED lesson (not the
+  // plan — CONTEXT.lessons carries the real, shipped markdown). Must be
+  // matched before the generic `review:` fallback below.
+  if (task === "review:cohesion:course") {
+    return [
+      'Review the FINISHED course as ONE authored journey. CONTEXT.lessons is the full shipped inventory, in sequence order, each with its concepts and an EXCERPT of its authored markdown (long lessons are truncated — judge from what you can see, and treat an excerpt cutoff as inconclusive, not as evidence of a defect).',
+      'Return a JSON object with EXACTLY these keys:',
+      '{ "verdict": "approved" | "revise", "issues": [ { "severity": "blocker" | "minor", "text": string, "lessonId"?: string } ] }',
+      'Judge across the whole set, not any single lesson in isolation: does a later lesson contradict an earlier one? Is a term defined one way early on and used differently later? Does a lesson rely on a file, variable, or piece of state that an earlier lesson never actually creates? Has a lesson visibly drifted from the course arc — its concepts, title, or observable action no longer matching where it now sits in the sequence, likely after being re-authored on its own?',
+      'Set "lessonId" on every issue you can attribute to a single lesson — that is what lets the fix land on the right lesson. Omit it only for a genuinely course-level problem that is not any one lesson\'s fault (e.g. the arc as a whole has a gap no single lesson could close).',
+      'severity "blocker" = something that would actually stall a learner working through the course in order — a contradiction they would hit, a reference to something that was never created, a term whose meaning shifted under them. severity "minor" = wording and taste that costs nothing to ship with.',
+      'Do NOT inflate severity to force a re-author, and do NOT invent an issue because the list looks short — "approved" with an empty issues list is a valid, expected outcome for a settled course.',
     ].join("\n");
   }
   if (task.startsWith("review:pedagogy:")) {
@@ -1468,7 +1484,69 @@ async function runRehearsing(ctx: PhaseContext, deps: RunDeps, arts: RunArtifact
 
   // Ledgers, not documents: rewritten every pass, no `.vN` archive copies.
   arts.write("lessons/state.json", JSON.stringify(ledger, null, 2), { archive: false });
-  arts.write("rehearsal/summary.json", JSON.stringify({ lessons: results, rehearsed, bounced, simulatorWired: true }, null, 2), { archive: false });
+
+  // The course-wide cohesion sweep (rehearsal-phase §6): checked ONCE, here,
+  // rather than re-reviewed after every bounce — cheaper than the per-bounce
+  // alternative, at the accepted cost that a sweep-found blocker can reopen
+  // authoring after the run looked done. It is only meaningful over a SETTLED
+  // course, so any lesson still sitting "bounced" (this pass or an earlier
+  // one) defers the sweep entirely rather than judging a course mid-flux.
+  const cohesion: { ran: boolean; verdict?: string; blockers: Array<{ lessonId?: string; text: string }> } = { ran: false, blockers: [] };
+  const bouncedLessons = Object.entries(ledger).filter(([, e]) => e.state === "bounced").map(([id]) => id);
+  if (bouncedLessons.length) {
+    ctx.emit("cohesion.deferred", { bouncedLessons });
+  } else {
+    const targetPlatform = ctx.run.request.targetPlatform ?? DEFAULT_TARGET_PLATFORM;
+    const environmentImage = ctx.run.request.environmentImage;
+    // Every lesson still standing in the ledger (none bounced, by the check
+    // above) is the finished course, in sequence order.
+    const shipped = bySeq.filter((l) => ledger[l.lessonId]);
+    const lessons = shipped.map((l) => {
+      const markdown = arts.read(`lessons/${l.lessonId}/lesson.md`) ?? "";
+      // Capped at 1500 chars per lesson: this call carries EVERY shipped
+      // lesson at once (unlike the per-lesson reviews above), and a
+      // ~19-lesson course at full lesson length would blow the context
+      // window. An excerpt is enough to catch cross-lesson contradictions,
+      // redefined terms, and drift — the sweep is judging the SET, not
+      // grading any one lesson's prose in full.
+      const excerpt = markdown.length > 1500 ? `${markdown.slice(0, 1500)}…` : markdown;
+      return {
+        lessonId: l.lessonId,
+        sequence: l.sequence,
+        title: l.title,
+        conceptsIntroduced: l.conceptsIntroduced,
+        conceptsReinforced: l.conceptsReinforced,
+        observableAction: l.observableAction,
+        excerpt,
+      };
+    });
+
+    const review = await invokeValidated(
+      deps,
+      ctx,
+      "cohesion-editor",
+      prompt("review:cohesion:course", { targetPlatform, environmentImage, lessons }),
+      validateCourseCohesionReview,
+    );
+    arts.write("reviews/course.cohesion.md", renderVerdictMd("Course — cohesion sweep", review.verdict, review.issues));
+
+    const blockers = (review.issues ?? []).filter((i) => i.severity === "blocker");
+    const newlyBounced: string[] = [];
+    for (const issue of blockers) {
+      if (issue.lessonId && ledger[issue.lessonId]) {
+        ledger[issue.lessonId] = { ...ledger[issue.lessonId], state: "bounced", at: new Date().toISOString() };
+        newlyBounced.push(issue.lessonId);
+      }
+    }
+    if (newlyBounced.length) arts.write("lessons/state.json", JSON.stringify(ledger, null, 2), { archive: false });
+    ctx.emit("cohesion.swept", { blockers: blockers.length, bouncedLessons: newlyBounced });
+
+    cohesion.ran = true;
+    cohesion.verdict = review.verdict;
+    cohesion.blockers = blockers.map((i) => (i.lessonId ? { lessonId: i.lessonId, text: i.text } : { text: i.text }));
+  }
+
+  arts.write("rehearsal/summary.json", JSON.stringify({ lessons: results, rehearsed, bounced, simulatorWired: true, cohesion }, null, 2), { archive: false });
 }
 
 /**
