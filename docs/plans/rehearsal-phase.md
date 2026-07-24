@@ -218,6 +218,11 @@ exhaustion the lesson parks for a human.
 
 ### 6 · Scope at G3 · G4 · arbiter (sonnet)
 
+**Owed from slice 2:** the scoped branch of the server-side materializer has no
+test — nothing could set a scope when it was written. Slice 6 must add one:
+materialize a 2-lesson course, re-materialize scoped to ONE lesson, and assert
+the other lesson's lab and its `published` flag both survive.
+
 Gate decisions accept a scope. `GATE_ARTIFACTS` gains `rehearse`
 (`rehearsal/<lessonId>/result.json`). Decide whether `rehearse` is
 arbiter-decided per lesson or, like `reconcile`, never auto-decided — default to

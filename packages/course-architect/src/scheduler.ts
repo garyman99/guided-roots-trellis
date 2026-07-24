@@ -37,8 +37,14 @@ export interface SchedulerOptions {
   now?: () => string;
   /** Deterministic id suffix for tests. */
   idSuffix?: () => string;
-  /** Wall-clock cap per phase execution (ms). Exceeding it interrupts the run. */
-  phaseTimeoutMs?: number;
+  /**
+   * Wall-clock cap per phase execution (ms). Exceeding it interrupts the run.
+   * A single number caps every phase; a record caps them individually, falling
+   * back to `default`. Phases are not comparable: `rehearsing` drives a real
+   * browser per lesson (tens of minutes each), so one cap that suits the model
+   * phases would guarantee it is killed mid-course.
+   */
+  phaseTimeoutMs?: number | ({ default: number } & Partial<Record<Phase, number>>);
 }
 
 export class CourseRunScheduler {
@@ -46,7 +52,7 @@ export class CourseRunScheduler {
   private readonly executor: PhaseExecutor;
   private readonly now: () => string;
   private readonly idSuffix: () => string;
-  private readonly phaseTimeoutMs: number;
+  private readonly phaseTimeouts: { default: number } & Partial<Record<Phase, number>>;
 
   /** In-flight execution, tracked so tests can await settle() and pump() serializes. */
   private running: Promise<void> | null = null;
@@ -56,7 +62,10 @@ export class CourseRunScheduler {
     this.executor = executor;
     this.now = opts.now ?? (() => new Date().toISOString());
     this.idSuffix = opts.idSuffix ?? (() => randomBytes(3).toString("hex"));
-    this.phaseTimeoutMs = opts.phaseTimeoutMs ?? 10 * 60 * 1000;
+    this.phaseTimeouts =
+      typeof opts.phaseTimeoutMs === "number"
+        ? { default: opts.phaseTimeoutMs }
+        : (opts.phaseTimeoutMs ?? { default: 10 * 60 * 1000 });
     this.recoverInterrupted();
     this.pump();
   }
@@ -232,9 +241,10 @@ export class CourseRunScheduler {
   }
 
   private async withTimeout(work: Promise<void>, phase: Phase): Promise<void> {
+    const cap = this.phaseTimeouts[phase] ?? this.phaseTimeouts.default;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const guard = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`phase "${phase}" exceeded ${this.phaseTimeoutMs}ms`)), this.phaseTimeoutMs);
+      timer = setTimeout(() => reject(new Error(`phase "${phase}" exceeded ${cap}ms`)), cap);
       // Don't let the cap timer alone keep the process alive (a hung executor
       // from a crashed prior run shouldn't pin the event loop for 10 minutes).
       timer.unref?.();

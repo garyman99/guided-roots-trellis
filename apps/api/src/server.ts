@@ -123,6 +123,7 @@ import {
   type LiveActivity,
   type Materializer,
   type LessonProver,
+  type LessonRehearser,
   type RoleInvoker,
   type RunProviderConfig,
 } from "../../../packages/course-architect/src/index.ts";
@@ -760,6 +761,55 @@ const simRunner: SimTestRunner = (job) =>
 
 const simTests = new SimTestManager({ runner: simRunner, onResult: persistSimResult });
 
+/**
+ * The `rehearsing` phase's simulator dep (rehearsal-phase §4): plays ONE
+ * materialized lesson with the run's persona and classifies the trace with
+ * `simVerdict`. Modeled on the POST sim-test endpoint's job assembly, but
+ * calls `simRunner` directly — the phase already runs inside the scheduler's
+ * single-active-run slot, so `SimTestManager`'s queue buys nothing here.
+ */
+const rehearseLessonDuringRun: LessonRehearser = async ({ run, lessonId, labId, title, concepts }) => {
+  const arts = runArtifactsFor(run.runId);
+  let persona = run.request.persona;
+  const course = run.request.revision
+    ? store.getCourse(run.request.revision.courseId)
+    : store.listCourses().find((c) => c.sourceRunId === run.runId);
+  if (!persona && course?.persona) persona = course.persona as unknown as EmbeddedPersona;
+  if (!persona) return { ok: false, detail: `lesson "${lessonId}" has no persona to rehearse with (run predates personas)` };
+  if (!arts.read("persona.json")) arts.write("persona.json", JSON.stringify(persona, null, 2));
+  const personaPath = join(runsDir(), run.runId, "persona.json");
+
+  const webUrl = process.env.TRELLIS_WEB_URL ?? "http://localhost:5173";
+  const apiUrl = process.env.TRELLIS_API_URL ?? "http://127.0.0.1:8787";
+  const scen = store.listScenarioEntries().find((s) => s.labId === labId);
+  const job: SimTestJob = {
+    runId: run.runId,
+    labId,
+    title: scen?.title ?? title,
+    ...(scen?.blurb ? { blurb: scen.blurb } : {}),
+    concepts,
+    personaPath,
+    webUrl,
+    apiUrl,
+  };
+
+  const result = await simRunner(job);
+  const budgetEnv = process.env.COURSE_GEN_FRICTION_BUDGET;
+  const frictionBudget = budgetEnv !== undefined && budgetEnv.trim() !== "" ? Number(budgetEnv) : undefined;
+  const verdict = simVerdict(result, frictionBudget !== undefined ? { frictionBudget } : {});
+
+  // Copy the trace beside the result, the way persistSimResult does for the
+  // post-publish queue — but under rehearsal/, not sim-tests/.
+  if (result.bundleDir) {
+    try {
+      const trace = readFileSync(join(result.bundleDir, "simulator-trace.md"), "utf8");
+      arts.write(`rehearsal/${lessonId}/simulator-trace.md`, trace);
+    } catch { /* trace missing (early failure) */ }
+  }
+
+  return { ok: verdict.ok, ...(verdict.detail ? { detail: verdict.detail } : {}), ...(verdict.blockers ? { blockers: verdict.blockers } : {}), result };
+};
+
 /** Job states for a run: durable disk results overlaid by live in-memory state. */
 function simTestStatus(runId: string): Array<{ labId: string; state: string; result?: SimLessonResult }> {
   const out = new Map<string, { labId: string; state: string; result?: SimLessonResult }>();
@@ -1077,6 +1127,7 @@ export const courseRuns = new CourseRunScheduler(
     availableCapabilities: capabilityIdSet(),
     materialize,
     proveLesson, // shift-left: prove each lesson's lab during authoring (plan L8)
+    rehearseLesson: rehearseLessonDuringRun, // per-lesson sim playthrough (rehearsal-phase §4)
     onActivity: (runId, activity) => {
       if (activity) liveActivity.set(runId, activity);
       else liveActivity.delete(runId);
@@ -1089,7 +1140,14 @@ export const courseRuns = new CourseRunScheduler(
   {
     // A phase may make many slow model calls (authoring a course of lessons);
     // the wall-clock cap must be generous. Default 60 min, env-tunable.
-    phaseTimeoutMs: Number(process.env.COURSE_GEN_PHASE_TIMEOUT_MS ?? 60 * 60 * 1000),
+    phaseTimeoutMs: {
+      default: Number(process.env.COURSE_GEN_PHASE_TIMEOUT_MS ?? 60 * 60 * 1000),
+      // `rehearsing` is not comparable: it drives a REAL browser once per
+      // lesson, and a single lesson's sim is itself allowed 45 min
+      // (SIM_TEST_TIMEOUT_MS). A whole course under the default cap would be
+      // killed part-way through every time. 6 h, env-tunable.
+      rehearsing: Number(process.env.COURSE_GEN_REHEARSAL_TIMEOUT_MS ?? 6 * 60 * 60 * 1000),
+    },
   },
 );
 
@@ -2402,8 +2460,13 @@ export const server = createServer(async (req, res) => {
               }
               // POST — enqueue the persona through the materialized lessons.
               if (req.method === "POST" && parts.length === 5) {
-                if (run.status !== "approved") {
-                  return json(res, 409, { error: "run the simulated learner after the publish gate is approved" });
+                // rehearsal-phase §4: the operator-facing sim used to be hard-gated
+                // to after the publish gate, where its verdict could no longer
+                // inform anything. It now only needs a materialized run — any
+                // lesson it could play already has a built, playable lab.
+                const arts = runArtifactsFor(runId);
+                if (!arts.exists("manifest.json")) {
+                  return json(res, 409, { error: "run the simulated learner once this run has materialized (no manifest.json yet)" });
                 }
                 if (simTests.busy(runId)) {
                   return json(res, 409, { error: "a simulated-learner test is already running for this run" });
@@ -2430,7 +2493,6 @@ export const server = createServer(async (req, res) => {
                   persona = { personaId: p.personaId, version: p.version, profile: p };
                   if (course) store.saveCourse({ ...course, persona, updatedAt: new Date().toISOString() });
                 }
-                const arts = runArtifactsFor(runId);
                 if (!arts.read("persona.json")) arts.write("persona.json", JSON.stringify(persona, null, 2));
                 const personaPath = join(runsDir(), runId, "persona.json");
 

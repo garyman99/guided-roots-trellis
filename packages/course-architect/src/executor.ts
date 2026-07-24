@@ -100,6 +100,18 @@ export type LessonProver = (input: {
   lab: LessonPlanDoc["lab"];
 }) => Promise<{ ok: boolean; detail?: string }>;
 
+/** Plays ONE materialized lesson with the target persona and classifies the
+ *  trace. Injected so the executor stays free of Playwright + the app.
+ *  Optional — when absent (unit harnesses) the phase records that nothing was
+ *  wired and parks, so the ladder still walks. */
+export type LessonRehearser = (input: {
+  run: CourseRun;
+  lessonId: string;
+  labId: string;
+  title: string;
+  /** Concepts EARLIER lessons introduced — the persona's cumulative memory. */
+  concepts: string[];
+}) => Promise<{ ok: boolean; detail?: string; blockers?: string[]; result?: unknown }>;
 
 export interface ExecutorDeps {
   /** Resolve the model provider for a run — selected per-run (mock/live). */
@@ -116,6 +128,14 @@ export interface ExecutorDeps {
    * skipped and authoring behaves as before.
    */
   proveLesson?: LessonProver;
+  /**
+   * The `rehearsing` phase's simulator (rehearsal-phase §4): plays each
+   * materialized lesson with the run's persona in a real browser and
+   * classifies the trace. Optional — when absent, `runRehearsing` writes an
+   * inert roll-up (`simulatorWired: false`) and parks at the publish gate, so
+   * unit harnesses with no browser still walk the whole ladder.
+   */
+  rehearseLesson?: LessonRehearser;
   /** Real-time view: the current model call's streaming thinking/text (or null
    *  to clear). Held in memory by the host and polled by the UI. */
   onActivity?: (runId: string, activity: LiveActivity | null) => void;
@@ -1375,16 +1395,80 @@ async function runMaterializing(ctx: PhaseContext, deps: RunDeps, arts: RunArtif
 
 /**
  * The `rehearsing` phase (rehearsal-phase §4): the target persona plays each
- * MATERIALIZED lesson and the trace is classified into a friction verdict.
+ * MATERIALIZED lesson (persona → simulated learner → trace classifier) and
+ * the phase records a per-lesson verdict. It does NOT decide anything —
+ * routing a bounced lesson back to authoring is slice 5's job; this phase
+ * only records verdicts and parks at the publish gate.
  *
- * SLICE 0 — inert. The ladder now has the phase and its `publish` gate, but no
- * simulator is wired to it yet, so it records that it ran and parks. Slice 3
- * replaces this body with the real per-lesson rehearsal; slice 4 appends the
- * course-wide cohesion sweep.
+ * Without a wired simulator (unit harnesses), it keeps the slice-0 inert
+ * behaviour so every existing test still walks the whole ladder. Slice 4
+ * appends the course-wide cohesion sweep.
  */
-async function runRehearsing(ctx: PhaseContext, _deps: RunDeps, arts: RunArtifacts): Promise<void> {
-  arts.write("rehearsal/summary.json", JSON.stringify({ lessons: [], simulatorWired: false }, null, 2));
-  ctx.emit("rehearsal.skipped", { reason: "no simulator wired yet (rehearsal-phase slice 0)" });
+async function runRehearsing(ctx: PhaseContext, deps: RunDeps, arts: RunArtifacts): Promise<void> {
+  if (!deps.rehearseLesson) {
+    arts.write("rehearsal/summary.json", JSON.stringify({ lessons: [], simulatorWired: false }, null, 2), { archive: false });
+    ctx.emit("rehearsal.skipped", { reason: "no simulator wired yet (rehearsal-phase slice 0)" });
+    return;
+  }
+
+  const inventory = parseJson<LessonInventoryEntry[]>(arts.read("lesson-inventory.json") ?? "[]");
+  const ledger = parseJson<Record<string, LessonLedgerEntry>>(arts.read("lessons/state.json") ?? "{}");
+  // Cumulative memory (same rule as apps/api/src/server.ts's sim-test job
+  // assembly): a lesson's concepts are the de-duplicated conceptsIntroduced of
+  // every lesson BEFORE it, in inventory sequence order.
+  const bySeq = [...inventory].sort((a, b) => a.sequence - b.sequence);
+
+  // The lessons to rehearse: a gate decision may have scoped this pass to
+  // specific lessons; absent ⇒ every ledger entry sitting at "materialized".
+  const scope = ctx.run.pendingLessonScope;
+  const wanted = new Set(
+    scope && scope.length ? scope : Object.entries(ledger).filter(([, e]) => e.state === "materialized").map(([id]) => id),
+  );
+  const ordered = bySeq.map((l) => l.lessonId).filter((id) => wanted.has(id));
+
+  const results: Array<{ lessonId: string; labId: string; ok: boolean; detail?: string }> = [];
+  let rehearsed = 0;
+  let bounced = 0;
+
+  for (const lessonId of ordered) {
+    const idx = bySeq.findIndex((l) => l.lessonId === lessonId);
+    const concepts = idx > 0 ? [...new Set(bySeq.slice(0, idx).flatMap((l) => l.conceptsIntroduced ?? []))] : [];
+    const entry = ledger[lessonId];
+    // No ledger entry ⇒ this lesson was never materialized, so there is no
+    // playable lab to rehearse. Say so rather than sending the persona at a
+    // lab that doesn't exist and recording the resulting failure as a verdict.
+    if (!entry) {
+      ctx.emit("lesson.rehearse-skipped", { lessonId, reason: "not materialized" });
+      continue;
+    }
+    const labId = entry.labId;
+    const title = bySeq[idx]?.title ?? lessonId;
+
+    // A rehearsal that throws (wedged browser, crashed child process) must not
+    // take the whole phase down — the other lessons' results still matter.
+    let verdict: { ok: boolean; detail?: string; blockers?: string[]; result?: unknown };
+    try {
+      verdict = await deps.rehearseLesson({ run: ctx.run, lessonId, labId, title, concepts });
+    } catch (err) {
+      verdict = { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+
+    arts.write(`rehearsal/${lessonId}/result.json`, JSON.stringify(verdict, null, 2));
+    ctx.emit("lesson.rehearsed", { lessonId, ok: verdict.ok, ...(verdict.detail ? { detail: verdict.detail } : {}) });
+
+    ledger[lessonId] = { ...entry, state: verdict.ok ? "rehearsed" : "bounced", at: new Date().toISOString() };
+    results.push({ lessonId, labId, ok: verdict.ok, ...(verdict.detail ? { detail: verdict.detail } : {}) });
+    if (verdict.ok) rehearsed++;
+    else bounced++;
+    // Flush after EVERY lesson, not once at the end: a rehearsal costs minutes
+    // of real browser time per lesson, so a phase that hits its wall-clock cap
+    // part-way through must keep the verdicts it already paid for.
+    arts.write("lessons/state.json", JSON.stringify(ledger, null, 2), { archive: false });
+  }
+
+  // Ledgers, not documents: rewritten every pass, no `.vN` archive copies.
+  arts.write("lessons/state.json", JSON.stringify(ledger, null, 2), { archive: false });
+  arts.write("rehearsal/summary.json", JSON.stringify({ lessons: results, rehearsed, bounced, simulatorWired: true }, null, 2), { archive: false });
 }
 
 /**

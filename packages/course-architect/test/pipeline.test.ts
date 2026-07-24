@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { createStore, type EventStore } from "../../../apps/api/src/store.ts";
 import { CourseRunScheduler } from "../src/scheduler.ts";
 import { RunArtifacts } from "../src/artifacts.ts";
-import { createExecutor, type MaterializeResult, type MaterializeInput } from "../src/executor.ts";
+import { createExecutor, type MaterializeResult, type MaterializeInput, type LessonRehearser } from "../src/executor.ts";
 import { MockRoleInvoker, type MockResponder } from "../src/roles.ts";
 import { defaultMockResponder } from "../src/mockCourse.ts";
 import { computeCapabilityGaps, lessonsBlockedByGaps, applyDispositions, commissionedGaps, allGapsDispositioned } from "../src/gaps.ts";
@@ -26,6 +26,7 @@ function harness(
   responder: MockResponder = defaultMockResponder,
   proveLesson?: (input: { lessonId: string }) => Promise<{ ok: boolean; detail?: string }>,
   commissioned?: Array<{ capability: string; why: string; lessonId: string }>,
+  rehearseLesson?: LessonRehearser,
 ) {
   let tick = 0;
   const now = () => new Date(1_700_000_000_000 + tick++ * 1000).toISOString();
@@ -52,6 +53,7 @@ function harness(
     },
     ...(proveLesson ? { proveLesson: (i: { lessonId: string }) => proveLesson(i) } : {}),
     ...(commissioned ? { onCapabilityGapsFound: (_runId: string, gaps: Array<{ capability: string; why: string; lessonId: string }>) => commissioned.push(...gaps) } : {}),
+    ...(rehearseLesson ? { rehearseLesson } : {}),
   });
   const sched = new CourseRunScheduler(store, executor, { now, idSuffix });
   return { sched, store, artifactsFor, materialized, materializeCalls };
@@ -542,4 +544,46 @@ test("materializing is scoped and idempotent: a scoped rebuild is additive, not 
   assert.deepEqual(Object.keys(secondLedger).sort(), ["git-101", "git-102"]);
   assert.deepEqual(secondLedger["git-102"], priorGit102, "the unscoped lesson's ledger entry is untouched by the scoped rebuild");
   assert.equal(secondLedger["git-101"].state, "materialized");
+});
+
+test("rehearsing: a wired simulator rehearses each materialized lesson and records a per-lesson verdict", async () => {
+  // rehearsal-phase §4: git-102 bounces (the fake sim reports it failed), git-101
+  // passes. The phase must not decide anything — it just records verdicts.
+  const rehearseLesson: LessonRehearser = async ({ lessonId }) =>
+    lessonId === "git-102" ? { ok: false, detail: "the persona got stuck on the checkpoint" } : { ok: true };
+  const h = harness(defaultMockResponder, undefined, undefined, rehearseLesson);
+  const run = h.sched.create({ technology: "Git" });
+  await h.sched.settle();
+  for (const gate of ["frame", "blueprint", "reconcile", "package"] as const) {
+    h.sched.decideGate(run.runId, gate, "approved", null, "op");
+    await h.sched.settle();
+  }
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-rehearse", "package approval ran materializing unscoped");
+
+  h.sched.decideGate(run.runId, "rehearse", "approved", null, "op");
+  await h.sched.settle();
+  assert.equal(h.store.getCourseRun(run.runId)!.status, "awaiting-publish", "rehearsing recorded verdicts and parked at publish");
+
+  const arts = h.artifactsFor(run.runId);
+  const summary = JSON.parse(arts.read("rehearsal/summary.json")!) as {
+    lessons: Array<{ lessonId: string; labId: string; ok: boolean; detail?: string }>;
+    rehearsed: number;
+    bounced: number;
+    simulatorWired: boolean;
+  };
+  assert.equal(summary.simulatorWired, true);
+  assert.equal(summary.rehearsed, 1);
+  assert.equal(summary.bounced, 1);
+  const g101 = summary.lessons.find((l) => l.lessonId === "git-101")!;
+  const g102 = summary.lessons.find((l) => l.lessonId === "git-102")!;
+  assert.equal(g101.ok, true);
+  assert.equal(g102.ok, false);
+  assert.equal(g102.detail, "the persona got stuck on the checkpoint");
+
+  type LedgerEntry = { state: string; at: string; labId: string };
+  const ledger = JSON.parse(arts.read("lessons/state.json")!) as Record<string, LedgerEntry>;
+  assert.equal(ledger["git-101"].state, "rehearsed");
+  assert.equal(ledger["git-102"].state, "bounced");
+
+  assert.ok(arts.exists("rehearsal/git-102/result.json"), "the failing lesson's per-lesson result is recorded");
 });
